@@ -548,7 +548,10 @@ async function renderCameraControls(camera, remote) {
   box.replaceChildren();
   const ptz = el('div', 'cam-ptz');
   ptz.append(el('p', 'eyebrow', '云台'));
-  if (!remote) {
+  const supportsPtz = !String(camera.model || '').includes('039a01');
+  if (!supportsPtz) {
+    ptz.append(el('p', 'muted', '该机型不支持云台'));
+  } else if (!remote) {
     ptz.append(el('p', 'muted', '打开远程画面后可控制'));
   } else {
     const pad = el('div', 'ptz-pad');
@@ -579,7 +582,6 @@ async function renderCameraControls(camera, remote) {
     };
     add('up', '↑', 'ptz-up');
     add('left', '←', 'ptz-left');
-    add('stop', '停', 'ptz-home');
     add('right', '→', 'ptz-right');
     add('down', '↓', 'ptz-down');
     ptz.append(pad);
@@ -642,7 +644,7 @@ async function renderCameraControls(camera, remote) {
   if (!settings.children.length) {
     settings.append(el('p', 'cam-control-note', '这台摄像头没有返回可用的控制项。'));
   } else {
-    settings.append(el('p', 'cam-control-note', remote ? '云台每次按一下转一步，按住连续转；039a01 没有可见位移，其他设置在云端生效。' : '云台需要先打开远程画面。'));
+    settings.append(el('p', 'cam-control-note', !supportsPtz ? '该机型不支持云台，其他设置在云端生效。' : remote ? '云台每次按一下转一步，按住连续转。' : '云台需要先打开远程画面。'));
   }
 }
 
