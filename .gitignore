@@ -6,3 +6,7 @@ DerivedData/
 *.log
 benchmarks/bench_swift
 benchmarks/rust/target/
+
+target/
+helpers/go2rtc/go2rtc
+dist/

@@ -15,11 +15,11 @@
 | 能不能做 | 能做。扫码登录、家庭与房间、设备列表、属性读写、场景执行都有可用接口；二维码登录端点已实测可达并返回有效二维码 |
 | 能不能直接复用代码 | 不能。`mijia-api` 与 `MiHome-Windows` 都是 GPL-3.0；`ha_xiaomi_home` 只允许在 Home Assistant 内非商业使用。闭源分发需要按协议重写，开源分发可以移植 |
 | 性能是不是问题 | 不是主要问题。120 台设备、1.7 MB 协议数据的本机微基准里，Swift 解码 23.77 ms、常驻内存 14.9 MB；真实瓶颈在设备适配、轮询频率和局域网 Token，不在语言 |
-| 推荐技术栈 | SwiftUI + Swift 协议层 + GRDB/SQLite + Network.framework。协议层单独封装，后续需要跨平台时再换 Rust 内核 |
-| 摄像头能不能看 | 能，但要单独做取流模块。两个仓库都不含摄像头视频；可用 MIT 许可的 go2rtc 作为本机取流助手，支持部分 CS2/TUTK 机型，必须与摄像头在同一局域网，首次连接需联网取密钥 |
+| 推荐技术栈 | Rust core + Tauri 2 壳，复用现有前端；Rust core 不依赖 Tauri，后续可换 SwiftUI 壳。对照方案与内存测量见 [底座选择](docs/05-rust-base.md) |
+| 摄像头能不能看 | 能，但要单独做取流模块。两个仓库都不含摄像头视频；局域网用 MIT 许可的 go2rtc，远程 CS2 relay 已由 Rust 实现并在 App 内出真实 HEVC 画面；micam 只用于早期验证，不随包发布 |
 | 最大风险 | 非官方接口会变；不同型号的可写属性差异大；云端没有设备状态推送，只能轮询；局域网控制需要额外拿设备 Token 和 localip；摄像头型号覆盖与 P2P 兼容性需要逐台验证 |
 
-完整论证见 [仓库与协议分析](docs/01-repo-analysis.md)，产品与架构见 [产品设计](docs/02-product-design.md)，选型与实施见 [技术栈](docs/03-tech-stack.md)，摄像头取流见 [摄像头设计](docs/04-camera-design.md)。
+完整论证见 [仓库与协议分析](docs/01-repo-analysis.md)，产品与架构见 [产品设计](docs/02-product-design.md)，早期选型与实施见 [技术栈](docs/03-tech-stack.md)，摄像头取流见 [摄像头设计](docs/04-camera-design.md)，Rust 底座决策见 [底座选择](docs/05-rust-base.md)。
 
 ## 原型
 
@@ -74,6 +74,21 @@ python3 -m http.server 8899
 | 现成 Windows 客户端的轮询 | 3 秒一次 | `_POLL_INTERVAL_MS = 3_000` |
 | 本机访问 `api.mijia.tech` 的 TTFB | 119–209 ms | 三次 curl，未带登录态，返回 403 |
 
+## 桌面端 M1/M2/M3
+
+M1/M2/M3 的 Tauri 2 壳在 [`desktop/`](desktop/)，加载 [`desktop/ui/`](desktop/ui/)；[`core/`](core/) 是 Rust 协议层，已接扫码登录、家庭列表、设备列表、属性读写、go2rtc 摄像头取流和手动场景执行。运行：
+
+```bash
+cd desktop/src-tauri
+cargo run
+```
+
+启动后应用会自动申请二维码，用米家 App 扫码。M1 已用真实账号验证：家庭、15 台设备、房间归属、开关读写都正常。设备页是卡片网格，显示设备名、房间和在线状态，图标按设备类型区分。
+
+摄像头页支持本地与远程两种通道。本地走 go2rtc，只在 Mac 与摄像头同网时可用；远程走 Rust 的 CS2 relay + MISS 实现，已在 Mac 与摄像头不同网段的情况下拉出真实 HEVC 画面，并在页面内加入 14 项画面控制、两路远程宫格；云台方向盘已接实验命令，但真实位移还没确认。两路同时播放时物理内存约 104MB，构建产物不依赖 Java；ffmpeg 仍是外部依赖。
+
+手动场景在“场景”页读取和执行；定时自动化在“自动化”页保存，应用每 30 秒检查一次；DMG 已生成在 `dist/MiHome-Mac-0.1.0-aarch64.dmg`（ad-hoc，未公证）；菜单栏尚未完成。底座选择、内存测量和性能门禁写在 [`docs/05-rust-base.md`](docs/05-rust-base.md)。
+
 ## 目录
 
 ```
@@ -84,7 +99,11 @@ MiJia/
 │   ├── 02-product-design.md     产品结构、交互、视觉、架构与性能预算
 │   ├── 03-tech-stack.md         候选方案、基准、推荐栈与六周实施计划
 │   ├── 04-camera-design.md      摄像头取流、页面、状态与支持边界
+│   ├── 05-rust-base.md          Rust/Tauri 底座、内存测量与性能门禁
+│   ├── 06-camera-product-channel.md 摄像头产品通道与 CS2/MISS 移植设计
 │   └── assets/                  原型截图
+├── core/                        Rust 协议层：认证、签名、家庭、设备、属性
+├── desktop/                     Tauri 2 壳与 M1 实机界面
 ├── prototype/
 │   ├── index.html
 │   ├── app.css

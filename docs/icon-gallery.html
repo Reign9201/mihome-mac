@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiHome Mac · 设备图标</title>
+<style>
+:root{--paper:#f3efe5;--surface:#fbf8f1;--ink:#1a1c1d;--ink2:#4e514f;--ink3:#8b8d87;--line:#ddd7c9;--accent:#c34d2b;--accent2:#f1dfd4;--display:"Iowan Old Style","Songti SC",serif;--sans:-apple-system,"PingFang SC",sans-serif;--mono:"SF Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:48px 36px 72px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;border-bottom:1px solid var(--line);padding-bottom:24px}
+.eyebrow{font:10px var(--mono);letter-spacing:.16em;color:var(--ink3);margin:0 0 10px}
+h1{font-family:var(--display);font-weight:500;font-size:46px;letter-spacing:-.035em;margin:0}
+.lede{margin:10px 0 0;color:var(--ink2);font-size:12px;line-height:1.6;max-width:560px}
+.count{text-align:right;white-space:nowrap}.count b{font-family:var(--display);font-size:42px;font-weight:500;letter-spacing:-.04em}.count span{display:block;font-size:10px;color:var(--ink3);margin-top:2px}
+.tools{display:flex;align-items:center;gap:10px;margin:26px 0 6px;flex-wrap:wrap}
+.search{flex:1;min-width:220px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:10px 12px;font:12px var(--sans);color:var(--ink);outline:none}.search:focus{border-color:var(--ink3)}
+.chip{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink2);padding:6px 10px;font:11px var(--sans);cursor:pointer}.chip.active{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.group{margin-top:34px}.group-head{display:flex;align-items:baseline;gap:10px;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:14px}.group-head h2{font:600 13px var(--sans);margin:0;letter-spacing:-.01em}.group-head span{font:10px var(--mono);color:var(--ink3)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(154px,1fr));gap:10px}
+.card{display:flex;flex-direction:column;align-items:flex-start;gap:14px;min-height:132px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:14px;transition:border-color .16s,transform .16s,box-shadow .16s}.card:hover{border-color:var(--ink3);transform:translateY(-1px);box-shadow:0 6px 18px #3b33260d}
+.glyph{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:var(--accent2);color:var(--accent)}.glyph svg{width:26px;height:26px;display:block;overflow:visible}
+.card strong{font-size:12.5px;font-weight:600;line-height:1.35;margin-top:auto}.card small{font:9px var(--mono);color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.empty{padding:40px 0;color:var(--ink3);font-size:12px}
+footer{margin-top:44px;border-top:1px solid var(--line);padding-top:16px;font-size:10px;color:var(--ink3);line-height:1.7}
+a{color:var(--accent)}
+@media(max-width:700px){.wrap{padding:30px 18px 50px}h1{font-size:34px}header{align-items:flex-start;flex-direction:column}.count{text-align:left}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">MIHOME MAC · DEVICE ICON SET</p>
+      <h1>设备图标</h1>
+      <p class="lede">按设备形态区分，不按品牌区分。同一类灯也拆成吸顶灯、吊灯、台灯、壁灯、落地灯、风扇灯、灯带、筒射灯等不同样式。</p>
+    </div>
+    <div class="count"><b id="total">0</b><span>个形态</span></div>
+  </header>
+  <div class="tools"><input id="search" class="search" placeholder="搜索设备或图标名" autocomplete="off"><button class="chip active" data-group="all">全部</button><div id="filters" style="display:contents"></div></div>
+  <main id="groups"></main>
+  <footer>图标为 24×24 线性 SVG，描边 1.55。米家官方口径为 261 个品类、6000 多个型号；本图库按 17 个大类整理出常用形态。产品分类参考 <a href="https://home.mi.com/index.html">米家官网</a> 与 <a href="https://github.com/iop666/mijia-product-icons">mijia-product-icons</a> 的公开产品清单。</footer>
+</div>
+<script src="../desktop/ui/icons.js"></script>
+<script>
+const { icons, labels, groups } = window.MiIcons;
+const total = Object.keys(icons).length;
+document.querySelector('#total').textContent = total;
+const filters = document.querySelector('#filters');
+let activeGroup = 'all';
+for (const group of groups) {
+  const button = document.createElement('button');
+  button.className = 'chip';
+  button.dataset.group = group.title;
+  button.textContent = group.title;
+  filters.append(button);
+}
+function card(key) {
+  const node = document.createElement('article');
+  node.className = 'card';
+  node.dataset.search = `${labels[key] || key} ${key}`;
+  const glyph = document.createElement('div');
+  glyph.className = 'glyph';
+  glyph.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[key]}</svg>`;
+  const name = document.createElement('strong');
+  name.textContent = labels[key] || key;
+  const code = document.createElement('small');
+  code.textContent = key;
+  node.append(glyph, name, code);
+  return node;
+}
+function render() {
+  const query = document.querySelector('#search').value.trim().toLowerCase();
+  const root = document.querySelector('#groups');
+  root.replaceChildren();
+  let shown = 0;
+  for (const group of groups) {
+    if (activeGroup !== 'all' && activeGroup !== group.title) continue;
+    const hits = group.keys.filter((key) => !query || `${labels[key] || ''} ${key}`.toLowerCase().includes(query));
+    if (!hits.length) continue;
+    const section = document.createElement('section');
+    section.className = 'group';
+    section.innerHTML = `<div class="group-head"><h2>${group.title}</h2><span>${hits.length}</span></div>`;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    for (const key of hits) grid.append(card(key));
+    section.append(grid);
+    root.append(section);
+    shown += hits.length;
+  }
+  if (!shown) root.innerHTML = '<div class="empty">没有匹配的图标</div>';
+}
+document.querySelector('#search').addEventListener('input', render);
+document.querySelectorAll('.chip').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    activeGroup = button.dataset.group;
+    render();
+  });
+});
+render();
+</script>
+</body>
+</html>

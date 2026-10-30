@@ -1,3 +1,5 @@
+> 2026-10-30 追加：应实现要求，底座改为 Rust core + Tauri 2 壳；本文的 SwiftUI 结论保留作对照，当前方案见 [05-rust-base.md](05-rust-base.md)。
+
 # 技术栈与实施
 
 本文回答三个问题：用什么写、为什么、六周怎么排。结论先行：**Swift 6.2 + SwiftUI + 原生协议层 + GRDB + Network.framework，第一版不引入 Rust，不走 Mac App Store。**

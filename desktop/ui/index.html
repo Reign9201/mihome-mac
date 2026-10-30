@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiHome Mac · 开发版</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="icons.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="mark">家</span><div><strong>MiHome</strong><small>Mac 开发版</small></div></div>
+      <nav><button id="devicesNav" class="nav active">设备</button><button id="cameraNav" class="nav" disabled>摄像头</button><button id="sceneNav" class="nav" disabled>场景</button><button id="automationNav" class="nav" disabled>自动化</button></nav>
+      <div class="side-foot"><span id="connDot" class="dot"></span><span id="connText">未登录</span></div>
+    </aside>
+    <main class="main">
+      <header class="top"><div><p class="eyebrow">MIHOME MAC</p><h1 id="pageTitle">连接你的米家</h1></div><button id="logout" class="ghost" hidden>退出</button></header>
+
+      <section id="loginView" class="login">
+        <div class="qr-card">
+          <div id="qrBox" class="qr-box"><div class="qr-placeholder">二维码准备中</div></div>
+          <div class="qr-copy"><h2>用米家 App 扫码</h2><p>打开米家 App，点右上角扫一扫。<br>登录只发生在这台 Mac 上。</p><p id="loginStatus" class="status">连接小米账号…</p></div>
+        </div>
+        <button id="startAuth" class="primary">生成二维码</button>
+      </section>
+
+      <section id="devicesView" class="devices" hidden>
+        <div class="toolbar"><div id="homeTabs" class="tabs"></div><button id="reload" class="ghost">刷新</button></div>
+        <div id="roomBar" class="room-bar"></div>
+        <div class="split">
+          <div class="device-grid" id="deviceList"></div>
+          <aside class="inspector" id="inspector"><p class="muted">选一台设备，读取它的 2.1 开关属性。</p></aside>
+        </div>
+      </section>
+
+      <section id="cameraView" class="camera-page" hidden>
+        <div class="toolbar">
+          <div><p class="eyebrow">LIVE · 本地 P2P / 远程 CS2</p></div>
+          <div class="actions"><button id="camRemoteGrid" class="ghost">远程宫格</button><button id="camGridToggle" class="ghost">宫格</button><button id="camReload" class="ghost">刷新</button></div>
+        </div>
+        <div class="cam-layout" id="camLayout">
+          <div class="cam-stage">
+            <video id="camVideo" controls autoplay muted playsinline hidden></video>
+            <div id="camEmpty" class="empty">正在读取摄像头…</div>
+          </div>
+          <aside id="camList" class="cam-list"></aside>
+        </div>
+        <div id="camControls" class="cam-controls" hidden></div>
+        <div id="camGrid" class="cam-grid" hidden></div>
+        <p id="camHint" class="fine">本地走 go2rtc；远程通道走 CS2 relay，首次连接约 10–20 秒。</p>
+      </section>
+
+      <section id="sceneView" class="camera-page" hidden>
+        <div class="toolbar">
+          <div><p class="eyebrow">手动场景</p><p class="fine">执行米家 App 里已有的手动场景；新场景仍在米家 App 里创建。</p></div>
+          <button id="refreshScenes" class="ghost">刷新</button>
+        </div>
+        <div id="sceneList" class="scene-list"></div>
+      </section>
+
+      <section id="automationView" class="camera-page" hidden>
+        <div class="toolbar">
+          <div><p class="eyebrow">本机定时</p><p class="fine">到点执行一个米家手动场景；应用需要保持运行。</p></div>
+        </div>
+        <form id="autoForm" class="auto-form">
+          <label>名称<input id="autoName" maxlength="40" placeholder="例如：早上开灯" required></label>
+          <label>时间<input id="autoTime" type="time" value="07:30" required></label>
+          <label>场景<select id="autoScene" required></select></label>
+          <div class="auto-days" id="autoDays">
+            <label><input type="checkbox" value="1" checked>一</label>
+            <label><input type="checkbox" value="2" checked>二</label>
+            <label><input type="checkbox" value="3" checked>三</label>
+            <label><input type="checkbox" value="4" checked>四</label>
+            <label><input type="checkbox" value="5" checked>五</label>
+            <label><input type="checkbox" value="6">六</label>
+            <label><input type="checkbox" value="7">日</label>
+          </div>
+          <button class="primary" type="submit">保存</button>
+        </form>
+        <div id="autoList" class="auto-list"></div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
