@@ -79,7 +79,7 @@ M0 和 M1 之间先做一组可重复的测量，不达标就换壳或改实现�
 
 冷启动用 release 二进制连续启动 3 次，从进程创建到界面调用 `ui_ready` 命令：378 ms、362 ms、354 ms（首次带缓存预热为 522 ms），低于 700 ms 门禁。真实设备延迟和摄像头首帧仍需账号与设备才能测。
 
-2026-10-30 加入 Rust 远程摄像头和两路宫格后复测：release 冷启动 344 ms、337 ms、331 ms；登录后对卧室台灯连续发 12 次开关，云端 `set_prop` 的 p95 为 143 ms，`get_prop` 的 p95 为 52 ms，低于 300 ms 门禁。两路远程 HLS 同时播放时，按 `footprint` 物理内存统计：App 33 MB、WebKit GPU 22 MB、WebContent 38 MB、两个 ffmpeg 共 11 MB，合计约 104 MB；App 进程 CPU 1%、WebKit GPU 2.3%、ffmpeg 0.2% 和 0.0%。云端开关门禁已过；本地开关 p95、120 台设备滚动和局域网摄像头首帧受当前网络条件限制，仍未验证。
+2026-10-30 加入 Rust 远程摄像头和两路宫格后复测：release 冷启动 344 ms、337 ms、331 ms；登录后对卧室台灯连续发 12 次开关，云端 `set_prop` 的 p95 为 143 ms，`get_prop` 的 p95 为 52 ms，低于 300 ms 门禁。两路远程 HLS 同时播放时，按 `footprint` 物理内存统计：App 33 MB、WebKit GPU 22 MB、WebContent 38 MB、两个 ffmpeg 共 11 MB，合计约 104 MB；App 进程 CPU 1%、WebKit GPU 2.3%、ffmpeg 0.2% 和 0.0%。云端开关门禁已过。120 台设备滚动另做合成布局基准：`benchmarks/device-grid-120.html` 在 Chromium 1228、1280×900、连续 240 帧滚动下，p50 16.7 ms、p95 18.6 ms、最大 18.7 ms，没有超过 33.3 ms 的帧，没有掉到 30 fps 以下。这个数字只验证 120 张卡片的布局和绘制成本，不是 Tauri WKWebView 真机数字。本地开关 p95、局域网摄像头首帧仍受当前网络条件限制，未验证。
 
 ## 开发顺序
 
