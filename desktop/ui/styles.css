@@ -105,6 +105,15 @@
 .state-dot{display:inline-block;width:6px;height:6px;margin-top:5px;border-radius:50%;background:#b9b3a5;font-size:0;white-space:nowrap}
 .state-dot::before{content:none}
 .state-dot.on{background:var(--ok);box-shadow:0 0 0 3px #4d9b7418}
+.card-top-actions{display:flex;align-items:center;gap:9px;margin-top:-1px}
+.card-power{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:50%;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s,transform .12s}
+.card-power svg{width:16px;height:16px;display:block}
+.card-power.off,.card-reboot{background:#e6e8eb;color:#5f6670}
+.card-power.on{background:#1eb980;color:#fff;box-shadow:0 4px 12px #1eb98038}
+.card-power:hover{transform:scale(1.04)}
+.card-power:active{transform:scale(.96)}
+.card-power:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card-power:disabled{opacity:.5;cursor:default;transform:none}
 .device-card strong{font-size:14.5px;font-weight:600;line-height:1.35;margin-top:auto;max-width:100%;white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.7em}
 .device-room{font-size:11px;color:var(--ink2);line-height:1.35;margin-top:9px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .inspector-room{margin:6px 0 0;font-size:11px;color:var(--accent);font-weight:550}

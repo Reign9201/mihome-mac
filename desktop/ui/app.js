@@ -224,14 +224,15 @@ function cardProfile(device) {
   } else if (kind === 'camera-ptz' || kind === 'camera-fixed') {
     controls.push({ type: 'toggle', siid: 2, piid: 1, label: '摄像头' });
     action = { label: '查看监控', kind: 'camera' };
-  } else if (kind === 'ac-wall') {
-    controls.push({ type: 'toggle', siid: 2, piid: 1, label: '开关' });
-    controls.push({ type: 'range', siid: 2, piid: 2, label: '温度', min: 16, max: 30, suffix: '°C' });
+  } else if (kind === 'router') {
+    action = { label: '重启', kind: 'reboot', top: true };
   } else if (kind === 'drying-rack') {
     metrics.push({ siid: 2, piid: 4, label: '状态', options: [[0, '停止'], [1, '上升'], [2, '下降'], [3, '暂停']] });
     controls.push({ type: 'segments', siid: 2, piid: 2, label: '升降', options: [[1, '上升'], [0, '暂停'], [2, '下降']] });
     controls.push({ type: 'toggle', siid: 3, piid: 1, label: '照明' });
   }
+  const primary = controls.find((item) => item.type === 'toggle');
+  if (primary) primary.primary = true;
   return { metrics, controls, action };
 }
 
@@ -288,6 +289,56 @@ async function setCardProp(device, siid, piid, value) {
   const item = Array.isArray(result) ? result[0] : result;
   if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
   state.cardProps.set(propKey(device.did, siid, piid), value);
+}
+
+function cardReboot(device) {
+  const button = el('button', 'card-power card-reboot');
+  button.type = 'button';
+  button.disabled = !device.online;
+  button.title = '重启路由器';
+  button.setAttribute('aria-label', '重启路由器');
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.1M20 5v6h-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  button.onclick = async (event) => {
+    event.stopPropagation();
+    if (!confirm(`重启「${device.name}」？网络会中断约 1 分钟。`)) return;
+    button.disabled = true;
+    try {
+      await invoke('call_action', { did: device.did, siid: 2, aiid: 1, params: [] });
+      toast('重启指令已发送');
+    } catch (error) {
+      toast(`重启失败：${error}`, true);
+    } finally {
+      button.disabled = !device.online;
+    }
+  };
+  return button;
+}
+
+function cardPower(device, def) {
+  const on = Boolean(cardValue(device, def.siid, def.piid));
+  const button = el('button', `card-power ${on ? 'on' : 'off'}`);
+  button.type = 'button';
+  button.disabled = !device.online;
+  button.title = `${def.label} ${on ? '已开启' : '已关闭'}`;
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(on));
+  const bulb = def.label.includes('灯') || def.label.includes('照明');
+  button.innerHTML = bulb
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.2 1.3 2.2h4.6c.2-1 .7-1.7 1.3-2.2A6 6 0 0 0 12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  button.onclick = async (event) => {
+    event.stopPropagation();
+    const next = !on;
+    button.disabled = true;
+    try {
+      await setCardProp(device, def.siid, def.piid, next);
+      renderDevices();
+    } catch (error) {
+      button.disabled = false;
+      toast(`设置失败：${error}`, true);
+    }
+  };
+  return button;
 }
 
 function cardToggle(device, def) {
@@ -409,10 +460,11 @@ function renderDeviceCard(device) {
   glyph.dataset.family = window.MiIcons.familyFor(kind);
   glyph.innerHTML = deviceGlyph(device);
   top.append(glyph);
-  const status = el('span', `state-dot ${device.online ? 'on' : ''}`);
-  status.title = device.online ? '在线' : '离线';
-  status.setAttribute('aria-label', device.online ? '在线' : '离线');
-  top.append(status);
+  const topActions = el('div', 'card-top-actions');
+  const primary = profile.controls.find((item) => item.primary);
+  if (primary) topActions.append(cardPower(device, primary));
+  else if (profile.action?.top) topActions.append(cardReboot(device));
+  top.append(topActions);
   card.append(top);
 
   const title = el('div', 'device-card-title');
@@ -440,14 +492,14 @@ function renderDeviceCard(device) {
   } else {
     if (profile.controls.length) {
       const quick = el('div', 'card-quick');
-      for (const def of profile.controls) {
+      for (const def of profile.controls.filter((item) => !item.primary)) {
         if (def.type === 'toggle') quick.append(cardToggle(device, def));
         else if (def.type === 'segments') quick.append(cardSegments(device, def));
         else quick.append(cardRange(device, def));
       }
       card.append(quick);
     }
-    if (profile.action) card.append(cardAction(device, profile.action));
+    if (profile.action && !profile.action.top) card.append(cardAction(device, profile.action));
     if (!profile.metrics.length && !profile.controls.length && !profile.action) {
       card.append(el('span', 'card-idle-status', '在线'));
     }
