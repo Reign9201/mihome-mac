@@ -228,12 +228,12 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .card-segment:disabled{opacity:.45;cursor:default}
 
 /* 设备卡片：参考米家移动端的柔和材质卡 */
-.device-grid{grid-template-columns:repeat(auto-fill,minmax(204px,1fr));gap:14px;align-content:start}
+.device-grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;align-content:start}
 .device-card{
-  min-height:170px;
-  padding:14px 14px 13px;
+  min-height:146px;
+  padding:12px 12px 11px;
   border:1px solid #ffffffa8;
-  border-radius:19px;
+  border-radius:16px;
   background:linear-gradient(145deg,var(--card-a),var(--card-b));
   box-shadow:inset 0 1px 0 #ffffffb8,0 10px 26px #3b332609;
   display:flex;flex-direction:column;align-items:stretch;
@@ -244,30 +244,30 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .device-card.offline{filter:saturate(.48);opacity:.68}
 .device-card-top{display:flex;justify-content:space-between;align-items:flex-start;width:100%;margin:0 0 auto}
 .device-glyph{
-  width:48px;height:48px;padding:1px;border:0;border-radius:14px;
+  width:38px;height:38px;padding:1px;border:0;border-radius:11px;
   background:transparent!important;box-shadow:none!important;
   color:var(--card-ink);
   display:grid;place-items:center;
   filter:drop-shadow(0 5px 8px #5b4b3014);
 }
 .device-glyph::before{display:none}
-.device-glyph svg{width:45px;height:45px;stroke-width:1.15}
+.device-glyph svg{width:36px;height:36px;stroke-width:1.15}
 .card-top-actions{display:flex;align-items:center;gap:8px;padding-top:1px}
-.card-power{width:32px;height:32px;border-radius:50%;box-shadow:0 3px 10px #3b332612}
-.card-power svg{width:15px;height:15px}
+.card-power{width:27px;height:27px;border-radius:50%;box-shadow:0 3px 10px #3b332612}
+.card-power svg{width:13px;height:13px}
 .card-power.on{background:#1eb980;color:#fff;box-shadow:0 5px 14px #1eb98038}
 .card-power.off{background:#e8eaec;color:#636a72;box-shadow:none}
 .card-power.card-reboot{background:#f4f6f8;color:#596571;box-shadow:0 2px 8px #3b33260f}
 .card-power:hover{transform:scale(1.05)}
 .card-power:active{transform:scale(.95)}
-.device-card-title{display:flex;flex-direction:column;gap:5px;margin-top:auto;padding-top:14px;min-width:0}
+.device-card-title{display:flex;flex-direction:column;gap:3px;margin-top:auto;padding-top:11px;min-width:0}
 .device-card .device-card-name{
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
   overflow:hidden;white-space:normal;min-height:0;margin:0;
-  font-size:14.5px;font-weight:600;line-height:1.32;letter-spacing:.005em;color:#292621;
+  font-size:13px;font-weight:600;line-height:1.32;letter-spacing:.005em;color:#292621;
 }
-.card-subline{display:flex;align-items:center;gap:7px;min-height:17px;overflow:hidden;white-space:nowrap;font-size:12px;color:#6f6a61}
-.device-card .device-room{max-width:52%;margin:0;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:#6f6a61;line-height:1.35}
+.card-subline{display:flex;align-items:center;gap:7px;min-height:17px;overflow:hidden;white-space:nowrap;font-size:10.5px;color:#6f6a61}
+.device-card .device-room{max-width:52%;margin:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;color:#6f6a61;line-height:1.35}
 .card-subline-sep{color:#a39c90;font-size:11px;line-height:1}
 .card-summary{overflow:hidden;text-overflow:ellipsis;color:#57524a;font-size:12px;font-variant-numeric:tabular-nums;line-height:1.35}
 .device-card[data-family="lighting"]{--card-a:#fcf2df;--card-b:#f2ddba;--card-ink:#996326}
@@ -283,4 +283,4 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .device-card[data-family="pet"]{--card-a:#f4f6e0;--card-b:#e7ecc9;--card-ink:#687748}
 .device-card[data-family="plug"]{--card-a:#f7f0e4;--card-b:#ecdfca;--card-ink:#7a684f}
 .device-card[data-family="other"]{--card-a:#f3f1ec;--card-b:#e6e2da;--card-ink:#6c665c}
-@media(max-width:700px){.device-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.device-card{min-height:168px;padding:14px;border-radius:20px}.device-glyph{width:48px;height:48px}.device-glyph svg{width:45px;height:45px}.card-power{width:32px;height:32px}.card-power svg{width:15px;height:15px}.device-card .device-card-name{font-size:14px}.card-subline,.device-card .device-room,.card-summary{font-size:11px}}
+@media(max-width:700px){.device-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.device-card{min-height:168px;padding:14px;border-radius:20px}.device-glyph{width:38px;height:38px}.device-glyph svg{width:36px;height:36px}.card-power{width:27px;height:27px}.card-power svg{width:13px;height:13px}.device-card .device-card-name{font-size:14px}.card-subline,.device-card .device-room,.card-summary{font-size:11px}}
