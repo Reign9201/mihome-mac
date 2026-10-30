@@ -27,9 +27,11 @@
 
 ![设备检查器](docs/assets/shot-inspector.jpg)
 
-打开方式：
+快速开始：
 
 ```bash
+git clone https://github.com/Reign9201/mihome-mac.git
+cd mihome-mac
 open prototype/index.html
 ```
 
