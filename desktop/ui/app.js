@@ -1298,22 +1298,45 @@ async function renderCameraControls(camera, remote) {
   box.append(ptz);
 
   const video = $('#camVideo');
-  const sound = el('div', 'cam-settings');
-  const soundRow = el('div', 'cam-control');
-  soundRow.append(el('span', '', '声音'));
-  const soundToggle = el('label', 'switch');
-  const soundInput = document.createElement('input');
-  soundInput.type = 'checkbox';
-  soundInput.checked = video && !video.muted;
-  soundInput.onchange = () => {
-    if (!video) return;
-    video.muted = !soundInput.checked;
-    if (soundInput.checked) video.play().catch(() => {});
-  };
-  soundToggle.append(soundInput, el('span'));
-  soundRow.append(soundToggle);
-  sound.append(soundRow);
-  box.append(sound);
+  if (remote) {
+    const sound = el('div', 'cam-settings');
+    const soundRow = el('div', 'cam-control');
+    soundRow.append(el('span', '', '声音'));
+    const soundToggle = el('label', 'switch');
+    const soundInput = document.createElement('input');
+    soundInput.type = 'checkbox';
+    soundInput.checked = false;
+    soundInput.disabled = !camera;
+    soundInput.onchange = async () => {
+      if (!video || !camera) return;
+      if (!soundInput.checked) {
+        video.muted = true;
+        return;
+      }
+      soundInput.disabled = true;
+      $('#camHint').textContent = `${camera.name} 正在打开声音…`;
+      try {
+        await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const stream = await invoke('camera_remote_start', { did: camera.did, quality: 2, audio: true });
+        video.src = stream.url;
+        video.muted = false;
+        video.load();
+        await video.play().catch(() => {});
+        $('#camHint').textContent = `${camera.name} · 声音已打开`;
+      } catch (error) {
+        soundInput.checked = false;
+        video.muted = true;
+        $('#camHint').textContent = `打开声音失败：${error}`;
+      } finally {
+        soundInput.disabled = false;
+      }
+    };
+    soundToggle.append(soundInput, el('span'));
+    soundRow.append(soundToggle);
+    sound.append(soundRow);
+    box.append(sound);
+  }
 
   const settings = el('div', 'cam-settings');
   box.append(settings);

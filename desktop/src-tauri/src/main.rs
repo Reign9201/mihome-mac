@@ -320,7 +320,7 @@ async fn camera_remote_start(
     }
     let did_for_worker = did.clone();
     let quality = quality.unwrap_or(2);
-    let audio = audio.unwrap_or(true);
+    let audio = audio.unwrap_or(false);
     let stream = tauri::async_runtime::spawn_blocking(move || {
         RemoteStream::start(session, &did_for_worker, quality, audio)
     })
