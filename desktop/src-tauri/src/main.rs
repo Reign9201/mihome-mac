@@ -4,7 +4,7 @@ use mihome_core::camera::{self, CameraDevice, CameraStream, Go2Rtc};
 use mihome_core::remote_stream::RemoteStream;
 use mihome_core::automation::{Automation, AutomationStore};
 use mihome_core::{auth, AuthStart, MiCloud, PendingLogin};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -412,6 +412,31 @@ async fn get_property(
     cloud.get_prop(&did, siid, piid).await.map_err(error_text)
 }
 
+#[derive(Deserialize)]
+struct PropRequest {
+    did: String,
+    siid: u32,
+    piid: u32,
+}
+
+#[tauri::command]
+async fn get_properties(
+    state: State<'_, Arc<AppState>>,
+    requests: Vec<PropRequest>,
+) -> Result<Value, String> {
+    let cloud = state
+        .cloud
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "未登录".to_string())?;
+    let items: Vec<(String, u32, u32)> = requests
+        .into_iter()
+        .map(|item| (item.did, item.siid, item.piid))
+        .collect();
+    cloud.get_props(&items).await.map_err(error_text)
+}
+
 #[tauri::command]
 async fn set_property(
     state: State<'_, Arc<AppState>>,
@@ -470,6 +495,7 @@ fn main() {
             camera_stop,
             camera_status,
             get_property,
+            get_properties,
             set_property
         ])
         .run(tauri::generate_context!())

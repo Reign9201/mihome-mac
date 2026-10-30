@@ -328,12 +328,29 @@ impl MiCloud {
     }
 
     pub async fn get_prop(&self, did: &str, siid: u32, piid: u32) -> Result<Value> {
-        self.session
-            .request(
-                "/miotspec/prop/get",
-                json!({"params": [{"did": did, "siid": siid, "piid": piid}], "datasource": 1}),
-            )
-            .await
+        self.get_props(&[(did.to_string(), siid, piid)]).await
+    }
+
+    /// Read several properties in one cloud call. The card grid uses this so a
+    /// page with a dozen devices does not fan out into dozens of requests.
+    pub async fn get_props(&self, requests: &[(String, u32, u32)]) -> Result<Value> {
+        // The MIoT endpoint accepts at most 20 property keys per request. Keep
+        // larger card refreshes in ordered chunks and merge the result arrays.
+        let mut merged = Vec::with_capacity(requests.len());
+        for chunk in requests.chunks(20) {
+            let params: Vec<Value> = chunk
+                .iter()
+                .map(|(did, siid, piid)| json!({"did": did, "siid": siid, "piid": piid}))
+                .collect();
+            let value = self
+                .session
+                .request("/miotspec/prop/get", json!({"params": params, "datasource": 1}))
+                .await?;
+            if let Some(items) = value.as_array() {
+                merged.extend(items.iter().cloned());
+            }
+        }
+        Ok(Value::Array(merged))
     }
 
     pub async fn set_prop(&self, did: &str, siid: u32, piid: u32, value: Value) -> Result<Value> {
