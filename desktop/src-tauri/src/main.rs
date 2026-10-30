@@ -124,11 +124,9 @@ async fn auth_resume(state: State<'_, Arc<AppState>>) -> Result<Option<String>, 
     let user_id = cloud.user_id().to_string();
     match cloud.homes().await {
         Ok(_) => Ok(Some(user_id)),
-        Err(_) => {
-            *state.cloud.lock().await = None;
-            auth::Session::clear_saved();
-            Ok(None)
-        }
+        // 网络抖动或云端临时失败时保留本地会话，避免一次失败就要求重新扫码。
+        // 真正的鉴权失效由后续请求的错误提示和用户主动退出处理。
+        Err(error) => Err(error_text(error)),
     }
 }
 

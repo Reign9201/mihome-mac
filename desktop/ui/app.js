@@ -93,6 +93,8 @@ async function loadHomes() {
     await loadDevices();
     $('#loginView').hidden = true;
     $('#devicesView').hidden = false;
+    document.querySelector('.main').classList.add('devices-mode');
+    $('#reload').hidden = false;
     $('#logout').hidden = false;
     for (const id of ['cameraNav', 'sceneNav', 'automationNav']) {
       $('#' + id).disabled = false;
@@ -176,7 +178,7 @@ async function loadDevices() {
     state.cardProps = new Map();
     state.cardHydrated = false;
     renderDevices();
-    $('#inspector').replaceChildren(el('p', 'muted', '选一台设备，读取它的 2.1 开关属性。'));
+    $('#inspector').replaceChildren(el('p', 'muted', '选一台设备，查看状态和控制。'));
   } catch (error) {
     $('#deviceList').replaceChildren(el('div', 'empty error', `读取设备失败：${error}`));
   }
@@ -230,6 +232,9 @@ function cardProfile(device) {
     metrics.push({ siid: 2, piid: 4, label: '状态', options: [[0, '停止'], [1, '上升'], [2, '下降'], [3, '暂停']] });
     controls.push({ type: 'segments', siid: 2, piid: 2, label: '升降', options: [[1, '上升'], [0, '暂停'], [2, '下降']] });
     controls.push({ type: 'toggle', siid: 3, piid: 1, label: '照明' });
+  } else if (kind === 'door-lock') {
+    metrics.push({ siid: 4, piid: 1003, label: '电量', unit: '%', digits: 0 });
+    metrics.push({ siid: 10, piid: 1, label: '锂电池', unit: '%', digits: 0, secondary: true });
   }
   const primary = controls.find((item) => item.type === 'toggle');
   if (primary) primary.primary = true;
@@ -535,53 +540,297 @@ function renderDevices() {
   if (!state.cardHydrated && !state.cardHydrating) hydrateCardProps();
 }
 
+function lightSceneProfile(device) {
+  const model = String(device.model || '');
+  if (model.includes('lamp22')) {
+    return {
+      siid: 3, piid: 9, label: '场景',
+      options: [[0, '自由'], [5, '阅读'], [6, '工作'], [7, '电影'], [8, '暖光'], [9, '防蓝光'], [10, '流光']],
+    };
+  }
+  if (model.includes('cfan01')) {
+    return {
+      siid: 2, piid: 7, label: '场景',
+      options: [[0, '关闭'], [1, '阅读'], [2, '照明'], [3, '电视'], [4, '暖光'], [5, '夜灯']],
+    };
+  }
+  return null;
+}
+
+function inspectorProfile(device) {
+  const base = cardProfile(device);
+  const kind = deviceKind(device);
+  const metrics = [...base.metrics];
+  const controls = [...base.controls];
+  const add = (item) => {
+    if (!controls.some((old) => old.siid === item.siid && old.piid === item.piid && old.type === item.type)) {
+      controls.push(item);
+    }
+  };
+  if (kind === 'fan-light') {
+    for (const item of controls) item.group = item.siid === 4 ? '风扇' : '灯光';
+  } else if (kind.includes('light') || kind.includes('lamp')) {
+    for (const item of controls) item.group = '灯光';
+  } else if (kind === 'drying-rack') {
+    for (const item of controls) item.group = item.type === 'toggle' ? '照明' : '晾衣';
+  } else if (kind === 'camera-ptz' || kind === 'camera-fixed') {
+    for (const def of CAMERA_CONTROLS) {
+      if (def.key === 'power') continue;
+      add({
+        type: def.type === 'switch' ? 'toggle' : def.type === 'select' ? 'segments' : 'range',
+        siid: def.siid,
+        piid: def.piid,
+        label: def.label,
+        options: def.options,
+        min: def.min,
+        max: def.max,
+        suffix: def.suffix,
+        group: '摄像头设置',
+      });
+    }
+  } else if (kind.startsWith('ac-')) {
+    add({ type: 'toggle', siid: 2, piid: 1, label: '电源', group: '空调', primary: true });
+    add({ type: 'range', siid: 2, piid: 2, label: '目标温度', min: 16, max: 30, suffix: '°C', group: '温度' });
+    add({ type: 'segments', siid: 2, piid: 3, label: '模式', options: [[0, '制冷'], [1, '制热'], [2, '自动'], [3, '除湿'], [4, '送风']], group: '模式' });
+    add({ type: 'segments', siid: 2, piid: 4, label: '风速', options: [[0, '自动'], [1, '低'], [2, '中'], [3, '高']], group: '风扇' });
+  }
+  else if (kind === 'speaker' || kind === 'soundbar' || kind === 'display') {
+    add({ type: 'range', siid: 2, piid: 1, label: '音量', min: 0, max: 100, suffix: '%', group: '声音' });
+    add({ type: 'toggle', siid: 2, piid: 2, label: '静音', group: '声音' });
+  }
+  const scene = lightSceneProfile(device);
+  if (scene) add({ type: 'segments', ...scene, group: '场景' });
+  const note = kind === 'door-lock'
+    ? '门锁状态和开锁记录由米家锁服务管理，当前接口只返回电量。'
+    : '';
+  return { ...base, metrics, controls, note };
+}
+
+function inspectorRequests(device, profile) {
+  const seen = new Set();
+  const requests = [];
+  for (const item of [...profile.metrics, ...profile.controls]) {
+    const key = `${item.siid}:${item.piid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    requests.push({ did: device.did, siid: item.siid, piid: item.piid });
+  }
+  return requests;
+}
+
 async function selectDevice(device) {
   state.selected = device;
   renderDevices();
-  renderInspector(device);
+  renderInspector(device, null, true);
+  const profile = inspectorProfile(device);
   try {
-    const result = await invoke('get_property', { did: device.did, siid: 2, piid: 1 });
-    const item = Array.isArray(result) ? result[0] : result;
-    if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
-    renderInspector(device, item?.value);
+    const result = await invoke('get_properties', { requests: inspectorRequests(device, profile) });
+    for (const item of Array.isArray(result) ? result : []) {
+      if (!item || !item.did || (item.code && item.code !== 0)) continue;
+      state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
+    }
+    renderInspector(device);
   } catch (error) {
-    renderInspector(device, undefined, String(error));
+    renderInspector(device, String(error));
   }
 }
 
-function renderInspector(device, value, error) {
-  const box = $('#inspector');
-  box.replaceChildren();
-  box.append(el('h3', '', device.name));
-  box.append(el('p', 'inspector-room', roomName(device)));
-  box.append(el('p', 'muted', `${device.model} · did ${device.did}`));
-  if (error) {
-    box.append(el('p', 'error', `读取 2.1 失败：${error}`));
-  } else if (value !== undefined) {
-    box.append(el('p', 'value', String(value)));
-    box.append(el('p', 'muted', 'siid=2 · piid=1'));
-    const actions = el('div', 'actions');
-    const on = el('button', '', '开');
-    on.onclick = () => setPower(device, true);
-    const off = el('button', '', '关');
-    off.onclick = () => setPower(device, false);
-    const again = el('button', '', '刷新');
-    again.onclick = () => selectDevice(device);
-    actions.append(on, off, again);
-    box.append(actions);
-  } else {
-    box.append(el('p', 'muted', '正在读取 siid=2 · piid=1…'));
+function detailMetric(value, def) {
+  const card = el('div', 'detail-metric');
+  card.append(el('span', 'detail-metric-label', def.label));
+  card.append(el('strong', '', formatCardValue(value, def)));
+  return card;
+}
+
+function detailToggle(device, def) {
+  const value = Boolean(cardValue(device, def.siid, def.piid));
+  const row = el('div', `detail-control-row${def.primary ? ' primary' : ''}`);
+  const copy = el('div', 'detail-control-copy');
+  copy.append(el('span', 'detail-control-label', def.label));
+  copy.append(el('small', 'detail-control-state', value ? '已开启' : '已关闭'));
+  const button = el('button', `detail-switch ${value ? 'on' : ''}`);
+  button.type = 'button';
+  button.disabled = !device.online;
+  button.setAttribute('role', 'switch');
+  button.setAttribute('aria-checked', String(value));
+  button.setAttribute('aria-label', `${def.label}${value ? '已开启' : '已关闭'}`);
+  button.innerHTML = '<span></span>';
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await setCardProp(device, def.siid, def.piid, !value);
+      renderInspector(device);
+    } catch (error) {
+      toast(`设置失败：${error}`, true);
+      button.disabled = false;
+    }
+  };
+  row.append(copy, button);
+  return row;
+}
+
+function detailRange(device, def) {
+  const raw = cardValue(device, def.siid, def.piid);
+  const row = el('label', 'detail-range');
+  const head = el('div', 'detail-range-head');
+  head.append(el('span', 'detail-control-label', def.label));
+  const output = el('strong', '', raw === undefined ? '—' : `${Number(raw).toFixed(0)}${def.suffix || ''}`);
+  head.append(output);
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(def.min);
+  input.max = String(def.max);
+  input.step = '1';
+  input.value = String(Number.isFinite(Number(raw)) ? raw : def.min);
+  input.disabled = !device.online;
+  input.oninput = () => { output.textContent = `${input.value}${def.suffix || ''}`; };
+  input.onchange = async () => {
+    input.disabled = true;
+    try {
+      await setCardProp(device, def.siid, def.piid, Number(input.value));
+      output.textContent = `${input.value}${def.suffix || ''}`;
+    } catch (error) {
+      toast(`设置失败：${error}`, true);
+    } finally {
+      input.disabled = false;
+    }
+  };
+  row.append(head, input);
+  return row;
+}
+
+function detailSegments(device, def) {
+  const row = el('div', 'detail-segments');
+  row.append(el('span', 'detail-control-label', def.label));
+  const group = el('div', 'detail-segment-group');
+  const current = cardValue(device, def.siid, def.piid);
+  for (const [value, label] of def.options) {
+    const button = el('button', `detail-segment${String(current) === String(value) ? ' active' : ''}`, label);
+    button.type = 'button';
+    button.disabled = !device.online;
+    button.onclick = async () => {
+      try {
+        await setCardProp(device, def.siid, def.piid, value);
+        renderInspector(device);
+      } catch (error) {
+        toast(`设置失败：${error}`, true);
+      }
+    };
+    group.append(button);
   }
+  row.append(group);
+  return row;
+}
+
+function detailControl(device, def) {
+  if (def.type === 'toggle') return detailToggle(device, def);
+  if (def.type === 'range') return detailRange(device, def);
+  if (def.type === 'segments') return detailSegments(device, def);
+  return null;
+}
+
+function detailAction(device) {
+  const kind = deviceKind(device);
+  if (kind === 'camera-ptz' || kind === 'camera-fixed') {
+    const button = el('button', 'detail-action', '查看实时画面');
+    button.type = 'button';
+    button.onclick = async () => { await showCameras(); await startRemoteCamera(device); };
+    return button;
+  }
+  if (kind === 'router') {
+    const button = el('button', 'detail-action danger', '重启路由器');
+    button.type = 'button';
+    button.onclick = async () => {
+      if (!confirm(`重启「${device.name}」？网络会中断约 1 分钟。`)) return;
+      button.disabled = true;
+      button.textContent = '正在发送…';
+      try {
+        await invoke('call_action', { did: device.did, siid: 2, aiid: 1, params: [] });
+        toast('重启指令已发送');
+      } catch (error) {
+        toast(`重启失败：${error}`, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = '重启路由器';
+      }
+    };
+    return button;
+  }
+  return null;
+}
+
+function renderInspector(device, error, loading = false) {
+  const box = $('#inspector');
+  const profile = inspectorProfile(device);
+  const kind = deviceKind(device);
+  const family = window.MiIcons.familyFor(kind);
+  box.replaceChildren();
+
+  const head = el('div', 'detail-head');
+  const icon = el('span', 'detail-icon');
+  icon.dataset.family = family;
+  icon.innerHTML = deviceGlyph(device);
+  head.append(icon);
+  const heading = el('div', 'detail-heading');
+  heading.append(el('h3', '', device.name));
+  const sub = el('p', 'detail-sub');
+  sub.append(el('span', '', roomName(device)));
+  sub.append(el('span', 'detail-dot', '·'));
+  sub.append(el('span', `detail-online ${device.online ? 'on' : ''}`, device.online ? '在线' : '离线'));
+  heading.append(sub);
+  head.append(heading);
+  box.append(head);
+
+  if (error) box.append(el('p', 'detail-error', `读取设备状态失败：${error}`));
+  else if (loading) box.append(el('p', 'detail-loading', '正在读取设备状态…'));
+
+  const metrics = profile.metrics.filter((item) => !item.secondary || item.label === '电量' || kind === 'door-lock');
+  if (metrics.length) {
+    const section = el('section', 'detail-section');
+    section.append(el('h4', '', '状态'));
+    const grid = el('div', 'detail-metrics');
+    for (const def of metrics) grid.append(detailMetric(cardValue(device, def.siid, def.piid), def));
+    section.append(grid);
+    box.append(section);
+  }
+
+  if (profile.note) box.append(el('p', 'detail-note', profile.note));
+
+  const groups = new Map();
+  for (const def of profile.controls) {
+    const group = def.group || '控制';
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(def);
+  }
+  for (const [name, items] of groups) {
+    const section = el('section', 'detail-section');
+    section.append(el('h4', '', name));
+    for (const def of items) {
+      const control = detailControl(device, def);
+      if (control) section.append(control);
+    }
+    box.append(section);
+  }
+
+  const action = detailAction(device);
+  if (action) {
+    const section = el('section', 'detail-section');
+    section.append(action);
+    box.append(section);
+  }
+
+  if (!metrics.length && !profile.controls.length && !action) {
+    box.append(el('p', 'detail-empty', device.online ? '这台设备当前没有可读写的属性。' : '设备离线，暂时读不到状态。'));
+  }
+
 }
 
 async function setPower(device, value) {
   try {
-    const result = await invoke('set_property', { did: device.did, siid: 2, piid: 1, value });
-    const item = Array.isArray(result) ? result[0] : result;
-    if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
-    await selectDevice(device);
+    await setCardProp(device, 2, 1, value);
+    renderInspector(device);
   } catch (error) {
-    renderInspector(device, undefined, String(error));
+    renderInspector(device, String(error));
   }
 }
 
@@ -591,6 +840,8 @@ async function showDevices() {
   $('#sceneView').hidden = true;
   $('#automationView').hidden = true;
   $('#devicesView').hidden = false;
+  document.querySelector('.main').classList.add('devices-mode');
+  $('#reload').hidden = false;
   $('#pageTitle').textContent = state.homes.find((home) => home.id === state.homeId)?.name || '设备';
   $('#devicesNav').classList.add('active');
   $('#cameraNav').classList.remove('active');
@@ -626,6 +877,8 @@ async function showScenes() {
   if (!state.loggedIn) return;
   $('#loginView').hidden = true;
   $('#devicesView').hidden = true;
+  document.querySelector('.main').classList.remove('devices-mode');
+  $('#reload').hidden = true;
   $('#cameraView').hidden = true;
   $('#automationView').hidden = true;
   $('#sceneView').hidden = false;
@@ -677,6 +930,8 @@ async function showAutomations() {
   if (!state.loggedIn) return;
   $('#loginView').hidden = true;
   $('#devicesView').hidden = true;
+  document.querySelector('.main').classList.remove('devices-mode');
+  $('#reload').hidden = true;
   $('#cameraView').hidden = true;
   $('#sceneView').hidden = true;
   $('#automationView').hidden = false;
@@ -692,6 +947,8 @@ async function showCameras() {
   if (!state.loggedIn) return;
   $('#loginView').hidden = true;
   $('#devicesView').hidden = true;
+  document.querySelector('.main').classList.remove('devices-mode');
+  $('#reload').hidden = true;
   $('#sceneView').hidden = true;
   $('#automationView').hidden = true;
   $('#cameraView').hidden = false;
@@ -1172,6 +1429,8 @@ $('#logout').onclick = async () => {
   state.roomFilter = 'all';
   $('#loginView').hidden = false;
   $('#devicesView').hidden = true;
+  document.querySelector('.main').classList.remove('devices-mode');
+  $('#reload').hidden = true;
   $('#cameraView').hidden = true;
   $('#sceneView').hidden = true;
   $('#automationView').hidden = true;
@@ -1205,6 +1464,7 @@ async function boot() {
   } catch (error) {
     setStatus(`恢复登录失败：${error}`, 'error');
     $('#startAuth').disabled = false;
+    startAuth();
   }
 }
 

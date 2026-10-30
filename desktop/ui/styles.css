@@ -230,8 +230,8 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 /* 设备卡片：参考米家移动端的柔和材质卡 */
 .device-grid{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;align-content:start}
 .device-card{
-  min-height:146px;
-  padding:12px 12px 11px;
+  height:97px;min-height:97px;
+  padding:8px 10px 7px;
   border:1px solid #ffffffa8;
   border-radius:16px;
   background:linear-gradient(145deg,var(--card-a),var(--card-b));
@@ -244,30 +244,29 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .device-card.offline{filter:saturate(.48);opacity:.68}
 .device-card-top{display:flex;justify-content:space-between;align-items:flex-start;width:100%;margin:0 0 auto}
 .device-glyph{
-  width:38px;height:38px;padding:1px;border:0;border-radius:11px;
+  width:26px;height:26px;padding:0;border:0;border-radius:8px;
   background:transparent!important;box-shadow:none!important;
   color:var(--card-ink);
   display:grid;place-items:center;
   filter:drop-shadow(0 5px 8px #5b4b3014);
 }
 .device-glyph::before{display:none}
-.device-glyph svg{width:36px;height:36px;stroke-width:1.15}
+.device-glyph svg{width:24px;height:24px;stroke-width:1.15}
 .card-top-actions{display:flex;align-items:center;gap:8px;padding-top:1px}
-.card-power{width:27px;height:27px;border-radius:50%;box-shadow:0 3px 10px #3b332612}
-.card-power svg{width:13px;height:13px}
+.card-power{width:23px;height:23px;border-radius:50%;box-shadow:0 3px 10px #3b332612}
+.card-power svg{width:11px;height:11px}
 .card-power.on{background:#1eb980;color:#fff;box-shadow:0 5px 14px #1eb98038}
 .card-power.off{background:#e8eaec;color:#636a72;box-shadow:none}
 .card-power.card-reboot{background:#f4f6f8;color:#596571;box-shadow:0 2px 8px #3b33260f}
 .card-power:hover{transform:scale(1.05)}
 .card-power:active{transform:scale(.95)}
-.device-card-title{display:flex;flex-direction:column;gap:3px;margin-top:auto;padding-top:11px;min-width:0}
+.device-card-title{display:flex;flex-direction:column;gap:2px;margin-top:auto;padding-top:5px;min-width:0}
 .device-card .device-card-name{
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  overflow:hidden;white-space:normal;min-height:0;margin:0;
-  font-size:13px;font-weight:600;line-height:1.32;letter-spacing:.005em;color:#292621;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-height:0;margin:0;
+  font-size:12px;font-weight:600;line-height:1.2;letter-spacing:.005em;color:#292621;
 }
-.card-subline{display:flex;align-items:center;gap:7px;min-height:17px;overflow:hidden;white-space:nowrap;font-size:10.5px;color:#6f6a61}
-.device-card .device-room{max-width:52%;margin:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;color:#6f6a61;line-height:1.35}
+.card-subline{display:flex;align-items:center;gap:5px;min-height:13px;overflow:hidden;white-space:nowrap;font-size:10px;color:#6f6a61}
+.device-card .device-room{max-width:52%;margin:0;overflow:hidden;text-overflow:ellipsis;font-size:10px;color:#6f6a61;line-height:1.35}
 .card-subline-sep{color:#a39c90;font-size:11px;line-height:1}
 .card-summary{overflow:hidden;text-overflow:ellipsis;color:#57524a;font-size:12px;font-variant-numeric:tabular-nums;line-height:1.35}
 .device-card[data-family="lighting"]{--card-a:#fcf2df;--card-b:#f2ddba;--card-ink:#996326}
@@ -283,4 +282,74 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .device-card[data-family="pet"]{--card-a:#f4f6e0;--card-b:#e7ecc9;--card-ink:#687748}
 .device-card[data-family="plug"]{--card-a:#f7f0e4;--card-b:#ecdfca;--card-ink:#7a684f}
 .device-card[data-family="other"]{--card-a:#f3f1ec;--card-b:#e6e2da;--card-ink:#6c665c}
-@media(max-width:700px){.device-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.device-card{min-height:168px;padding:14px;border-radius:20px}.device-glyph{width:38px;height:38px}.device-glyph svg{width:36px;height:36px}.card-power{width:27px;height:27px}.card-power svg{width:13px;height:13px}.device-card .device-card-name{font-size:14px}.card-subline,.device-card .device-room,.card-summary{font-size:11px}}
+@media(max-width:700px){.device-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.device-card{height:110px;min-height:110px;padding:10px;border-radius:16px}.device-glyph{width:38px;height:38px}.device-glyph svg{width:36px;height:36px}.card-power{width:27px;height:27px}.card-power svg{width:11px;height:11px}.device-card .device-card-name{font-size:14px}.card-subline,.device-card .device-room,.card-summary{font-size:11px}}
+
+/* 设备详情：完整控制面板 */
+.split{grid-template-columns:minmax(0,1fr) minmax(300px,320px);gap:0 24px;align-items:start}
+.inspector{
+  position:sticky;top:18px;max-height:calc(100vh - 140px);overflow:auto;
+  padding:20px 18px;border:1px solid #e8dfd0;border-radius:20px;
+  background:linear-gradient(180deg,#fffdf8 0%,#fbf6ec 100%);
+  box-shadow:inset 0 1px 0 #fff,0 18px 40px #3b33260a;
+  scrollbar-width:thin;scrollbar-color:#d8cebd transparent;
+}
+.detail-head{display:flex;align-items:center;gap:13px;margin:0 0 18px}
+.detail-icon{
+  flex:0 0 54px;width:54px;height:54px;border-radius:16px;display:grid;place-items:center;
+  background:var(--card-a,#f1ece2);color:var(--card-ink,#6c665c);
+  box-shadow:inset 0 1px 0 #ffffffa8,0 6px 16px #3b33260d;
+}
+.detail-icon svg{width:30px;height:30px;display:block}
+.detail-heading{min-width:0}
+.detail-heading h3{margin:0;font-family:var(--display);font-size:21px;font-weight:600;line-height:1.25;letter-spacing:-.01em;color:#292621;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-sub{display:flex;align-items:center;gap:7px;margin:5px 0 0;font-size:11.5px;color:#766f64;line-height:1.3}
+.detail-dot{color:#b4aa9a}
+.detail-online{display:inline-flex;align-items:center;gap:4px}
+.detail-online::before{content:"";width:5px;height:5px;border-radius:50%;background:#b9b3a5}
+.detail-online.on{color:#2f7a55}
+.detail-online.on::before{background:#1eb980;box-shadow:0 0 0 3px #1eb98018}
+.detail-section{margin:0 0 18px}
+.detail-section h4{margin:0 0 9px;font-size:10.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:#9a9183}
+.detail-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.detail-metric{padding:10px 11px 9px;border:1px solid #ede5d8;border-radius:12px;background:#fffdf9;min-width:0}
+.detail-metric-label{display:block;font-size:10px;color:#8b8275;line-height:1.3}
+.detail-metric strong{display:block;margin-top:2px;font-size:20px;font-weight:600;letter-spacing:-.02em;color:#302b24;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-control-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 12px 11px;margin:0 0 8px;border:1px solid #ece3d5;border-radius:13px;background:#fffdf9}
+.detail-control-row.primary{padding:14px 13px;border-color:#e8ddca;background:linear-gradient(135deg,#fffdf9,#f9f1e3)}
+.detail-control-copy{min-width:0}
+.detail-note{margin:10px 0 12px;padding:9px 11px;border-radius:9px;background:#f7f1e7;color:#7a6a54;font-size:11.5px;line-height:1.55}
+.detail-control-label{display:block;font-size:12.5px;font-weight:600;color:#39332b;line-height:1.35}
+.detail-control-state{display:block;margin-top:2px;font-size:10.5px;color:#928879;line-height:1.3}
+.detail-switch{flex:0 0 44px;width:44px;height:26px;border:0;border-radius:999px;padding:3px;background:#e3e4e0;cursor:pointer;transition:background .18s,opacity .18s;display:flex;align-items:center}
+.detail-switch span{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 2px 5px #3b332626;transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.detail-switch.on{background:#1eb980}
+.detail-switch.on span{transform:translateX(18px)}
+.detail-switch:disabled{opacity:.45;cursor:default}
+.detail-switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.detail-range{display:block;padding:12px 12px 10px;margin:0 0 8px;border:1px solid #ece3d5;border-radius:13px;background:#fffdf9}
+.detail-range-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px}
+.detail-range-head strong{font-size:12px;font-weight:600;color:#4b4235;font-variant-numeric:tabular-nums;white-space:nowrap}
+.detail-range input[type="range"]{width:100%;height:18px;margin:0;accent-color:#c19554;cursor:pointer}
+.detail-range input[type="range"]:disabled{opacity:.45;cursor:default}
+.detail-segments{padding:12px;margin:0 0 8px;border:1px solid #ece3d5;border-radius:13px;background:#fffdf9}
+.detail-segment-group{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.detail-segment{border:1px solid #e8dfd0;background:#fffdf9;border-radius:8px;padding:6px 9px;font:inherit;font-size:11px;color:#6b6255;cursor:pointer;transition:.15s}
+.detail-segment:hover{border-color:#c8a76e;color:#674c24}
+.detail-segment.active{background:#332e27;border-color:#332e27;color:#fff}
+.detail-segment:disabled{opacity:.45;cursor:default}
+.detail-action{display:block;width:100%;min-height:40px;padding:10px 14px;border:0;border-radius:12px;background:#332e27;color:#fff;font:inherit;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 6px 14px #3b33261a}
+.detail-action:hover{background:#463e33}
+.detail-action.danger{background:#9d4a3e}
+.detail-action.danger:hover{background:#873d33}
+.detail-action:disabled{opacity:.55;cursor:default}
+.detail-error{margin:0 0 14px;padding:9px 10px;border-radius:9px;background:#fdf0ec;color:#9b4b3d;font-size:11px;line-height:1.45}
+.detail-loading{margin:0 0 14px;color:#8c8272;font-size:11px}
+.detail-empty{margin:4px 0 16px;padding:14px 12px;border:1px dashed #ddd2bf;border-radius:12px;color:#8d8372;font-size:11.5px;line-height:1.6}
+.detail-meta{display:none!important;margin:18px 0 0;padding-top:12px;border-top:1px solid #eee5d7;color:#a19889;font-size:9.5px;line-height:1.5;word-break:break-all}
+@media(max-width:900px){.split{grid-template-columns:1fr;gap:20px}.inspector{position:static;max-height:none;padding:18px;border:1px solid #e8dfd0;border-radius:16px;background:#fffdf9}}
+
+/* 设备页：标题与右侧详情面板同顶对齐 */
+.devices-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,320px);column-gap:24px;align-items:start}
+.devices-content{min-width:0}
+.devices-layout .inspector{margin-top:13px;padding:18px;border:1px solid #e8dfd0;border-radius:16px;background:#fffdf9;box-shadow:0 10px 30px #3b332610;max-height:calc(100vh - 60px);overflow:auto}
+@media(max-width:1100px){.devices-layout{grid-template-columns:minmax(0,1fr) 300px}}
