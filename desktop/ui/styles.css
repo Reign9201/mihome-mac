@@ -351,5 +351,5 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 /* 设备页：标题与右侧详情面板同顶对齐 */
 .devices-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,320px);column-gap:24px;align-items:start}
 .devices-content{min-width:0}
-.devices-layout .inspector{margin-top:13px;padding:18px;border:1px solid #e8dfd0;border-radius:16px;background:#fffdf9;box-shadow:0 10px 30px #3b332610;max-height:calc(100vh - 60px);overflow:auto}
+.devices-layout .inspector{margin-top:13px;padding:18px;border:1px solid #e8dfd0;border-radius:16px;background:#fffdf9;box-shadow:0 10px 30px #3b332610;height:calc(100vh - 290px);min-height:360px;max-height:calc(100vh - 290px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#d8cebd transparent}
 @media(max-width:1100px){.devices-layout{grid-template-columns:minmax(0,1fr) 300px}}
