@@ -14,7 +14,7 @@ function toast(message, error = false) {
   setTimeout(() => node.remove(), 2800);
 }
 
-const state = { homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null, polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, roomFilter: 'all', activeCamera: null, remoteActive: false };
+const state = { homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null, polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, roomFilter: 'all', activeCamera: null, remoteActive: false, remoteWatch: null };
 
 function setStatus(text, kind = '') {
   $('#loginStatus').textContent = text;
@@ -486,6 +486,24 @@ async function startRemoteCameraSet(cameras, grid) {
       video.load();
       video.play().catch(() => {});
       $('#camHint').textContent = `${usable[0].name} · 远程 CS2`;
+      if (state.remoteWatch) clearInterval(state.remoteWatch);
+      let lastTime = -1;
+      let stalled = 0;
+      state.remoteWatch = setInterval(() => {
+        if (!state.remoteActive || video.hidden) return;
+        if (video.readyState < 2 || video.paused) { stalled = 0; return; }
+        if (Math.abs(video.currentTime - lastTime) < 0.05) {
+          stalled += 1;
+          if (stalled >= 3) {
+            $('#camHint').textContent = '远程画面已停止更新，点“远程”重新连接。';
+            clearInterval(state.remoteWatch);
+            state.remoteWatch = null;
+          }
+        } else {
+          stalled = 0;
+          lastTime = video.currentTime;
+        }
+      }, 2500);
       setTimeout(() => {
         if (!video.videoWidth) {
           $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${usable[0].name}。检查 ffmpeg/WebView 的 HEVC 支持。`;
@@ -705,6 +723,7 @@ async function startCameraSet(cameras, grid) {
 }
 
 async function stopCamera() {
+  if (state.remoteWatch) { clearInterval(state.remoteWatch); state.remoteWatch = null; }
   state.cameraStreams = [];
   state.activeCamera = null;
   state.remoteActive = false;
