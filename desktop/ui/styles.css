@@ -376,3 +376,68 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .tv-remote-bottom{display:flex;justify-content:center;gap:8px}
 .tv-extra{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
 .tv-extra .tv-key{height:30px;font-size:10px;color:#4e514f}
+
+/* 原型视觉对齐：暖纸底色、侧栏层级、场景卡片和自动化时间排印 */
+:root{
+  --paper:#e7e2d7;
+  --surface:#f3f0e9;
+  --surface-2:#faf8f3;
+  --ink:#1b1a17;
+  --ink2:#6d685f;
+  --ink3:#9b958a;
+  --line:rgba(27,26,23,.11);
+  --accent:#c44f2b;
+  --accent2:rgba(196,79,43,.11);
+  --ok:#2f7457;
+}
+body{background:
+  radial-gradient(circle at 18% 0%,rgba(255,252,245,.94),transparent 42%),
+  radial-gradient(circle at 92% 8%,rgba(196,79,43,.05),transparent 38%),
+  var(--paper)}
+.side{width:236px;flex:0 0 236px;background:var(--surface);border-right:1px solid var(--line);padding:22px 15px}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--ink);color:var(--surface)}
+.mark svg{width:20px;height:20px}
+.brand{padding-bottom:24px}
+.brand strong{font-size:14px}
+.brand small{font-size:11px}
+.nav{display:flex;align-items:center;gap:8px;min-height:38px;padding:9px 12px;border-radius:10px;font-size:13px;color:var(--ink2);transition:background .15s,color .15s,box-shadow .15s}
+.nav:hover{background:rgba(255,255,255,.58);color:var(--ink)}
+.nav.active{background:var(--surface-2);color:var(--ink);box-shadow:0 1px 2px rgba(35,28,18,.06),0 10px 24px rgba(35,28,18,.05)}
+.nav-count{margin-left:auto;font-size:10px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.nav:disabled .nav-count{display:none}
+.side-foot{padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink2)}
+.top{padding-bottom:24px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:10px;letter-spacing:.15em;color:var(--ink2)}
+h1{font-size:42px}
+.ghost{border-radius:9px;background:var(--surface-2);color:var(--ink2)}
+.ghost:hover{border-color:var(--line);color:var(--ink)}
+.scene-card{display:block;padding:0;border:1px solid var(--line);border-radius:16px;background:var(--surface-2);overflow:hidden;transition:transform .16s,box-shadow .16s,border-color .16s}
+.scene-card:hover{transform:translateY(-2px);border-color:var(--line);box-shadow:0 10px 28px rgba(45,35,22,.08)}
+.scene-card .ghost{border-radius:9px;padding:8px 13px;background:#fff;color:var(--ink);border-color:var(--line)}
+.scene-art{position:relative;height:112px;overflow:hidden;background:linear-gradient(135deg,#f0d9bf,#d9b28c)}
+.scene-card[data-tone="ink"] .scene-art{background:linear-gradient(135deg,#3c3a33,#1c1b18)}
+.scene-card[data-tone="blue"] .scene-art{background:linear-gradient(135deg,#b9cfdd,#6f8fa6)}
+.scene-card[data-tone="dusk"] .scene-art{background:linear-gradient(135deg,#c9b9ab,#8d7f83)}
+.scene-art .orb{position:absolute;border-radius:50%;border:1px solid rgba(255,255,255,.45)}
+.scene-art .orb.a{width:150px;height:150px;right:-30px;top:-46px}
+.scene-art .orb.b{width:92px;height:92px;right:18px;top:-12px;background:rgba(255,255,255,.14)}
+.scene-art .orb.c{width:220px;height:220px;left:-120px;bottom:-170px}
+.scene-art .sc-ic{position:absolute;left:18px;bottom:14px;width:30px;height:30px;color:rgba(255,255,255,.92)}
+.scene-art .sc-ic svg{width:28px;height:28px}
+.scene-card[data-tone="amber"] .sc-ic{color:#6b3a12}
+.scene-info{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px}
+.scene-info h3{margin:0;font-size:15px;font-weight:600}
+.scene-info p{margin:5px 0 0;font-size:10px;color:var(--ink3);font-family:var(--mono)}
+.scene-info .ghost{flex:0 0 auto}
+.auto-list{border:1px solid var(--line);border-radius:14px;background:var(--surface-2);padding:0 16px}
+.auto-row{grid-template-columns:76px minmax(0,1fr) 42px 62px;gap:18px;padding:15px 2px}
+.auto-row time{font-family:var(--display);font-size:22px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.auto-row strong{font-size:13.5px}
+.auto-row small{font-size:10.5px}
+.switch{width:34px;height:19px}
+.switch span{background:#cbc5b9;border-radius:10px}
+.switch span::before{width:15px;height:15px}
+.switch input:checked+span{background:var(--ok)}
+.switch input:checked+span::before{transform:translateX(15px)}
+.scene-list{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.scene-art{height:96px}

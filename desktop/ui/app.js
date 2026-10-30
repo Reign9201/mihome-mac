@@ -148,6 +148,11 @@ function roomGroups() {
   return groups;
 }
 
+function setNavCount(id, count) {
+  const node = $('#' + id);
+  if (node) node.textContent = count ? String(count) : '';
+}
+
 function renderRoomBar() {
   const bar = $('#roomBar');
   bar.replaceChildren();
@@ -177,6 +182,7 @@ async function loadDevices() {
     state.devices = devices;
     state.cardProps = new Map();
     state.cardHydrated = false;
+    setNavCount('devicesCount', devices.length);
     renderDevices();
     $('#inspector').replaceChildren(el('p', 'muted', '选一台设备，查看状态和控制。'));
   } catch (error) {
@@ -327,6 +333,7 @@ async function refreshAfterTvPower(device) {
     state.devices = devices;
     state.cardProps = new Map();
     state.cardHydrated = false;
+    setNavCount('devicesCount', devices.length);
     renderDevices();
     const updated = devices.find((item) => item.did === device.did);
     if (updated) selectDevice(updated);
@@ -975,10 +982,22 @@ async function showDevices() {
   $('#automationView').hidden = true;
   $('#devicesView').hidden = false;
   document.querySelector('.main').classList.add('devices-mode');
+  document.querySelector('.main').scrollTop = 0;
   $('#reload').hidden = false;
   $('#pageTitle').textContent = state.homes.find((home) => home.id === state.homeId)?.name || '设备';
   $('#devicesNav').classList.add('active');
   $('#cameraNav').classList.remove('active');
+}
+
+function sceneTone(index) {
+  return ['amber', 'ink', 'blue', 'dusk'][index % 4];
+}
+
+function sceneIcon(name) {
+  const text = String(name);
+  const kind = /夜|晚安|睡眠/.test(text) ? 'night-light' : /影|电视|观影|影音/.test(text) ? 'tv' : /帘|窗/.test(text) ? 'curtain' : /离家|外出|离开/.test(text) ? 'smart-button' : 'light';
+  const body = DEVICE_ICONS[kind] || DEVICE_ICONS.generic;
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 }
 
 function sceneListHTML() {
@@ -986,12 +1005,17 @@ function sceneListHTML() {
     return `<div class="empty">还没有手动场景。先在米家 App 的“智能 → 手动控制”里创建一个。</div>`;
   }
   return state.scenes
-    .map(
-      (scene) => `<article class="scene-card">
-        <div><h3>${esc(scene.name)}</h3><p>${scene.id ? `ID ${esc(String(scene.id).slice(0, 12))}` : ''}</p></div>
-        <button class="ghost" data-run-scene="${esc(scene.id)}">执行</button>
-      </article>`
-    )
+    .map((scene, index) => {
+      const tone = sceneTone(index);
+      const icon = sceneIcon(scene.name);
+      return `<article class="scene-card" data-tone="${tone}">
+        <div class="scene-art"><span class="orb a"></span><span class="orb b"></span><span class="orb c"></span><span class="sc-ic">${icon}</span></div>
+        <div class="scene-info">
+          <div class="scene-text"><h3>${esc(scene.name)}</h3><p>${scene.id ? `ID ${esc(String(scene.id).slice(0, 12))}` : '手动场景'}</p></div>
+          <button class="ghost" data-run-scene="${esc(scene.id)}">执行</button>
+        </div>
+      </article>`;
+    })
     .join('');
 }
 
@@ -1001,6 +1025,7 @@ async function loadScenes() {
   box.innerHTML = '<div class="empty">读取场景…</div>';
   try {
     state.scenes = await invoke('list_scenes', { homeId: state.homeId });
+    setNavCount('sceneCount', state.scenes.length);
     box.innerHTML = sceneListHTML();
   } catch (error) {
     box.innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
@@ -1016,6 +1041,7 @@ async function showScenes() {
   $('#cameraView').hidden = true;
   $('#automationView').hidden = true;
   $('#sceneView').hidden = false;
+  document.querySelector('.main').scrollTop = 0;
   $('#pageTitle').textContent = '场景';
   $('#devicesNav').classList.remove('active');
   $('#cameraNav').classList.remove('active');
@@ -1054,6 +1080,7 @@ function renderAutomations() {
 async function loadAutomations() {
   try {
     state.automations = await invoke('list_automations');
+    setNavCount('automationCount', state.automations.length);
     renderAutomations();
   } catch (error) {
     $('#autoList').innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
@@ -1069,6 +1096,7 @@ async function showAutomations() {
   $('#cameraView').hidden = true;
   $('#sceneView').hidden = true;
   $('#automationView').hidden = false;
+  document.querySelector('.main').scrollTop = 0;
   $('#pageTitle').textContent = '自动化';
   ['devicesNav', 'cameraNav', 'sceneNav'].forEach((id) => $('#' + id).classList.remove('active'));
   $('#automationNav').classList.add('active');
@@ -1086,6 +1114,7 @@ async function showCameras() {
   $('#sceneView').hidden = true;
   $('#automationView').hidden = true;
   $('#cameraView').hidden = false;
+  document.querySelector('.main').scrollTop = 0;
   $('#pageTitle').textContent = '摄像头';
   $('#devicesNav').classList.remove('active');
   $('#cameraNav').classList.add('active');
@@ -1097,6 +1126,7 @@ async function loadCameras() {
   list.replaceChildren(el('div', 'empty', '正在读取摄像头…'));
   try {
     state.cameras = await invoke('list_cameras');
+    setNavCount('cameraCount', state.cameras.length);
     renderCameras();
   } catch (error) {
     list.replaceChildren(el('div', 'empty error', `读取摄像头失败：${error}`));
