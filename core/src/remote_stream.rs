@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::net::UdpSocket;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::auth::Session;
 use crate::media::{find_ffmpeg, free_port, tail, FileServer};
-use crate::miss::{MediaPacket, CODEC_H264, CODEC_H265};
+use crate::miss::{MediaPacket, CODEC_H264, CODEC_H265, CODEC_OPUS};
 use crate::remote::RemoteCamera;
 
 pub struct RemoteStream {
@@ -32,7 +33,7 @@ pub struct RemoteStream {
 
 impl RemoteStream {
     /// Blocking entry point. Call it from a worker thread, not the UI thread.
-    pub fn start(session: Session, did: &str, quality: u8) -> Result<Self> {
+    pub fn start(session: Session, did: &str, quality: u8, audio: bool) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -41,12 +42,13 @@ impl RemoteStream {
             &session,
             did,
             quality,
+            audio,
             Duration::from_secs(90),
         ))?;
-        Self::from_camera(camera)
+        Self::from_camera(camera, audio)
     }
 
-    fn from_camera(camera: RemoteCamera) -> Result<Self> {
+    fn from_camera(camera: RemoteCamera, audio: bool) -> Result<Self> {
         let camera = Arc::new(camera);
         let first = first_video_packet(&camera, Duration::from_secs(20))?;
         let (input_format, tag) = match first.codec_id {
@@ -69,38 +71,79 @@ impl RemoteStream {
             .open(&ffmpeg_log)?;
         let ffmpeg_err = ffmpeg_log_file.try_clone()?;
 
+        // 摄像头送来的是裸 Opus 包。给 ffmpeg 一份 SDP，用本地 UDP/RTP 喂给它，
+        // 这样视频仍是低开销 copy，音频能在 HLS 里转成 AAC。
+        let audio_target = if audio {
+            // ffmpeg 的 SDP 输入要自己 bind 这个端口；这里只保留一个发送 socket，
+            // 端口号用空闲探测提前选出来。
+            let port = free_port()?;
+            let socket = UdpSocket::bind("127.0.0.1:0").context("创建音频发送端口失败")?;
+            let sdp = format!(
+                "v=0\no=- 0 0 IN IP4 127.0.0.1\ns=MiHome Camera\nc=IN IP4 127.0.0.1\nt=0 0\nm=audio {port} RTP/AVP 96\na=rtpmap:96 opus/48000/2\na=fmtp:96 stereo=0;sprop-stereo=0\n"
+            );
+            let sdp_path = temp_dir.join("audio.sdp");
+            fs::write(&sdp_path, sdp).context("写入 audio.sdp 失败")?;
+            Some((socket, port))
+        } else {
+            None
+        };
+
+        let mut args = vec![
+            "-hide_banner".to_string(),
+            "-loglevel".to_string(),
+            "warning".to_string(),
+            "-fflags".to_string(),
+            "+genpts".to_string(),
+            "-f".to_string(),
+            input_format.to_string(),
+            "-i".to_string(),
+            "pipe:0".to_string(),
+        ];
+        if audio_target.is_some() {
+            args.extend([
+                "-protocol_whitelist".to_string(),
+                "file,udp,rtp".to_string(),
+                "-i".to_string(),
+                temp_dir.join("audio.sdp").to_string_lossy().to_string(),
+                "-map".to_string(),
+                "0:v".to_string(),
+                "-map".to_string(),
+                "1:a".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "64k".to_string(),
+                "-ar".to_string(),
+                "48000".to_string(),
+                "-ac".to_string(),
+                "1".to_string(),
+            ]);
+        } else {
+            args.extend(["-an".to_string()]);
+        }
+        args.extend([
+            "-c:v".to_string(),
+            "copy".to_string(),
+            "-tag:v".to_string(),
+            tag.to_string(),
+            "-f".to_string(),
+            "hls".to_string(),
+            "-hls_time".to_string(),
+            "1".to_string(),
+            "-hls_list_size".to_string(),
+            "6".to_string(),
+            "-hls_flags".to_string(),
+            "delete_segments+append_list+omit_endlist".to_string(),
+            "-hls_segment_type".to_string(),
+            "fmp4".to_string(),
+            "-hls_fmp4_init_filename".to_string(),
+            "init.mp4".to_string(),
+            "-hls_segment_filename".to_string(),
+            segment_pattern.to_str().unwrap_or_default().to_string(),
+            playlist.to_str().unwrap_or_default().to_string(),
+        ]);
         let mut child = Command::new(&ffmpeg)
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-fflags",
-                "+genpts",
-                "-f",
-                input_format,
-                "-i",
-                "pipe:0",
-                "-an",
-                "-c",
-                "copy",
-                "-tag:v",
-                tag,
-                "-f",
-                "hls",
-                "-hls_time",
-                "1",
-                "-hls_list_size",
-                "6",
-                "-hls_flags",
-                "delete_segments+append_list+omit_endlist",
-                "-hls_segment_type",
-                "fmp4",
-                "-hls_fmp4_init_filename",
-                "init.mp4",
-                "-hls_segment_filename",
-                segment_pattern.to_str().unwrap_or_default(),
-                playlist.to_str().unwrap_or_default(),
-            ])
+            .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::from(ffmpeg_log_file))
             .stderr(Stdio::from(ffmpeg_err))
@@ -117,13 +160,48 @@ impl RemoteStream {
         let reader = thread::Builder::new()
             .name("miss-media".to_string())
             .spawn(move || {
+                let mut last_video_seq: Option<u32> = None;
+                let mut last_audio_seq: Option<u32> = None;
+                let mut audio_base_ts: Option<u64> = None;
+                let mut rtp_seq: u16 = 0;
                 while thread_running.load(Ordering::Relaxed) {
                     match thread_camera.next_media(Duration::from_secs(3)) {
                         Ok(Some(packet)) if packet.is_video() => {
+                            if last_video_seq.is_some_and(|last| {
+                                let diff = packet.sequence.wrapping_sub(last);
+                                diff == 0 || diff > 0x7fff_ffff
+                            }) {
+                                continue;
+                            }
+                            last_video_seq = Some(packet.sequence);
                             if stdin.write_all(&packet.payload).is_err() {
                                 break;
                             }
                             thread_frames.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(Some(packet)) if packet.codec_id == CODEC_OPUS => {
+                            let Some((socket, audio_port)) = audio_target.as_ref() else { continue };
+                            if last_audio_seq.is_some_and(|last| {
+                                let diff = packet.sequence.wrapping_sub(last);
+                                diff == 0 || diff > 0x7fff_ffff
+                            }) {
+                                continue;
+                            }
+                            last_audio_seq = Some(packet.sequence);
+                            let base = *audio_base_ts.get_or_insert(packet.timestamp_ms);
+                            let timestamp =
+                                packet.timestamp_ms.saturating_sub(base).min(0xffff_ffff) * 48;
+                            let mut rtp = Vec::with_capacity(12 + packet.payload.len());
+                            rtp.push(0x80);
+                            rtp.push(96);
+                            rtp.extend_from_slice(&rtp_seq.to_be_bytes());
+                            rtp.extend_from_slice(&(timestamp as u32).to_be_bytes());
+                            rtp.extend_from_slice(&0x1234_5678u32.to_be_bytes());
+                            rtp.extend_from_slice(&packet.payload);
+                            rtp_seq = rtp_seq.wrapping_add(1);
+                            if socket.send_to(&rtp, format!("127.0.0.1:{audio_port}")).is_err() {
+                                break;
+                            }
                         }
                         Ok(_) => {}
                         Err(_) => break,

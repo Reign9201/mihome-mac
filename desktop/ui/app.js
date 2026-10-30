@@ -14,7 +14,7 @@ function toast(message, error = false) {
   setTimeout(() => node.remove(), 2800);
 }
 
-const state = { homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null, polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, roomFilter: 'all', activeCamera: null, remoteActive: false, remoteWatch: null, remoteWatches: [], remoteRestarting: false, cardProps: new Map(), cardHydrated: false, cardHydrating: false };
+const state = { homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null, polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false, remoteWatch: null, remoteWatches: [], remoteRestarting: false, cardProps: new Map(), cardHydrated: false, cardHydrating: false };
 
 function setStatus(text, kind = '') {
   $('#loginStatus').textContent = text;
@@ -228,6 +228,8 @@ function cardProfile(device) {
     action = { label: '查看监控', kind: 'camera' };
   } else if (kind === 'router') {
     action = { label: '重启', kind: 'reboot', top: true };
+  } else if (kind === 'tv') {
+    action = { label: '电源', kind: 'tv-power', top: true };
   } else if (kind === 'drying-rack') {
     metrics.push({ siid: 2, piid: 4, label: '状态', options: [[0, '停止'], [1, '上升'], [2, '下降'], [3, '暂停']] });
     controls.push({ type: 'segments', siid: 2, piid: 2, label: '升降', options: [[1, '上升'], [0, '暂停'], [2, '下降']] });
@@ -314,6 +316,46 @@ function cardReboot(device) {
       toast(`重启失败：${error}`, true);
     } finally {
       button.disabled = !device.online;
+    }
+  };
+  return button;
+}
+
+async function refreshAfterTvPower(device) {
+  try {
+    const devices = await invoke('list_devices', { homeId: state.homeId });
+    state.devices = devices;
+    state.cardProps = new Map();
+    state.cardHydrated = false;
+    renderDevices();
+    const updated = devices.find((item) => item.did === device.did);
+    if (updated) selectDevice(updated);
+  } catch (error) {
+    toast(`刷新电视状态失败：${error}`, true);
+  }
+}
+
+function cardTvPower(device) {
+  const button = el('button', 'card-power off');
+  button.type = 'button';
+  button.title = device.online ? '关机' : '开机';
+  button.setAttribute('aria-label', button.title);
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  button.onclick = async (event) => {
+    event.stopPropagation();
+    if (!device.online) {
+      toast('电视当前离线，暂不支持远程开机；先用电视遥控开机。');
+      return;
+    }
+    button.disabled = true;
+    try {
+      await invoke('call_action', { did: device.did, siid: 2, aiid: 1, params: [] });
+      toast('已发送关机指令，几秒后电视会下线。');
+      setTimeout(() => refreshAfterTvPower(device), 5000);
+    } catch (error) {
+      toast(`关机指令失败：${error}`, true);
+    } finally {
+      button.disabled = false;
     }
   };
   return button;
@@ -497,6 +539,7 @@ function renderDeviceCard(device) {
   const topActions = el('div', 'card-top-actions');
   const primary = profile.controls.find((item) => item.primary);
   if (primary) topActions.append(cardPower(device, primary));
+  else if (profile.action?.top && profile.action.kind === 'tv-power') topActions.append(cardTvPower(device));
   else if (profile.action?.top) topActions.append(cardReboot(device));
   top.append(topActions);
   card.append(top);
@@ -597,12 +640,19 @@ function inspectorProfile(device) {
   else if (kind === 'speaker' || kind === 'soundbar' || kind === 'display') {
     add({ type: 'range', siid: 2, piid: 1, label: '音量', min: 0, max: 100, suffix: '%', group: '声音' });
     add({ type: 'toggle', siid: 2, piid: 2, label: '静音', group: '声音' });
+  } else if (kind === 'tv') {
+    add({ type: 'range', siid: 4, piid: 1, label: '音量', min: 0, max: 50, suffix: '%', group: '声音' });
+    add({ type: 'toggle', siid: 4, piid: 2, label: '静音', group: '声音' });
+    add({ type: 'toggle', siid: 8, piid: 1, label: '音箱模式', group: '声音' });
+    add({ type: 'segments', siid: 2, piid: 1, label: '输入源', options: [[1, 'TV'], [2, 'DTMB'], [3, 'AV'], [4, 'HDMI 1'], [5, 'HDMI 2'], [6, 'HDMI 3']], group: '输入' });
   }
   const scene = lightSceneProfile(device);
   if (scene) add({ type: 'segments', ...scene, group: '场景' });
   const note = kind === 'door-lock'
     ? '门锁状态和开锁记录由米家锁服务管理，当前接口只返回电量。'
-    : '';
+    : kind === 'tv' && !device.online
+      ? '电视离线。云端不能远程开机；手机米家走的是本地通道。'
+      : '';
   return { ...base, metrics, controls, note };
 }
 
@@ -759,12 +809,94 @@ function detailAction(device) {
   return null;
 }
 
+function tvActionButton(device, label, siid, aiid, className = '') {
+  const button = el('button', `tv-key ${className}`.trim());
+  button.type = 'button';
+  button.textContent = label;
+  button.disabled = !device.online;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await invoke('call_action', { did: device.did, siid, aiid, params: [] });
+      toast(`已发送：${label}`);
+    } catch (error) {
+      toast(`操作失败：${error}`, true);
+    } finally {
+      button.disabled = !device.online;
+    }
+  };
+  return button;
+}
+
+function detailTvRemote(device) {
+  const section = el('section', 'detail-section tv-section');
+  section.append(el('h4', '', '遥控'));
+  const remote = el('div', 'tv-remote');
+  const top = el('div', 'tv-remote-top');
+  const power = el('button', `tv-power ${device.online ? 'on' : 'off'}`);
+  power.type = 'button';
+  power.title = device.online ? '关机' : '电视离线，暂不支持远程开机';
+  power.setAttribute('aria-label', power.title);
+  power.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  power.onclick = async () => {
+    if (!device.online) {
+      toast('电视当前离线，暂不支持远程开机；先用电视遥控开机。');
+      return;
+    }
+    power.disabled = true;
+    try {
+      await invoke('call_action', { did: device.did, siid: 2, aiid: 1, params: [] });
+      toast('已发送关机指令，几秒后电视会下线。');
+      setTimeout(() => refreshAfterTvPower(device), 5000);
+    } catch (error) {
+      toast(`关机指令失败：${error}`, true);
+    } finally {
+      power.disabled = false;
+    }
+  };
+  const volume = el('div', 'tv-volume');
+  volume.append(tvActionButton(device, '−', 7, 11, 'tv-small'), el('span', 'tv-volume-label', '音量'), tvActionButton(device, '+', 7, 12, 'tv-small'));
+  top.append(power, volume);
+  remote.append(top);
+
+  const dpad = el('div', 'tv-dpad');
+  dpad.append(tvActionButton(device, '↑', 7, 8, 'tv-dir tv-up'));
+  dpad.append(tvActionButton(device, '←', 7, 6, 'tv-dir tv-left'));
+  dpad.append(tvActionButton(device, 'OK', 7, 10, 'tv-ok'));
+  dpad.append(tvActionButton(device, '→', 7, 7, 'tv-dir tv-right'));
+  dpad.append(tvActionButton(device, '↓', 7, 9, 'tv-dir tv-down'));
+  remote.append(dpad);
+
+  const bottom = el('div', 'tv-remote-bottom');
+  bottom.append(
+    tvActionButton(device, '⌂', 7, 2, 'tv-small'),
+    tvActionButton(device, '↩', 7, 5, 'tv-small'),
+    tvActionButton(device, '☰', 7, 3, 'tv-small'),
+    tvActionButton(device, '⚙', 7, 4, 'tv-small')
+  );
+  remote.append(bottom);
+
+  const extra = el('div', 'tv-extra');
+  extra.append(
+    tvActionButton(device, '播放', 3, 1),
+    tvActionButton(device, '暂停', 3, 2),
+    tvActionButton(device, '播放/暂停', 7, 13),
+    tvActionButton(device, '截图', 7, 17)
+  );
+  remote.append(extra);
+  section.append(remote);
+  return section;
+}
+
 function renderInspector(device, error, loading = false) {
   const box = $('#inspector');
   const profile = inspectorProfile(device);
   const kind = deviceKind(device);
   const family = window.MiIcons.familyFor(kind);
   box.replaceChildren();
+  box.scrollTop = 0;
 
   const head = el('div', 'detail-head');
   const icon = el('span', 'detail-icon');
@@ -795,6 +927,8 @@ function renderInspector(device, error, loading = false) {
   }
 
   if (profile.note) box.append(el('p', 'detail-note', profile.note));
+
+  if (kind === 'tv') box.append(detailTvRemote(device));
 
   const groups = new Map();
   for (const def of profile.controls) {
@@ -979,6 +1113,14 @@ function renderCameras() {
   }
   for (const camera of state.cameras) {
     const row = el('div', 'cam-row');
+    if (state.selectedCameraDid === camera.did) row.classList.add('active');
+    row.onclick = () => {
+      state.selectedCameraDid = camera.did;
+      renderCameras();
+      if (state.selectedCameraDid === camera.did) {
+        $('#camEmpty').textContent = `已选择 ${camera.name}，点击“本地”或“远程”打开。`;
+      }
+    };
     row.append(el('span', 'cam-dot', camera.online ? '●' : '○'));
     const copy = el('div');
     copy.append(el('strong', '', camera.name));
@@ -995,7 +1137,7 @@ function renderCameras() {
     row.append(actions);
     list.append(row);
   }
-  $('#camEmpty').textContent = '选择右侧摄像头';
+  $('#camEmpty').textContent = '选择一个摄像头';
 }
 
 async function startRemoteCamera(camera) {
@@ -1019,6 +1161,7 @@ async function startRemoteCameraSet(cameras, grid) {
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
+    state.selectedCameraDid = usable[0].did;
     state.remoteActive = true;
     $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
     if (grid) {
@@ -1154,6 +1297,24 @@ async function renderCameraControls(camera, remote) {
   }
   box.append(ptz);
 
+  const video = $('#camVideo');
+  const sound = el('div', 'cam-settings');
+  const soundRow = el('div', 'cam-control');
+  soundRow.append(el('span', '', '声音'));
+  const soundToggle = el('label', 'switch');
+  const soundInput = document.createElement('input');
+  soundInput.type = 'checkbox';
+  soundInput.checked = video && !video.muted;
+  soundInput.onchange = () => {
+    if (!video) return;
+    video.muted = !soundInput.checked;
+    if (soundInput.checked) video.play().catch(() => {});
+  };
+  soundToggle.append(soundInput, el('span'));
+  soundRow.append(soundToggle);
+  sound.append(soundRow);
+  box.append(sound);
+
   const settings = el('div', 'cam-settings');
   box.append(settings);
   const loaded = await Promise.all(CAMERA_CONTROLS.map(async (def) => {
@@ -1226,6 +1387,7 @@ async function startCameraSet(cameras, grid) {
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
+    state.selectedCameraDid = usable[0].did;
     state.remoteActive = false;
     await renderCameraControls(usable[0], false);
     if (grid) {

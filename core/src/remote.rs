@@ -25,6 +25,7 @@ impl RemoteCamera {
         session: &Session,
         did: &str,
         quality: u8,
+        audio: bool,
         timeout: Duration,
     ) -> Result<Self> {
         if !(0..=3).contains(&quality) {
@@ -49,7 +50,7 @@ impl RemoteCamera {
         let key = keys.session_key(&vendor.device_public)?;
         let client = MissClient::new(relay, key);
         client.authenticate(&keys.public_hex, &vendor.sign, Duration::from_secs(15))?;
-        client.start_video(quality, false)?;
+        client.start_video(quality, audio)?;
         Ok(Self {
             client,
             vendor_id: vendor.vendor_id,

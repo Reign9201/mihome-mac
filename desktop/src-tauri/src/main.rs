@@ -295,6 +295,7 @@ async fn camera_remote_start(
     state: State<'_, Arc<AppState>>,
     did: String,
     quality: Option<u8>,
+    audio: Option<bool>,
 ) -> Result<CameraStream, String> {
     let session = state
         .cloud
@@ -319,8 +320,9 @@ async fn camera_remote_start(
     }
     let did_for_worker = did.clone();
     let quality = quality.unwrap_or(2);
+    let audio = audio.unwrap_or(true);
     let stream = tauri::async_runtime::spawn_blocking(move || {
-        RemoteStream::start(session, &did_for_worker, quality)
+        RemoteStream::start(session, &did_for_worker, quality, audio)
     })
     .await
     .map_err(error_text)?
