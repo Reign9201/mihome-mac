@@ -446,20 +446,49 @@ function cardAction(device, action) {
   return button;
 }
 
+function cardSummary(device, profile) {
+  if (!device.online) return '设备离线';
+  const parts = [];
+  for (const def of profile.metrics) {
+    if (def.secondary) continue;
+    const value = cardValue(device, def.siid, def.piid);
+    if (value === undefined || value === null) continue;
+    parts.push(formatCardValue(value, def));
+  }
+  if (!parts.length) {
+    const range = profile.controls.find((item) => item.type === 'range');
+    if (range) {
+      const value = cardValue(device, range.siid, range.piid);
+      if (value !== undefined && value !== null) parts.push(`${Number(value).toFixed(0)}${range.suffix || ''}`);
+    }
+  }
+  if (!parts.length) {
+    const primary = profile.controls.find((item) => item.primary);
+    if (primary) {
+      const value = cardValue(device, primary.siid, primary.piid);
+      if (value !== undefined && value !== null) parts.push(value ? '已开启' : '已关闭');
+    }
+  }
+  return parts.join(' ') || '在线';
+}
+
 function renderDeviceCard(device) {
   const profile = cardProfile(device);
+  const kind = deviceKind(device);
+  const family = window.MiIcons.familyFor(kind);
   const card = el('article', `device-card ${state.selected?.did === device.did ? 'active' : ''} ${device.online ? '' : 'offline'}`);
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
-  card.title = `${device.name} · ${device.model || '未知型号'}`;
+  card.setAttribute('aria-label', `${device.name}，${roomName(device)}`);
+  card.dataset.family = family;
 
   const top = el('div', 'device-card-top');
   const glyph = el('span', 'device-glyph');
-  const kind = deviceKind(device);
   glyph.dataset.kind = kind;
-  glyph.dataset.family = window.MiIcons.familyFor(kind);
+  glyph.dataset.family = family;
   glyph.innerHTML = deviceGlyph(device);
   top.append(glyph);
+
   const topActions = el('div', 'card-top-actions');
   const primary = profile.controls.find((item) => item.primary);
   if (primary) topActions.append(cardPower(device, primary));
@@ -469,41 +498,12 @@ function renderDeviceCard(device) {
 
   const title = el('div', 'device-card-title');
   title.append(el('strong', 'device-card-name', device.name));
-  title.append(el('span', 'device-room', roomName(device)));
+  const subline = el('div', 'card-subline');
+  subline.append(el('span', 'device-room', roomName(device)));
+  subline.append(el('span', 'card-subline-sep', '·'));
+  subline.append(el('span', 'card-summary', cardSummary(device, profile)));
+  title.append(subline);
   card.append(title);
-
-  if (profile.metrics.length) {
-    const metrics = el('div', 'card-metrics');
-    for (const def of profile.metrics.filter((item) => !item.secondary)) {
-      const metric = el('div', 'card-metric');
-      metric.append(el('span', 'card-metric-value', formatCardValue(cardValue(device, def.siid, def.piid), def)));
-      metric.append(el('span', 'card-metric-label', def.label));
-      metrics.append(metric);
-    }
-    card.append(metrics);
-    const battery = profile.metrics.find((item) => item.secondary);
-    if (battery && cardValue(device, battery.siid, battery.piid) !== undefined) {
-      card.append(el('span', 'card-battery', `电量 ${formatCardValue(cardValue(device, battery.siid, battery.piid), battery)}`));
-    }
-  }
-
-  if (!device.online) {
-    card.append(el('span', 'card-offline-label', '离线'));
-  } else {
-    if (profile.controls.length) {
-      const quick = el('div', 'card-quick');
-      for (const def of profile.controls.filter((item) => !item.primary)) {
-        if (def.type === 'toggle') quick.append(cardToggle(device, def));
-        else if (def.type === 'segments') quick.append(cardSegments(device, def));
-        else quick.append(cardRange(device, def));
-      }
-      card.append(quick);
-    }
-    if (profile.action && !profile.action.top) card.append(cardAction(device, profile.action));
-    if (!profile.metrics.length && !profile.controls.length && !profile.action) {
-      card.append(el('span', 'card-idle-status', '在线'));
-    }
-  }
 
   card.onclick = () => selectDevice(device);
   card.onkeydown = (event) => {
@@ -514,7 +514,6 @@ function renderDeviceCard(device) {
   };
   return card;
 }
-
 function renderDevices() {
   const list = $('#deviceList');
   list.replaceChildren();
