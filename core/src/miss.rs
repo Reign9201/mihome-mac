@@ -3,8 +3,8 @@
 use anyhow::{anyhow, Result};
 use std::time::{Duration, Instant};
 
-use crate::remote_crypto;
 use crate::relay::PpppConnection;
+use crate::remote_crypto;
 
 pub const CMD_AUTH_REQ: u32 = 0x100;
 pub const CMD_AUTH_RES: u32 = 0x101;
@@ -124,7 +124,7 @@ impl MissClient {
     /// 1 左、2 右、3 上、4 下。相机每次命令走一个固定步长。
     pub fn motor(&self, operation: u8) -> Result<()> {
         if !(1..=4).contains(&operation) {
-            return Ok(());
+            return Err(anyhow!("当前摄像头协议不支持云台停止命令，请单步操作"));
         }
         self.send_encrypted(CMD_MOTOR, &format!("{{\"operation\":{operation}}}"))
     }
@@ -142,8 +142,14 @@ impl MissClient {
             sequence: u32::from_le_bytes([message[8], message[9], message[10], message[11]]),
             flags: u32::from_le_bytes([message[12], message[13], message[14], message[15]]),
             timestamp_ms: u64::from_le_bytes([
-                message[16], message[17], message[18], message[19], message[20], message[21],
-                message[22], message[23],
+                message[16],
+                message[17],
+                message[18],
+                message[19],
+                message[20],
+                message[21],
+                message[22],
+                message[23],
             ]),
             payload,
         }))

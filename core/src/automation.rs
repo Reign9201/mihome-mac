@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Datelike, Local, NaiveTime, Timelike};
+use chrono::{DateTime, Datelike, Local, NaiveTime};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,13 @@ fn default_enabled() -> bool {
 }
 
 impl Automation {
-    pub fn new(name: String, time: String, days: Vec<u8>, scene_id: String, home_id: String) -> Self {
+    pub fn new(
+        name: String,
+        time: String,
+        days: Vec<u8>,
+        scene_id: String,
+        home_id: String,
+    ) -> Self {
         Self {
             id: String::new(),
             name,
@@ -51,13 +57,24 @@ struct FileData {
 pub struct AutomationStore {
     path: PathBuf,
     items: Vec<Automation>,
+    load_error: Option<String>,
 }
 
 impl AutomationStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let items = load_file(&path).unwrap_or_default();
-        Self { path, items }
+        match load_file(&path) {
+            Ok(items) => Self {
+                path,
+                items,
+                load_error: None,
+            },
+            Err(error) => Self {
+                path,
+                items: Vec::new(),
+                load_error: Some(error.to_string()),
+            },
+        }
     }
 
     pub fn all(&self) -> Vec<Automation> {
@@ -66,77 +83,134 @@ impl AutomationStore {
         items
     }
 
+    pub fn load_error(&self) -> Option<&str> {
+        self.load_error.as_deref()
+    }
+
     pub fn upsert(&mut self, mut item: Automation) -> Result<Vec<Automation>> {
         validate(&item)?;
         if item.id.trim().is_empty() {
             item.id = format!("a{}", chrono::Local::now().timestamp_millis());
         }
-        if let Some(existing) = self.items.iter_mut().find(|entry| entry.id == item.id) {
+        let mut next = self.items.clone();
+        if let Some(existing) = next.iter_mut().find(|entry| entry.id == item.id) {
             *existing = item;
         } else {
-            self.items.push(item);
+            next.push(item);
         }
-        self.save()?;
-        Ok(self.all())
+        self.commit(next)
     }
 
     pub fn remove(&mut self, id: &str) -> Result<Vec<Automation>> {
-        self.items.retain(|item| item.id != id);
-        self.save()?;
-        Ok(self.all())
+        let mut next = self.items.clone();
+        next.retain(|item| item.id != id);
+        self.commit(next)
     }
 
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<Vec<Automation>> {
-        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+        let mut next = self.items.clone();
+        if let Some(item) = next.iter_mut().find(|item| item.id == id) {
             item.enabled = enabled;
-            self.save()?;
+        } else {
+            return Ok(self.all());
         }
-        Ok(self.all())
+        self.commit(next)
     }
 
-    /// 取出当前时间窗口内该执行的自动化。窗口 2 分钟，避免 30 秒轮询漏掉。
+    /// 取出最近 2 分钟内应执行的自动化，兼容旧的调用方。
     pub fn due_now(&self) -> Vec<Automation> {
-        self.due_at(Local::now())
+        let now = Local::now();
+        self.due_between(now - chrono::Duration::minutes(2), now)
     }
 
     pub fn due_at(&self, now: DateTime<Local>) -> Vec<Automation> {
-        let today = now.format("%Y-%m-%d").to_string();
-        let weekday = now.weekday().number_from_monday() as u8;
+        self.due_between(now - chrono::Duration::minutes(2), now)
+    }
+
+    /// 只触发上次轮询之后到期的任务。Mac 睡眠数小时后唤醒时，也会补执行一次。
+    pub fn due_between(&self, since: DateTime<Local>, now: DateTime<Local>) -> Vec<Automation> {
+        if now <= since {
+            return Vec::new();
+        }
+        let first_day = since.date_naive();
+        let last_day = now.date_naive();
         self.items
             .iter()
             .filter(|item| {
-                if !item.enabled || !item.days.contains(&weekday) {
-                    return false;
-                }
-                if item.last_run.as_deref() == Some(today.as_str()) {
+                if !item.enabled {
                     return false;
                 }
                 let Ok(target) = NaiveTime::parse_from_str(&item.time, "%H:%M") else {
                     return false;
                 };
-                let target_minutes = target.hour() * 60 + target.minute();
-                let now_minutes = now.hour() * 60 + now.minute();
-                now_minutes >= target_minutes && now_minutes - target_minutes <= 2
+                let mut day = last_day;
+                let mut scheduled_day = None;
+                for _ in 0..14 {
+                    let weekday = day.weekday().number_from_monday() as u8;
+                    if item.days.contains(&weekday) {
+                        if let Some(candidate) = day
+                            .and_time(target)
+                            .and_local_timezone(Local)
+                            .single()
+                            .or_else(|| day.and_time(target).and_local_timezone(Local).earliest())
+                        {
+                            if candidate >= since && candidate <= now {
+                                scheduled_day = Some(day);
+                                break;
+                            }
+                        }
+                    }
+                    if day == first_day {
+                        break;
+                    }
+                    let Some(previous) = day.pred_opt() else {
+                        break;
+                    };
+                    day = previous;
+                }
+                let Some(day) = scheduled_day else {
+                    return false;
+                };
+                let marker = day.format("%Y-%m-%d").to_string();
+                item.last_run.as_deref() != Some(marker.as_str())
             })
             .cloned()
             .collect()
     }
 
     pub fn mark_run(&mut self, id: &str) -> Result<()> {
-        let today = Local::now().format("%Y-%m-%d").to_string();
-        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+        self.mark_run_at(id, Local::now())
+    }
+
+    pub fn mark_run_at(&mut self, id: &str, now: DateTime<Local>) -> Result<()> {
+        let today = now.format("%Y-%m-%d").to_string();
+        let mut next = self.items.clone();
+        if let Some(item) = next.iter_mut().find(|item| item.id == id) {
             item.last_run = Some(today);
-            self.save()?;
+            self.commit(next)?;
         }
         Ok(())
     }
 
+    fn commit(&mut self, items: Vec<Automation>) -> Result<Vec<Automation>> {
+        let previous = std::mem::replace(&mut self.items, items);
+        if let Err(error) = self.save() {
+            self.items = previous;
+            return Err(error);
+        }
+        Ok(self.all())
+    }
+
     fn save(&self) -> Result<()> {
+        if let Some(error) = &self.load_error {
+            return Err(anyhow!("自动化数据加载失败，已拒绝覆盖：{error}"));
+        }
         let data = serde_json::to_vec_pretty(&FileData {
             items: self.items.clone(),
         })?;
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("创建目录失败：{}", parent.display()))?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("创建目录失败：{}", parent.display()))?;
         }
         let temp = self.path.with_extension("json.tmp");
         fs::write(&temp, data).with_context(|| format!("写入失败：{}", temp.display()))?;
@@ -152,12 +226,13 @@ fn load_file(path: &Path) -> Result<Vec<Automation>> {
     }
     let data = fs::read(path).with_context(|| format!("读取失败：{}", path.display()))?;
     if data.is_empty() {
-        return Ok(Vec::new());
+        return Err(anyhow!("自动化文件为空：{}", path.display()));
     }
     if let Ok(file) = serde_json::from_slice::<FileData>(&data) {
         return Ok(file.items);
     }
-    Ok(serde_json::from_slice::<Vec<Automation>>(&data).unwrap_or_default())
+    serde_json::from_slice::<Vec<Automation>>(&data)
+        .with_context(|| format!("自动化文件格式错误：{}", path.display()))
 }
 
 fn validate(item: &Automation) -> Result<()> {
@@ -170,8 +245,7 @@ fn validate(item: &Automation) -> Result<()> {
     if item.home_id.trim().is_empty() {
         return Err(anyhow!("缺少家庭"));
     }
-    NaiveTime::parse_from_str(&item.time, "%H:%M")
-        .map_err(|_| anyhow!("时间必须是 HH:MM"))?;
+    NaiveTime::parse_from_str(&item.time, "%H:%M").map_err(|_| anyhow!("时间必须是 HH:MM"))?;
     if item.days.is_empty() || item.days.iter().any(|day| !(1..=7).contains(day)) {
         return Err(anyhow!("至少选择一个星期，范围 1–7"));
     }
@@ -206,22 +280,27 @@ mod tests {
     #[test]
     fn fires_in_window_once_per_day() {
         use chrono::TimeZone;
-        let dir = std::env::temp_dir().join(format!("mihome-automation-due-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mihome-automation-due-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join("automations.json");
         let mut store = AutomationStore::new(&path);
         let items = store.upsert(sample()).unwrap();
-        let now = Local.with_ymd_and_hms(2026, 10, 30, 7, 30, 0).single().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 30, 7, 30, 0)
+            .single()
+            .unwrap();
         assert_eq!(store.due_at(now).len(), 1);
         assert!(store.due_at(now + chrono::Duration::minutes(3)).is_empty());
-        store.mark_run(&items[0].id).unwrap();
+        store.mark_run_at(&items[0].id, now).unwrap();
         assert!(store.due_at(now).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn roundtrips_store() {
-        let dir = std::env::temp_dir().join(format!("mihome-automation-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mihome-automation-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join("automations.json");
         let mut store = AutomationStore::new(&path);
@@ -231,6 +310,71 @@ mod tests {
         let again = AutomationStore::new(&path);
         assert_eq!(again.all().len(), 1);
         assert!(again.all()[0].last_run.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn catches_up_after_sleep_gap() {
+        use chrono::TimeZone;
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-automation-sleep-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let path = dir.join("automations.json");
+        let mut store = AutomationStore::new(&path);
+        store.upsert(sample()).unwrap();
+        let since = Local
+            .with_ymd_and_hms(2026, 10, 30, 6, 0, 0)
+            .single()
+            .unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 30, 10, 0, 0)
+            .single()
+            .unwrap();
+        assert_eq!(store.due_between(since, now).len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_store_is_not_overwritten() {
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-automation-corrupt-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("automations.json");
+        fs::write(&path, b"{broken").unwrap();
+        let mut store = AutomationStore::new(&path);
+        assert!(store.load_error().is_some());
+        assert!(store.upsert(sample()).is_err());
+        assert!(store.all().is_empty());
+        assert_eq!(fs::read(&path).unwrap(), b"{broken");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_save_rolls_back_in_memory_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-automation-rollback-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let path = dir.join("automations.json");
+        let mut store = AutomationStore::new(&path);
+        let items = store.upsert(sample()).unwrap();
+        let blocked = dir.join("blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        store.path = blocked;
+        assert!(store.set_enabled(&items[0].id, false).is_err());
+        assert!(store.all()[0].enabled);
         let _ = fs::remove_dir_all(&dir);
     }
 }

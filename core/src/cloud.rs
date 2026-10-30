@@ -47,7 +47,6 @@ pub struct MiCloud {
     session: Session,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct MissProvision {
     pub vendor_id: i64,
@@ -115,6 +114,7 @@ impl MiCloud {
             return Err(anyhow!("没有找到家庭 {home_id:?}"));
         }
         let mut result = Vec::new();
+        let mut seen_dids = std::collections::HashSet::new();
         for home in targets {
             let numeric_home_id: u64 = home
                 .id
@@ -127,7 +127,13 @@ impl MiCloud {
                 }
             }
             let mut start_did = String::new();
+            let mut seen_cursors = std::collections::HashSet::new();
+            let mut pages = 0usize;
             loop {
+                pages += 1;
+                if pages > 1000 {
+                    return Err(anyhow!("设备分页超过 1000 页，已停止请求"));
+                }
                 let data = self
                     .session
                     .request(
@@ -151,13 +157,22 @@ impl MiCloud {
                     .unwrap_or_default();
                 for item in &info {
                     let did = value_text(&item["did"]);
+                    if did.is_empty() || !seen_dids.insert(did.clone()) {
+                        continue;
+                    }
                     let fallback = room_by_did.get(&did).cloned();
                     result.push(map_device(item, &home.id, fallback));
                 }
-                let has_more = data.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+                let has_more = data
+                    .get("has_more")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let max_did = value_text(&data["max_did"]);
                 if !has_more || max_did.is_empty() {
                     break;
+                }
+                if !seen_cursors.insert(max_did.clone()) {
+                    return Err(anyhow!("设备分页游标重复：{max_did}"));
                 }
                 start_did = max_did;
             }
@@ -243,7 +258,12 @@ impl MiCloud {
             .filter_map(|device| {
                 let mut raw = device.raw.clone();
                 if let Some(info) = network.get(&device.did) {
-                    if raw.get("localip").and_then(Value::as_str).unwrap_or("").is_empty() {
+                    if raw
+                        .get("localip")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .is_empty()
+                    {
                         raw["localip"] = Value::String(info.0.clone());
                     }
                     if info.1.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
@@ -261,7 +281,9 @@ impl MiCloud {
             .collect())
     }
 
-    async fn device_network(&self) -> Result<std::collections::HashMap<String, (String, Option<String>)>> {
+    async fn device_network(
+        &self,
+    ) -> Result<std::collections::HashMap<String, (String, Option<String>)>> {
         let result = self
             .session
             .request("/home/device_list", json!({"get_extra": true}))
@@ -278,7 +300,10 @@ impl MiCloud {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            let token = item.get("token").and_then(Value::as_str).map(str::to_string);
+            let token = item
+                .get("token")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             if !did.is_empty() && !ip.is_empty() {
                 map.insert(did, (ip, token));
             }
@@ -336,6 +361,11 @@ impl MiCloud {
     pub async fn get_props(&self, requests: &[(String, u32, u32)]) -> Result<Value> {
         // The MIoT endpoint accepts at most 20 property keys per request. Keep
         // larger card refreshes in ordered chunks and merge the result arrays.
+        let mut seen = std::collections::HashSet::new();
+        let requests: Vec<_> = requests
+            .iter()
+            .filter(|item| seen.insert((item.0.as_str(), item.1, item.2)))
+            .collect();
         let mut merged = Vec::with_capacity(requests.len());
         for chunk in requests.chunks(20) {
             let params: Vec<Value> = chunk
@@ -344,7 +374,10 @@ impl MiCloud {
                 .collect();
             let value = self
                 .session
-                .request("/miotspec/prop/get", json!({"params": params, "datasource": 1}))
+                .request(
+                    "/miotspec/prop/get",
+                    json!({"params": params, "datasource": 1}),
+                )
                 .await?;
             if let Some(items) = value.as_array() {
                 merged.extend(items.iter().cloned());
@@ -422,7 +455,11 @@ fn value_bool(value: &Value) -> bool {
     value
         .as_bool()
         .or_else(|| value.as_i64().map(|n| n != 0))
-        .or_else(|| value.as_str().map(|s| s == "1" || s.eq_ignore_ascii_case("true")))
+        .or_else(|| {
+            value
+                .as_str()
+                .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        })
         .unwrap_or(false)
 }
 

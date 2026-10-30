@@ -43,8 +43,10 @@ pub fn parse_frame(bytes: &[u8]) -> Option<(u8, &[u8])> {
         return None;
     }
     let declared = u16::from_be_bytes([bytes[2], bytes[3]]) as usize;
-    let available = declared.min(bytes.len() - FRAME_HEADER);
-    Some((bytes[1], &bytes[FRAME_HEADER..FRAME_HEADER + available]))
+    if declared > bytes.len() - FRAME_HEADER {
+        return None;
+    }
+    Some((bytes[1], &bytes[FRAME_HEADER..FRAME_HEADER + declared]))
 }
 
 #[derive(Debug, Clone)]
@@ -147,19 +149,23 @@ impl AddrBlock {
 /// is part of the format, not a typo.
 pub fn decode_init_string(encoded: &str) -> Result<Vec<String>> {
     const LUT: [u8; 54] = [
-        0x49, 0x59, 0x43, 0x3d, 0xb5, 0xbf, 0x6d, 0xa3, 0x47, 0x53, 0x4f, 0x61, 0x65, 0xe3,
-        0x71, 0xe9, 0x67, 0x7f, 0x02, 0x03, 0x0b, 0xad, 0xb3, 0x89, 0x2b, 0x2f, 0x35, 0xc1,
-        0x6b, 0x8b, 0x95, 0x97, 0x11, 0xe5, 0xa7, 0x0d, 0xef, 0xf1, 0x05, 0x07, 0x83, 0xfb,
-        0x9d, 0x3b, 0xc5, 0xc7, 0x13, 0x17, 0x1d, 0x1f, 0x25, 0x29, 0xd3, 0xdf,
+        0x49, 0x59, 0x43, 0x3d, 0xb5, 0xbf, 0x6d, 0xa3, 0x47, 0x53, 0x4f, 0x61, 0x65, 0xe3, 0x71,
+        0xe9, 0x67, 0x7f, 0x02, 0x03, 0x0b, 0xad, 0xb3, 0x89, 0x2b, 0x2f, 0x35, 0xc1, 0x6b, 0x8b,
+        0x95, 0x97, 0x11, 0xe5, 0xa7, 0x0d, 0xef, 0xf1, 0x05, 0x07, 0x83, 0xfb, 0x9d, 0x3b, 0xc5,
+        0xc7, 0x13, 0x17, 0x1d, 0x1f, 0x25, 0x29, 0xd3, 0xdf,
     ];
     let head = encoded.split(':').next().unwrap_or("");
-    if head.len() % 2 != 0 {
+    if !head.len().is_multiple_of(2) {
         return Err(anyhow!("init_string 长度不是偶数"));
     }
     let mut out = Vec::with_capacity(head.len() / 2);
     for i in 0..head.len() / 2 {
-        let hi = head.as_bytes()[2 * i].checked_sub(b'A').ok_or_else(|| anyhow!("init_string 字符越界"))?;
-        let lo = head.as_bytes()[2 * i + 1].checked_sub(b'A').ok_or_else(|| anyhow!("init_string 字符越界"))?;
+        let hi = head.as_bytes()[2 * i]
+            .checked_sub(b'A')
+            .ok_or_else(|| anyhow!("init_string 字符越界"))?;
+        let lo = head.as_bytes()[2 * i + 1]
+            .checked_sub(b'A')
+            .ok_or_else(|| anyhow!("init_string 字符越界"))?;
         if hi >= 16 || lo >= 16 {
             return Err(anyhow!("init_string 字符越界"));
         }
@@ -200,11 +206,20 @@ pub fn miss_setup_reply(request: &[u8], local: SocketAddr) -> Result<Vec<u8>> {
 pub struct DataChannel {
     expected: u16,
     pending: BTreeMap<u16, Vec<u8>>,
+    pending_bytes: usize,
     chunks: VecDeque<Vec<u8>>,
     head: usize,
     available: usize,
     messages: VecDeque<Vec<u8>>,
+    queued_bytes: usize,
 }
+
+const MAX_PENDING_FRAGMENTS: usize = 256;
+const MAX_PENDING_BYTES: usize = 2 * 1024 * 1024;
+const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_QUEUED_MESSAGES: usize = 64;
+const MAX_BUFFERED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 
 impl DataChannel {
     pub fn new() -> Self {
@@ -212,46 +227,75 @@ impl DataChannel {
     }
 
     /// Accept one DRW fragment. Returns true when it advanced the stream.
-    pub fn push(&mut self, seq: u16, data: &[u8]) -> bool {
+    pub fn push(&mut self, seq: u16, data: &[u8]) -> Result<bool> {
         let distance = seq.wrapping_sub(self.expected);
         if distance & 0x8000 != 0 {
-            return false;
+            return Ok(false);
         }
         if distance != 0 {
-            self.pending.entry(seq).or_insert_with(|| data.to_vec());
-            return false;
+            if self.pending.contains_key(&seq) {
+                return Ok(false);
+            }
+            if self.pending.len() >= MAX_PENDING_FRAGMENTS
+                || self.pending_bytes + data.len() > MAX_PENDING_BYTES
+            {
+                return Err(anyhow!("PPPP 乱序缓存超过上限"));
+            }
+            self.pending_bytes += data.len();
+            self.pending.insert(seq, data.to_vec());
+            return Ok(false);
         }
-        self.append(data);
+        self.append(data)?;
         self.expected = self.expected.wrapping_add(1);
         while let Some(next) = self.pending.remove(&self.expected) {
-            self.append(&next);
+            self.pending_bytes = self.pending_bytes.saturating_sub(next.len());
+            self.append(&next)?;
             self.expected = self.expected.wrapping_add(1);
         }
-        self.extract();
-        true
+        self.extract()?;
+        Ok(true)
     }
 
     pub fn poll(&mut self) -> Option<Vec<u8>> {
-        self.messages.pop_front()
+        let message = self.messages.pop_front()?;
+        self.queued_bytes = self.queued_bytes.saturating_sub(message.len());
+        Some(message)
     }
 
-    fn append(&mut self, data: &[u8]) {
+    pub fn requeue(&mut self, message: Vec<u8>) {
+        self.queued_bytes = self.queued_bytes.saturating_add(message.len());
+        self.messages.push_front(message);
+    }
+
+    fn append(&mut self, data: &[u8]) -> Result<()> {
         if !data.is_empty() {
+            if data.len() > MAX_BUFFERED_BYTES.saturating_sub(self.available) {
+                return Err(anyhow!("PPPP 缓冲区超过上限"));
+            }
             self.chunks.push_back(data.to_vec());
             self.available += data.len();
         }
+        Ok(())
     }
 
-    fn extract(&mut self) {
-        while self.available >= 4 {
+    fn extract(&mut self) -> Result<()> {
+        while self.available >= 4 && self.messages.len() < MAX_QUEUED_MESSAGES {
             let length = self.peek_u32() as usize;
+            if length > MAX_MESSAGE_BYTES {
+                return Err(anyhow!("PPPP 消息长度超过上限：{length}"));
+            }
+            if length > MAX_QUEUED_BYTES.saturating_sub(self.queued_bytes) {
+                return Ok(());
+            }
             if self.available < 4 + length {
-                return;
+                return Ok(());
             }
             self.skip(4);
             let message = self.read(length);
+            self.queued_bytes += message.len();
             self.messages.push_back(message);
         }
+        Ok(())
     }
 
     fn peek_u32(&self) -> u32 {
@@ -307,5 +351,42 @@ impl DataChannel {
             n -= take;
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_truncated_frames() {
+        assert!(parse_frame(&[FRAME_MAGIC, MSG_ALIVE, 0, 4, 1]).is_none());
+    }
+
+    #[test]
+    fn caps_out_of_order_packets() {
+        let mut channel = DataChannel::new();
+        for seq in 1..=MAX_PENDING_FRAGMENTS as u16 {
+            channel.push(seq, &[seq as u8]).unwrap();
+        }
+        assert!(channel
+            .push(MAX_PENDING_FRAGMENTS as u16 + 1, &[0])
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_message_length() {
+        let mut channel = DataChannel::new();
+        let length = (MAX_MESSAGE_BYTES as u32 + 1).to_be_bytes();
+        channel.append(&length).unwrap();
+        assert!(channel.extract().is_err());
+    }
+
+    #[test]
+    fn requeues_messages_without_losing_data() {
+        let mut channel = DataChannel::new();
+        channel.requeue(vec![1, 2, 3]);
+        assert_eq!(channel.poll(), Some(vec![1, 2, 3]));
+        assert_eq!(channel.queued_bytes, 0);
     }
 }

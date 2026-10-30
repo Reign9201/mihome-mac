@@ -7,10 +7,10 @@
 use anyhow::{anyhow, Context, Result};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
 use std::net::UdpSocket;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -19,6 +19,8 @@ use crate::auth::Session;
 use crate::media::{find_ffmpeg, free_port, tail, FileServer};
 use crate::miss::{MediaPacket, CODEC_H264, CODEC_H265, CODEC_OPUS};
 use crate::remote::RemoteCamera;
+
+static REMOTE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub struct RemoteStream {
     camera: Arc<RemoteCamera>,
@@ -29,6 +31,48 @@ pub struct RemoteStream {
     running: Arc<AtomicBool>,
     frames: Arc<std::sync::atomic::AtomicUsize>,
     port: u16,
+}
+
+struct StartupResources {
+    temp_dir: PathBuf,
+    child: Option<Child>,
+    reader: Option<JoinHandle<()>>,
+    running: Arc<AtomicBool>,
+    server: Option<FileServer>,
+    active: bool,
+}
+
+impl StartupResources {
+    fn new(temp_dir: PathBuf, running: Arc<AtomicBool>) -> Self {
+        Self {
+            temp_dir,
+            child: None,
+            reader: None,
+            running,
+            server: None,
+            active: true,
+        }
+    }
+}
+
+impl Drop for StartupResources {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(mut server) = self.server.take() {
+            server.stop();
+        }
+        let _ = fs::remove_dir_all(&self.temp_dir);
+    }
 }
 
 impl RemoteStream {
@@ -58,9 +102,18 @@ impl RemoteStream {
         };
 
         let ffmpeg = find_ffmpeg()?;
-        let temp_tag = free_port()?;
-        let temp_dir = std::env::temp_dir().join(format!("mihome-remote-{}-{temp_tag}", std::process::id()));
+        let sequence = REMOTE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mihome-remote-{}-{sequence}-{timestamp}",
+            std::process::id()
+        ));
         fs::create_dir_all(&temp_dir)?;
+        let running = Arc::new(AtomicBool::new(true));
+        let mut resources = StartupResources::new(temp_dir.clone(), Arc::clone(&running));
         let playlist = temp_dir.join("index.m3u8");
         let segment_pattern = temp_dir.join("seg%03d.m4s");
         let ffmpeg_log = temp_dir.join("ffmpeg.log");
@@ -149,10 +202,13 @@ impl RemoteStream {
             .stderr(Stdio::from(ffmpeg_err))
             .spawn()
             .with_context(|| format!("启动 ffmpeg 失败：{}", ffmpeg.display()))?;
-        let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("ffmpeg stdin 不可用"))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("ffmpeg stdin 不可用"))?;
         stdin.write_all(&first.payload).context("写入首帧失败")?;
+        resources.child = Some(child);
 
-        let running = Arc::new(AtomicBool::new(true));
         let frames = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let thread_frames = Arc::clone(&frames);
         let thread_camera = Arc::clone(&camera);
@@ -180,7 +236,9 @@ impl RemoteStream {
                             thread_frames.fetch_add(1, Ordering::Relaxed);
                         }
                         Ok(Some(packet)) if packet.codec_id == CODEC_OPUS => {
-                            let Some((socket, audio_port)) = audio_target.as_ref() else { continue };
+                            let Some((socket, audio_port)) = audio_target.as_ref() else {
+                                continue;
+                            };
                             if last_audio_seq.is_some_and(|last| {
                                 let diff = packet.sequence.wrapping_sub(last);
                                 diff == 0 || diff > 0x7fff_ffff
@@ -199,7 +257,10 @@ impl RemoteStream {
                             rtp.extend_from_slice(&0x1234_5678u32.to_be_bytes());
                             rtp.extend_from_slice(&packet.payload);
                             rtp_seq = rtp_seq.wrapping_add(1);
-                            if socket.send_to(&rtp, format!("127.0.0.1:{audio_port}")).is_err() {
+                            if socket
+                                .send_to(&rtp, format!("127.0.0.1:{audio_port}"))
+                                .is_err()
+                            {
                                 break;
                             }
                         }
@@ -209,16 +270,23 @@ impl RemoteStream {
                 }
             })
             .context("启动媒体写入线程失败")?;
+        resources.reader = Some(reader);
 
         let deadline = Instant::now() + Duration::from_secs(20);
+        let mut ready = false;
         while Instant::now() < deadline {
             if let Ok(text) = fs::read_to_string(&playlist) {
                 if text.contains("#EXTM3U") && text.contains("#EXTINF") {
+                    ready = true;
                     break;
                 }
             }
-            if let Some(status) = child.try_wait()? {
-                running.store(false, Ordering::Relaxed);
+            if let Some(status) = resources
+                .child
+                .as_mut()
+                .ok_or_else(|| anyhow!("ffmpeg 子进程丢失"))?
+                .try_wait()?
+            {
                 return Err(anyhow!(
                     "ffmpeg 提前退出（{status}）。\nffmpeg: {}",
                     tail(&ffmpeg_log, 6)
@@ -226,9 +294,7 @@ impl RemoteStream {
             }
             thread::sleep(Duration::from_millis(150));
         }
-        if !playlist.is_file() {
-            running.store(false, Ordering::Relaxed);
-            let _ = child.kill();
+        if !ready {
             return Err(anyhow!(
                 "远程画面没有生成 HLS。\nffmpeg: {}",
                 tail(&ffmpeg_log, 6)
@@ -237,12 +303,23 @@ impl RemoteStream {
 
         let server = FileServer::start(temp_dir.clone())?;
         let port = server.port();
+        resources.server = Some(server);
+        let ffmpeg = resources
+            .child
+            .take()
+            .ok_or_else(|| anyhow!("ffmpeg 子进程丢失"))?;
+        let server = resources
+            .server
+            .take()
+            .ok_or_else(|| anyhow!("HLS 服务丢失"))?;
+        let reader = resources.reader.take();
+        resources.active = false;
         Ok(Self {
             camera,
-            ffmpeg: child,
+            ffmpeg,
             server,
-            temp_dir,
-            reader: Some(reader),
+            temp_dir: resources.temp_dir.clone(),
+            reader,
             running,
             frames,
             port,

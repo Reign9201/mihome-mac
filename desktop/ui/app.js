@@ -1,5 +1,10 @@
 const invoke = window.__TAURI__?.core?.invoke;
 const $ = (selector) => document.querySelector(selector);
+
+for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart']) {
+  document.addEventListener(eventName, (event) => event.preventDefault());
+}
+
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -14,7 +19,16 @@ function toast(message, error = false) {
   setTimeout(() => node.remove(), 2800);
 }
 
-const state = { homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null, polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false, remoteWatch: null, remoteWatches: [], remoteRestarting: false, cardProps: new Map(), cardHydrated: false, cardHydrating: false };
+const state = {
+  homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
+  polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
+  selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
+  remoteWatch: null, remoteWatches: [], cameraGeneration: 0, cameraControlsRequest: 0,
+  restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
+  hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
+  cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
+  devicesRequest: 0, inspectorRequest: 0, scenesRequest: 0, camerasRequest: 0,
+};
 
 function setStatus(text, kind = '') {
   $('#loginStatus').textContent = text;
@@ -58,6 +72,7 @@ async function pollAuth() {
         state.polling = false;
         state.loggedIn = true;
         setStatus(`登录成功，用户 ${result.user_id}`);
+        if (result.message) toast(result.message, true);
         await loadHomes();
         return;
       }
@@ -88,8 +103,8 @@ async function loadHomes() {
     const homes = await invoke('list_homes');
     state.homes = homes;
     if (!homes.length) throw new Error('账号下没有家庭');
-    renderHomeTabs();
     state.homeId = homes[0].id;
+    renderHomeTabs();
     await loadDevices();
     $('#loginView').hidden = true;
     $('#devicesView').hidden = false;
@@ -118,7 +133,7 @@ function renderHomeTabs() {
       state.roomFilter = 'all';
       renderHomeTabs();
       await loadDevices();
-      $('#pageTitle').textContent = home.name;
+      if (state.homeId === home.id) $('#pageTitle').textContent = home.name;
     };
     box.append(button);
   }
@@ -176,22 +191,28 @@ function renderRoomBar() {
 }
 
 async function loadDevices() {
+  const request = ++state.devicesRequest;
+  const homeId = state.homeId;
   $('#deviceList').replaceChildren(el('div', 'empty', '正在读取设备…'));
   try {
-    const devices = await invoke('list_devices', { homeId: state.homeId });
+    const devices = await invoke('list_devices', { homeId });
+    if (request !== state.devicesRequest || homeId !== state.homeId) return;
     state.devices = devices;
     state.cardProps = new Map();
-    state.cardHydrated = false;
+    state.hydratedCards = new Set();
     setNavCount('devicesCount', devices.length);
     renderDevices();
     $('#inspector').replaceChildren(el('p', 'muted', '选一台设备，查看状态和控制。'));
+    loadDeviceSpecs(devices);
   } catch (error) {
+    if (request !== state.devicesRequest || homeId !== state.homeId) return;
     $('#deviceList').replaceChildren(el('div', 'empty error', `读取设备失败：${error}`));
   }
 }
 
 const DEVICE_ICONS = window.MiIcons.icons;
 const deviceKind = window.MiIcons.kindFor;
+const { profileFromSpec } = window.MiCapabilities;
 
 function deviceGlyph(device) {
   const kind = deviceKind(device);
@@ -207,81 +228,131 @@ function cardValue(device, siid, piid) {
   return state.cardProps.get(propKey(device.did, siid, piid));
 }
 
+function specFor(device) {
+  return device.spec_type ? state.specs.get(device.spec_type) : null;
+}
+
+function hasSpecAction(device, siid, aiid) {
+  return Boolean(specFor(device)?.services?.some((service) =>
+    service.iid === siid && service.actions?.some((action) => action.iid === aiid)));
+}
+
 function cardProfile(device) {
   const kind = deviceKind(device);
-  const metrics = [];
-  const controls = [];
+  const spec = specFor(device);
+  const specError = device.spec_type ? state.specErrors.get(device.spec_type) : null;
+  const fallbackNote = device.spec_type && state.specPending.has(device.spec_type)
+    ? '正在读取设备规格…'
+    : specError
+      ? `设备规格读取失败：${specError}`
+      : '没有找到公开 MIoT-Spec，当前不提供写入控制。';
+  const base = spec
+    ? profileFromSpec(spec)
+    : { metrics: [], controls: [], actions: [], note: fallbackNote };
   let action = null;
-
-  if (kind === 'temp-humidity') {
-    metrics.push({ siid: 2, piid: 1, label: '温度', unit: '°C', digits: 1 });
-    metrics.push({ siid: 2, piid: 2, label: '湿度', unit: '%', digits: 0 });
-    metrics.push({ siid: 3, piid: 1, label: '电量', unit: '%', digits: 0, secondary: true });
-  } else if (kind === 'plug' || kind.startsWith('switch')) {
-    controls.push({ type: 'toggle', siid: 2, piid: 1, label: '开关' });
-  } else if (kind === 'fan-light') {
-    controls.push({ type: 'toggle', siid: 2, piid: 1, label: '灯光' });
-    controls.push({ type: 'range', siid: 2, piid: 2, label: '亮度', min: 1, max: 100, suffix: '%' });
-    controls.push({ type: 'range', siid: 2, piid: 3, label: '色温', min: 2700, max: 6500, suffix: 'K' });
-    controls.push({ type: 'toggle', siid: 4, piid: 1, label: '风扇' });
-    controls.push({ type: 'range', siid: 4, piid: 2, label: '风速', min: 1, max: 100, suffix: '%' });
-  } else if (kind.includes('light') || kind.includes('lamp')) {
-    controls.push({ type: 'toggle', siid: 2, piid: 1, label: '灯光' });
-    controls.push({ type: 'range', siid: 2, piid: 2, label: '亮度', min: 1, max: 100, suffix: '%' });
-    controls.push({ type: 'range', siid: 2, piid: 3, label: '色温', min: 2700, max: 6500, suffix: 'K' });
-  } else if (kind === 'camera-ptz' || kind === 'camera-fixed') {
-    controls.push({ type: 'toggle', siid: 2, piid: 1, label: '摄像头' });
+  if (kind === 'camera-ptz' || kind === 'camera-fixed') {
     action = { label: '查看监控', kind: 'camera' };
-  } else if (kind === 'router') {
+  } else if (kind === 'router' && hasSpecAction(device, 2, 1)) {
     action = { label: '重启', kind: 'reboot', top: true };
-  } else if (kind === 'tv') {
+  } else if (kind === 'tv' && hasSpecAction(device, 2, 1)) {
     action = { label: '电源', kind: 'tv-power', top: true };
-  } else if (kind === 'drying-rack') {
-    metrics.push({ siid: 2, piid: 4, label: '状态', options: [[0, '停止'], [1, '上升'], [2, '下降'], [3, '暂停']] });
-    controls.push({ type: 'segments', siid: 2, piid: 2, label: '升降', options: [[1, '上升'], [0, '暂停'], [2, '下降']] });
-    controls.push({ type: 'toggle', siid: 3, piid: 1, label: '照明' });
-  } else if (kind === 'door-lock') {
-    metrics.push({ siid: 4, piid: 1003, label: '电量', unit: '%', digits: 0 });
-    metrics.push({ siid: 10, piid: 1, label: '锂电池', unit: '%', digits: 0, secondary: true });
   }
-  const primary = controls.find((item) => item.type === 'toggle');
-  if (primary) primary.primary = true;
-  return { metrics, controls, action };
+  return { ...base, action };
 }
 
-function cardRequests() {
-  const requests = [];
-  for (const device of state.devices) {
-    const profile = cardProfile(device);
-    for (const item of [...profile.metrics, ...profile.controls]) {
-      requests.push({ did: device.did, siid: item.siid, piid: item.piid });
-    }
-  }
-  return requests;
-}
-
-async function hydrateCardProps() {
-  if (state.cardHydrated || state.cardHydrating) return;
-  const requests = cardRequests();
-  if (!requests.length) {
-    state.cardHydrated = true;
-    return;
-  }
-  state.cardHydrating = true;
+async function loadDeviceSpecs(devices) {
+  const types = [...new Set(devices.map((device) => device.spec_type).filter(Boolean))];
+  const missing = types.filter((type) => !state.specs.has(type) && !state.specPending.has(type));
+  if (!missing.length) return;
+  state.specLoading = true;
+  for (const type of missing) state.specPending.add(type);
   try {
-    const result = await invoke('get_properties', { requests });
-    const list = Array.isArray(result) ? result : [];
-    for (const item of list) {
-      if (!item || !item.did) continue;
-      if (item.code && item.code !== 0) continue;
-      state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
+    const batch = await invoke('get_device_specs', { specTypes: missing });
+    for (const [type, spec] of Object.entries(batch.specs || {})) {
+      state.specs.set(type, spec);
+      state.specErrors.delete(type);
     }
-  } catch (_) {
-    // A card without a readable property still works as a shortcut to the detail panel.
+    for (const error of batch.errors || []) {
+      const type = missing.find((candidate) => String(error).startsWith(candidate)) || String(error);
+      state.specErrors.set(type, error);
+      console.warn(error);
+    }
+  } catch (error) {
+    for (const type of missing) state.specErrors.set(type, String(error));
+    toast(`读取设备规格失败：${error}`, true);
   } finally {
-    state.cardHydrated = true;
-    state.cardHydrating = false;
+    for (const type of missing) state.specPending.delete(type);
+    state.specLoading = false;
+    state.hydratedCards.clear();
     renderDevices();
+    if (!$('#cameraView').hidden) {
+      renderCameras();
+      if (state.activeCamera && state.cameraStreams.length) {
+        renderCameraControls(state.activeCamera, state.remoteActive);
+      }
+    } else if (!$('#devicesView').hidden && state.selected) {
+      const selected = state.devices.find((device) => device.did === state.selected.did);
+      if (selected) selectDevice(selected);
+    }
+  }
+}
+
+function ensureCardObserver() {
+  if (state.cardObserver || !('IntersectionObserver' in window)) return state.cardObserver;
+  state.cardObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const device = state.devices.find((item) => item.did === entry.target.dataset.did);
+      if (device) queueCardHydration(device);
+    }
+  }, { rootMargin: '360px 0px' });
+  return state.cardObserver;
+}
+
+function observeDeviceCard(card, device) {
+  if (state.hydratedCards.has(device.did)) return;
+  const observer = ensureCardObserver();
+  if (observer) observer.observe(card);
+  else queueCardHydration(device);
+}
+
+function queueCardHydration(device) {
+  if (state.hydratedCards.has(device.did)) return;
+  state.cardHydrationQueue.set(device.did, device);
+  if (state.cardHydrationTimer) return;
+  state.cardHydrationTimer = setTimeout(flushCardHydration, 90);
+}
+
+function propertyRequestsForDevice(device) {
+  const profile = cardProfile(device);
+  return [...profile.metrics, ...profile.controls]
+    .filter((item) => item.readable !== false)
+    .map((item) => ({ did: device.did, siid: item.siid, piid: item.piid }));
+}
+
+async function flushCardHydration() {
+  state.cardHydrationTimer = null;
+  const devices = [...state.cardHydrationQueue.values()];
+  state.cardHydrationQueue.clear();
+  if (!devices.length) return;
+  const requests = devices.flatMap(propertyRequestsForDevice);
+  const currentHome = state.homeId;
+  const request = state.devicesRequest;
+  if (requests.length) {
+    try {
+      const result = await invoke('get_properties', { requests });
+      if (currentHome !== state.homeId || request !== state.devicesRequest) return;
+      for (const item of Array.isArray(result) ? result : []) {
+        if (!item || !item.did || (item.code && item.code !== 0)) continue;
+        state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
+      }
+    } catch (_) {
+      // Cards remain usable as shortcuts when a model exposes no readable properties.
+    }
+  }
+  for (const device of devices) {
+    state.hydratedCards.add(device.did);
+    refreshDeviceCard(device);
   }
 }
 
@@ -302,6 +373,7 @@ async function setCardProp(device, siid, piid, value) {
   const item = Array.isArray(result) ? result[0] : result;
   if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
   state.cardProps.set(propKey(device.did, siid, piid), value);
+  refreshDeviceCard(device);
 }
 
 function cardReboot(device) {
@@ -328,11 +400,14 @@ function cardReboot(device) {
 }
 
 async function refreshAfterTvPower(device) {
+  const request = ++state.devicesRequest;
+  const homeId = state.homeId;
   try {
-    const devices = await invoke('list_devices', { homeId: state.homeId });
+    const devices = await invoke('list_devices', { homeId });
+    if (request !== state.devicesRequest || homeId !== state.homeId) return;
     state.devices = devices;
     state.cardProps = new Map();
-    state.cardHydrated = false;
+    state.hydratedCards = new Set();
     setNavCount('devicesCount', devices.length);
     renderDevices();
     const updated = devices.find((item) => item.did === device.did);
@@ -386,7 +461,6 @@ function cardPower(device, def) {
     button.disabled = true;
     try {
       await setCardProp(device, def.siid, def.piid, next);
-      renderDevices();
     } catch (error) {
       button.disabled = false;
       toast(`设置失败：${error}`, true);
@@ -407,7 +481,6 @@ function cardToggle(device, def) {
     input.disabled = true;
     try {
       await setCardProp(device, def.siid, def.piid, next);
-      renderDevices();
     } catch (error) {
       input.checked = !next;
       toast(`设置失败：${error}`, true);
@@ -430,24 +503,29 @@ function cardRange(device, def) {
   const head = el('span', 'card-range-head');
   head.append(el('span', '', def.label));
   const current = cardValue(device, def.siid, def.piid);
-  const output = el('small', '', current === undefined ? '—' : `${Number(current).toFixed(0)}${def.suffix || ''}`);
+  const step = Number(def.step) > 0 ? Number(def.step) : 1;
+  const digits = Number.isFinite(Number(def.digits))
+    ? Number(def.digits)
+    : step < 1 ? 1 : 0;
+  const displayValue = (value) => `${Number(value).toFixed(digits)}${def.suffix || ''}`;
+  const output = el('small', '', current === undefined ? '—' : displayValue(current));
   head.append(output);
   const range = document.createElement('input');
   range.type = 'range';
   range.min = String(def.min);
   range.max = String(def.max);
-  range.step = '1';
+  range.step = String(step);
   range.value = String(current ?? def.min);
   range.disabled = !device.online;
   range.oninput = () => {
-    output.textContent = `${range.value}${def.suffix || ''}`;
+    output.textContent = displayValue(range.value);
   };
   range.onchange = async () => {
     const next = Number(range.value);
     range.disabled = true;
     try {
       await setCardProp(device, def.siid, def.piid, next);
-      output.textContent = `${next}${def.suffix || ''}`;
+      output.textContent = displayValue(next);
     } catch (error) {
       toast(`设置失败：${error}`, true);
     } finally {
@@ -473,7 +551,6 @@ function cardSegments(device, def) {
       event.stopPropagation();
       try {
         await setCardProp(device, def.siid, def.piid, value);
-        renderDevices();
       } catch (error) {
         toast(`设置失败：${error}`, true);
       }
@@ -535,6 +612,7 @@ function renderDeviceCard(device) {
   card.setAttribute('role', 'button');
   card.setAttribute('aria-label', `${device.name}，${roomName(device)}`);
   card.dataset.family = family;
+  card.dataset.did = device.did;
 
   const top = el('div', 'device-card-top');
   const glyph = el('span', 'device-glyph');
@@ -569,8 +647,21 @@ function renderDeviceCard(device) {
   };
   return card;
 }
+
+function refreshDeviceCard(device) {
+  const old = [...document.querySelectorAll('.device-card')]
+    .find((node) => node.dataset.did === device.did);
+  if (!old) return;
+  const replacement = renderDeviceCard(device);
+  old.replaceWith(replacement);
+  observeDeviceCard(replacement, device);
+}
+
 function renderDevices() {
   const list = $('#deviceList');
+  for (const card of list.querySelectorAll('.device-card')) {
+    state.cardObserver?.unobserve(card);
+  }
   list.replaceChildren();
   if (!state.devices.length) {
     list.append(el('div', 'empty', '这个家庭没有设备'));
@@ -586,80 +677,23 @@ function renderDevices() {
     list.append(el('div', 'empty', '这个房间还没有设备'));
     return;
   }
-  for (const device of target) list.append(renderDeviceCard(device));
-  if (!state.cardHydrated && !state.cardHydrating) hydrateCardProps();
-}
-
-function lightSceneProfile(device) {
-  const model = String(device.model || '');
-  if (model.includes('lamp22')) {
-    return {
-      siid: 3, piid: 9, label: '场景',
-      options: [[0, '自由'], [5, '阅读'], [6, '工作'], [7, '电影'], [8, '暖光'], [9, '防蓝光'], [10, '流光']],
-    };
+  for (const device of target) {
+    const card = renderDeviceCard(device);
+    list.append(card);
+    observeDeviceCard(card, device);
   }
-  if (model.includes('cfan01')) {
-    return {
-      siid: 2, piid: 7, label: '场景',
-      options: [[0, '关闭'], [1, '阅读'], [2, '照明'], [3, '电视'], [4, '暖光'], [5, '夜灯']],
-    };
-  }
-  return null;
+  // Keep the first screen responsive even when IntersectionObserver callbacks are
+  // delayed (for example while the WebView window is in the background).
+  for (const device of target.slice(0, 8)) queueCardHydration(device);
 }
 
 function inspectorProfile(device) {
   const base = cardProfile(device);
-  const kind = deviceKind(device);
   const metrics = [...base.metrics];
-  const controls = [...base.controls];
-  const add = (item) => {
-    if (!controls.some((old) => old.siid === item.siid && old.piid === item.piid && old.type === item.type)) {
-      controls.push(item);
-    }
-  };
-  if (kind === 'fan-light') {
-    for (const item of controls) item.group = item.siid === 4 ? '风扇' : '灯光';
-  } else if (kind.includes('light') || kind.includes('lamp')) {
-    for (const item of controls) item.group = '灯光';
-  } else if (kind === 'drying-rack') {
-    for (const item of controls) item.group = item.type === 'toggle' ? '照明' : '晾衣';
-  } else if (kind === 'camera-ptz' || kind === 'camera-fixed') {
-    for (const def of CAMERA_CONTROLS) {
-      if (def.key === 'power') continue;
-      add({
-        type: def.type === 'switch' ? 'toggle' : def.type === 'select' ? 'segments' : 'range',
-        siid: def.siid,
-        piid: def.piid,
-        label: def.label,
-        options: def.options,
-        min: def.min,
-        max: def.max,
-        suffix: def.suffix,
-        group: '摄像头设置',
-      });
-    }
-  } else if (kind.startsWith('ac-')) {
-    add({ type: 'toggle', siid: 2, piid: 1, label: '电源', group: '空调', primary: true });
-    add({ type: 'range', siid: 2, piid: 2, label: '目标温度', min: 16, max: 30, suffix: '°C', group: '温度' });
-    add({ type: 'segments', siid: 2, piid: 3, label: '模式', options: [[0, '制冷'], [1, '制热'], [2, '自动'], [3, '除湿'], [4, '送风']], group: '模式' });
-    add({ type: 'segments', siid: 2, piid: 4, label: '风速', options: [[0, '自动'], [1, '低'], [2, '中'], [3, '高']], group: '风扇' });
-  }
-  else if (kind === 'speaker' || kind === 'soundbar' || kind === 'display') {
-    add({ type: 'range', siid: 2, piid: 1, label: '音量', min: 0, max: 100, suffix: '%', group: '声音' });
-    add({ type: 'toggle', siid: 2, piid: 2, label: '静音', group: '声音' });
-  } else if (kind === 'tv') {
-    add({ type: 'range', siid: 4, piid: 1, label: '音量', min: 0, max: 50, suffix: '%', group: '声音' });
-    add({ type: 'toggle', siid: 4, piid: 2, label: '静音', group: '声音' });
-    add({ type: 'toggle', siid: 8, piid: 1, label: '音箱模式', group: '声音' });
-    add({ type: 'segments', siid: 2, piid: 1, label: '输入源', options: [[1, 'TV'], [2, 'DTMB'], [3, 'AV'], [4, 'HDMI 1'], [5, 'HDMI 2'], [6, 'HDMI 3']], group: '输入' });
-  }
-  const scene = lightSceneProfile(device);
-  if (scene) add({ type: 'segments', ...scene, group: '场景' });
-  const note = kind === 'door-lock'
-    ? '门锁状态和开锁记录由米家锁服务管理，当前接口只返回电量。'
-    : kind === 'tv' && !device.online
-      ? '电视离线。云端不能远程开机；手机米家走的是本地通道。'
-      : '';
+  const controls = base.controls.map((item) => ({ ...item, group: item.group || '控制' }));
+  const note = base.note || (deviceKind(device) === 'tv' && !device.online
+    ? '电视离线。云端不能远程开机；手机米家走的是本地通道。'
+    : '');
   return { ...base, metrics, controls, note };
 }
 
@@ -667,6 +701,7 @@ function inspectorRequests(device, profile) {
   const seen = new Set();
   const requests = [];
   for (const item of [...profile.metrics, ...profile.controls]) {
+    if (item.readable === false) continue;
     const key = `${item.siid}:${item.piid}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -676,18 +711,21 @@ function inspectorRequests(device, profile) {
 }
 
 async function selectDevice(device) {
+  const request = ++state.inspectorRequest;
   state.selected = device;
   renderDevices();
   renderInspector(device, null, true);
   const profile = inspectorProfile(device);
   try {
     const result = await invoke('get_properties', { requests: inspectorRequests(device, profile) });
+    if (request !== state.inspectorRequest || state.selected?.did !== device.did) return;
     for (const item of Array.isArray(result) ? result : []) {
       if (!item || !item.did || (item.code && item.code !== 0)) continue;
       state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
     }
     renderInspector(device);
   } catch (error) {
+    if (request !== state.inspectorRequest || state.selected?.did !== device.did) return;
     renderInspector(device, String(error));
   }
 }
@@ -731,21 +769,26 @@ function detailRange(device, def) {
   const row = el('label', 'detail-range');
   const head = el('div', 'detail-range-head');
   head.append(el('span', 'detail-control-label', def.label));
-  const output = el('strong', '', raw === undefined ? '—' : `${Number(raw).toFixed(0)}${def.suffix || ''}`);
+  const step = Number(def.step) > 0 ? Number(def.step) : 1;
+  const digits = Number.isFinite(Number(def.digits))
+    ? Number(def.digits)
+    : step < 1 ? 1 : 0;
+  const displayValue = (value) => `${Number(value).toFixed(digits)}${def.suffix || ''}`;
+  const output = el('strong', '', raw === undefined ? '—' : displayValue(raw));
   head.append(output);
   const input = document.createElement('input');
   input.type = 'range';
   input.min = String(def.min);
   input.max = String(def.max);
-  input.step = '1';
+  input.step = String(step);
   input.value = String(Number.isFinite(Number(raw)) ? raw : def.min);
   input.disabled = !device.online;
-  input.oninput = () => { output.textContent = `${input.value}${def.suffix || ''}`; };
+  input.oninput = () => { output.textContent = displayValue(input.value); };
   input.onchange = async () => {
     input.disabled = true;
     try {
       await setCardProp(device, def.siid, def.piid, Number(input.value));
-      output.textContent = `${input.value}${def.suffix || ''}`;
+      output.textContent = displayValue(input.value);
     } catch (error) {
       toast(`设置失败：${error}`, true);
     } finally {
@@ -795,6 +838,7 @@ function detailAction(device) {
     return button;
   }
   if (kind === 'router') {
+    if (!hasSpecAction(device, 2, 1)) return null;
     const button = el('button', 'detail-action danger', '重启路由器');
     button.type = 'button';
     button.onclick = async () => {
@@ -816,11 +860,45 @@ function detailAction(device) {
   return null;
 }
 
+function detailSpecActions(device, profile) {
+  const kind = deviceKind(device);
+  const actions = (profile.actions || []).filter((action) =>
+    !((kind === 'router' || kind === 'tv') && action.siid === 2 && action.aiid === 1));
+  if (!actions.length) return null;
+  const section = el('section', 'detail-section');
+  section.append(el('h4', '', '设备动作'));
+  const list = el('div', 'detail-actions');
+  for (const action of actions) {
+    const button = el('button', 'detail-action secondary', action.label);
+    button.type = 'button';
+    button.disabled = !device.online;
+    button.onclick = async () => {
+      if (!confirm(`执行「${action.label}」？`)) return;
+      button.disabled = true;
+      try {
+        await invoke('call_action', {
+          did: device.did, siid: action.siid, aiid: action.aiid, params: [],
+        });
+        toast(`已执行：${action.label}`);
+      } catch (error) {
+        toast(`动作失败：${error}`, true);
+      } finally {
+        button.disabled = !device.online;
+      }
+    };
+    list.append(button);
+  }
+  section.append(list);
+  return section;
+}
+
 function tvActionButton(device, label, siid, aiid, className = '') {
   const button = el('button', `tv-key ${className}`.trim());
   button.type = 'button';
   button.textContent = label;
-  button.disabled = !device.online;
+  const available = hasSpecAction(device, siid, aiid);
+  button.disabled = !device.online || !available;
+  button.hidden = !available;
   button.title = label;
   button.setAttribute('aria-label', label);
   button.onclick = async () => {
@@ -844,6 +922,7 @@ function detailTvRemote(device) {
   const top = el('div', 'tv-remote-top');
   const power = el('button', `tv-power ${device.online ? 'on' : 'off'}`);
   power.type = 'button';
+  power.hidden = !hasSpecAction(device, 2, 1);
   power.title = device.online ? '关机' : '电视离线，暂不支持远程开机';
   power.setAttribute('aria-label', power.title);
   power.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -935,7 +1014,7 @@ function renderInspector(device, error, loading = false) {
 
   if (profile.note) box.append(el('p', 'detail-note', profile.note));
 
-  if (kind === 'tv') box.append(detailTvRemote(device));
+  if (kind === 'tv' && specFor(device)) box.append(detailTvRemote(device));
 
   const groups = new Map();
   for (const def of profile.controls) {
@@ -959,8 +1038,10 @@ function renderInspector(device, error, loading = false) {
     section.append(action);
     box.append(section);
   }
+  const specActions = detailSpecActions(device, profile);
+  if (specActions) box.append(specActions);
 
-  if (!metrics.length && !profile.controls.length && !action) {
+  if (!metrics.length && !profile.controls.length && !action && !specActions) {
     box.append(el('p', 'detail-empty', device.online ? '这台设备当前没有可读写的属性。' : '设备离线，暂时读不到状态。'));
   }
 
@@ -985,8 +1066,9 @@ async function showDevices() {
   document.querySelector('.main').scrollTop = 0;
   $('#reload').hidden = false;
   $('#pageTitle').textContent = state.homes.find((home) => home.id === state.homeId)?.name || '设备';
-  $('#devicesNav').classList.add('active');
-  $('#cameraNav').classList.remove('active');
+  for (const id of ['devicesNav', 'cameraNav', 'sceneNav', 'automationNav']) {
+    $('#' + id).classList.toggle('active', id === 'devicesNav');
+  }
 }
 
 function sceneTone(index) {
@@ -1021,19 +1103,27 @@ function sceneListHTML() {
 
 async function loadScenes() {
   if (!state.homeId) return;
+  const request = ++state.scenesRequest;
+  const homeId = state.homeId;
   const box = $('#sceneList');
+  state.scenes = [];
+  setNavCount('sceneCount', 0);
   box.innerHTML = '<div class="empty">读取场景…</div>';
   try {
-    state.scenes = await invoke('list_scenes', { homeId: state.homeId });
+    const scenes = await invoke('list_scenes', { homeId });
+    if (request !== state.scenesRequest || homeId !== state.homeId) return;
+    state.scenes = scenes;
     setNavCount('sceneCount', state.scenes.length);
     box.innerHTML = sceneListHTML();
   } catch (error) {
+    if (request !== state.scenesRequest || homeId !== state.homeId) return;
     box.innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
   }
 }
 
 async function showScenes() {
   if (!state.loggedIn) return;
+  await stopCamera();
   $('#loginView').hidden = true;
   $('#devicesView').hidden = true;
   document.querySelector('.main').classList.remove('devices-mode');
@@ -1089,6 +1179,7 @@ async function loadAutomations() {
 
 async function showAutomations() {
   if (!state.loggedIn) return;
+  await stopCamera();
   $('#loginView').hidden = true;
   $('#devicesView').hidden = true;
   document.querySelector('.main').classList.remove('devices-mode');
@@ -1116,19 +1207,27 @@ async function showCameras() {
   $('#cameraView').hidden = false;
   document.querySelector('.main').scrollTop = 0;
   $('#pageTitle').textContent = '摄像头';
-  $('#devicesNav').classList.remove('active');
-  $('#cameraNav').classList.add('active');
+  for (const id of ['devicesNav', 'cameraNav', 'sceneNav', 'automationNav']) {
+    $('#' + id).classList.toggle('active', id === 'cameraNav');
+  }
   await loadCameras();
 }
 
 async function loadCameras() {
+  const request = ++state.camerasRequest;
   const list = $('#camList');
   list.replaceChildren(el('div', 'empty', '正在读取摄像头…'));
   try {
-    state.cameras = await invoke('list_cameras');
+    const cameras = await invoke('list_cameras');
+    if (request !== state.camerasRequest) return;
+    state.cameras = cameras;
     setNavCount('cameraCount', state.cameras.length);
     renderCameras();
+    loadDeviceSpecs(cameras);
   } catch (error) {
+    if (request !== state.camerasRequest) return;
+    state.cameras = [];
+    setNavCount('cameraCount', 0);
     list.replaceChildren(el('div', 'empty error', `读取摄像头失败：${error}`));
   }
 }
@@ -1181,13 +1280,22 @@ async function startRemoteCameraSet(cameras, grid) {
     return;
   }
   await stopCamera();
+  const generation = state.cameraGeneration;
   $('#camLayout').hidden = grid;
   $('#camGrid').hidden = !grid;
   $('#camEmpty').hidden = false;
   $('#camEmpty').textContent = `正在建立 CS2 relay…首次约 10–20 秒`;
   $('#camHint').textContent = grid ? `正在建立 ${usable.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
   try {
-    const streams = await Promise.all(usable.map((camera) => invoke('camera_remote_start', { did: camera.did, quality: 1 })));
+    const settled = await Promise.allSettled(usable.map((camera) =>
+      invoke('camera_remote_start', { did: camera.did, quality: 1 })));
+    if (generation !== state.cameraGeneration) {
+      return;
+    }
+    const streams = settled.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+    const failures = settled.filter((result) => result.status === 'rejected');
+    if (!streams.length) throw failures[0]?.reason || new Error('远程通道没有启动');
+    if (failures.length) toast(`${failures.length} 路摄像头取流失败`, true);
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
@@ -1209,10 +1317,10 @@ async function startRemoteCameraSet(cameras, grid) {
         video.onerror = () => tile.append(el('span', 'error', '播放失败'));
         tile.append(video);
         $('#camGrid').append(tile);
-        watchRemote(video, camera || usable[0], () => restartRemoteCamera(camera || usable[0], video));
+        watchRemote(video, camera || usable[0], () => restartRemoteCamera(camera || usable[0], video, generation), generation);
       }
       $('#camControls').hidden = true;
-      $('#camHint').textContent = `${streams.length} 路远程 HLS 已启动 · CS2 relay`;
+      $('#camHint').textContent = `${streams.length} 路远程 HLS 已启动 · CS2 relay${failures.length ? ` · ${failures.length} 路失败` : ''}`;
     } else {
       const stream = streams[0];
       await renderCameraControls(usable[0], true);
@@ -1224,14 +1332,15 @@ async function startRemoteCameraSet(cameras, grid) {
       video.play().catch(() => {});
       $('#camHint').textContent = `${usable[0].name} · 远程 CS2`;
       if (state.remoteWatch) clearInterval(state.remoteWatch);
-      watchRemote(video, usable[0], () => restartRemoteCamera(usable[0], video));
+      watchRemote(video, usable[0], () => restartRemoteCamera(usable[0], video, generation), generation);
       setTimeout(() => {
-        if (!video.videoWidth) {
+        if (generation === state.cameraGeneration && !video.videoWidth) {
           $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${usable[0].name}。检查 ffmpeg/WebView 的 HEVC 支持。`;
         }
       }, 12000);
     }
   } catch (error) {
+    if (generation === state.cameraGeneration) await stopCamera();
     const text = String(error);
     const busy = /没有返回画面|no authentication|no frames|End of file|提前退出|peer closed/.test(text);
     $('#camEmpty').hidden = false;
@@ -1244,40 +1353,22 @@ async function startRemoteCameraSet(cameras, grid) {
   }
 }
 
-const CAMERA_CONTROLS = [
-  { key: 'power', label: '摄像头', siid: 2, piid: 1, type: 'switch' },
-  { key: 'night', label: '夜视', siid: 2, piid: 3, type: 'select', options: [[0, '开'], [1, '关'], [2, '自动']] },
-  { key: 'record', label: '录像', siid: 2, piid: 7, type: 'select', options: [[0, '持续'], [1, '仅动态'], [2, '关闭']] },
-  { key: 'tracking', label: '移动追踪', siid: 2, piid: 8, type: 'switch' },
-  { key: 'wdr', label: '宽动态', siid: 2, piid: 5, type: 'switch' },
-  { key: 'color', label: '全彩夜视', siid: 2, piid: 6, type: 'switch' },
-  { key: 'watermark', label: '时间水印', siid: 2, piid: 9, type: 'switch' },
-  { key: 'indicator', label: '状态灯', siid: 3, piid: 1, type: 'switch' },
-  { key: 'motion', label: '移动侦测', siid: 5, piid: 1, type: 'switch' },
-  { key: 'sensitivity', label: '侦测灵敏度', siid: 5, piid: 3, type: 'select', options: [[0, '低'], [1, '高']] },
-  { key: 'alarm', label: '报警间隔', siid: 5, piid: 2, type: 'range', min: 1, max: 30, step: 1, suffix: '秒' },
-  { key: 'mute', label: '扬声器静音', siid: 6, piid: 1, type: 'switch' },
-  { key: 'volume', label: '扬声器音量', siid: 6, piid: 2, type: 'range', min: 0, max: 100, step: 1, suffix: '' },
-  { key: 'cruise', label: '巡航', siid: 9, piid: 1, type: 'switch' },
-];
-
-async function readCameraProp(camera, siid, piid) {
-  const result = await invoke('get_property', { did: camera.did, siid, piid });
-  const item = Array.isArray(result) ? result[0] : result;
-  if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
-  return item?.value;
-}
-
 async function setCameraProp(camera, def, value) {
   try {
     await invoke('set_property', { did: camera.did, siid: def.siid, piid: def.piid, value });
+    state.cardProps.set(propKey(camera.did, def.siid, def.piid), value);
+    refreshDeviceCard(camera);
+    return true;
   } catch (error) {
     toast(`${def.label}设置失败：${error}`, true);
     await renderCameraControls(camera, state.remoteActive);
+    return false;
   }
 }
 
 async function renderCameraControls(camera, remote) {
+  const request = ++state.cameraControlsRequest;
+  const generation = state.cameraGeneration;
   const box = $('#camControls');
   if (!camera) {
     box.hidden = true;
@@ -1298,25 +1389,13 @@ async function renderCameraControls(camera, remote) {
       const button = el('button', className, text);
       button.type = 'button';
       button.setAttribute('aria-label', `云台${text}`);
-      let timer = null;
-      const stop = async () => {
-        if (timer) { clearInterval(timer); timer = null; }
-        try { await invoke('camera_remote_ptz', { did: camera.did, direction: 'stop', speed: 0 }); } catch (_) {}
-      };
-      const start = async (event) => {
-        event.preventDefault();
-        if (timer) return;
+      button.onclick = async () => {
         try {
           await invoke('camera_remote_ptz', { did: camera.did, direction, speed: 40 });
-          timer = setInterval(() => invoke('camera_remote_ptz', { did: camera.did, direction, speed: 40 }).catch(() => {}), 220);
         } catch (error) {
           toast(`云台命令失败：${error}`, true);
         }
       };
-      button.addEventListener('pointerdown', start);
-      button.addEventListener('pointerup', stop);
-      button.addEventListener('pointercancel', stop);
-      button.addEventListener('pointerleave', stop);
       pad.append(button);
     };
     add('up', '↑', 'ptz-up');
@@ -1348,7 +1427,10 @@ async function renderCameraControls(camera, remote) {
       try {
         await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
         await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (generation !== state.cameraGeneration) return;
         const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1, audio: true });
+        if (generation !== state.cameraGeneration) return;
+        state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
         video.src = stream.url;
         video.muted = false;
         video.load();
@@ -1370,19 +1452,35 @@ async function renderCameraControls(camera, remote) {
 
   const settings = el('div', 'cam-settings');
   box.append(settings);
-  const loaded = await Promise.all(CAMERA_CONTROLS.map(async (def) => {
+  const profile = inspectorProfile(camera);
+  const controls = profile.controls.filter((def) =>
+    def.type === 'toggle' || def.type === 'segments' || def.type === 'range');
+  const requests = controls
+    .filter((def) => def.readable !== false)
+    .map((def) => ({ did: camera.did, siid: def.siid, piid: def.piid }));
+  let values = new Map();
+  if (requests.length) {
     try {
-      return { def, value: await readCameraProp(camera, def.siid, def.piid) };
-    } catch (_) {
-      return null;
+      const result = await invoke('get_properties', { requests });
+      if (request !== state.cameraControlsRequest
+        || generation !== state.cameraGeneration
+        || state.activeCamera?.did !== camera.did) return;
+      for (const item of Array.isArray(result) ? result : []) {
+        if (!item || item.did !== camera.did || (item.code && item.code !== 0)) continue;
+        values.set(`${item.siid}:${item.piid}`, item.value);
+        state.cardProps.set(propKey(camera.did, item.siid, item.piid), item.value);
+      }
+    } catch (error) {
+      if (request !== state.cameraControlsRequest) return;
+      toast(`读取摄像头设置失败：${error}`, true);
     }
-  }));
-  for (const item of loaded.filter(Boolean)) {
-    const { def, value } = item;
+  }
+  for (const def of controls) {
+    const value = values.get(`${def.siid}:${def.piid}`);
     const row = el('div', 'cam-control');
     const label = el('span', '', def.label);
     row.append(label);
-    if (def.type === 'switch') {
+    if (def.type === 'toggle') {
       const toggle = el('label', 'switch');
       const input = document.createElement('input');
       input.type = 'checkbox';
@@ -1390,9 +1488,9 @@ async function renderCameraControls(camera, remote) {
       input.onchange = () => setCameraProp(camera, def, input.checked);
       toggle.append(input, el('span'));
       row.append(toggle);
-    } else if (def.type === 'select') {
+    } else if (def.type === 'segments') {
       const select = document.createElement('select');
-      for (const [optionValue, optionLabel] of def.options) {
+      for (const [optionValue, optionLabel] of def.options || []) {
         const option = document.createElement('option');
         option.value = String(optionValue);
         option.textContent = optionLabel;
@@ -1402,19 +1500,20 @@ async function renderCameraControls(camera, remote) {
       select.onchange = () => setCameraProp(camera, def, Number(select.value));
       row.append(select);
     } else {
-      const wrap = el('div');
-      wrap.style.display = 'flex';
-      wrap.style.alignItems = 'center';
-      wrap.style.gap = '5px';
+      const wrap = el('div', 'cam-range-wrap');
       const range = document.createElement('input');
       range.type = 'range';
       range.min = String(def.min);
       range.max = String(def.max);
-      range.step = String(def.step);
+      const step = Number(def.step) > 0 ? Number(def.step) : 1;
+      const digits = Number.isFinite(Number(def.digits))
+        ? Number(def.digits)
+        : step < 1 ? 1 : 0;
+      range.step = String(step);
       range.value = String(value ?? def.min);
-      const readout = el('small', 'muted', `${range.value}${def.suffix || ''}`);
-      readout.style.fontVariantNumeric = 'tabular-nums';
-      range.oninput = () => { readout.textContent = `${range.value}${def.suffix || ''}`; };
+      const displayValue = (next) => `${Number(next).toFixed(digits)}${def.suffix || ''}`;
+      const readout = el('small', 'muted cam-range-value', displayValue(range.value));
+      range.oninput = () => { readout.textContent = displayValue(range.value); };
       range.onchange = () => setCameraProp(camera, def, Number(range.value));
       wrap.append(range, readout);
       row.append(wrap);
@@ -1422,9 +1521,9 @@ async function renderCameraControls(camera, remote) {
     settings.append(row);
   }
   if (!settings.children.length) {
-    settings.append(el('p', 'cam-control-note', '这台摄像头没有返回可用的控制项。'));
+    settings.append(el('p', 'cam-control-note', profile.note || '这台摄像头没有返回可用的控制项。'));
   } else {
-    settings.append(el('p', 'cam-control-note', !supportsPtz ? '该机型不支持云台，其他设置在云端生效。' : remote ? '云台每次按一下转一步，按住连续转。' : '云台需要先打开远程画面。'));
+    settings.append(el('p', 'cam-control-note', !supportsPtz ? '该机型不支持云台，其他设置在云端生效。' : remote ? '云台为单步控制，每次点击转动一步。' : '云台需要先打开远程画面。'));
   }
 }
 
@@ -1434,9 +1533,14 @@ async function startCameraSet(cameras, grid) {
     $('#camHint').textContent = '没有在线且带局域网地址的摄像头';
     return;
   }
+  let generation;
   try {
     await stopCamera();
+    generation = state.cameraGeneration;
     const streams = await invoke('camera_start', { dids: usable.map((camera) => camera.did) });
+    if (generation !== state.cameraGeneration) {
+      return;
+    }
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
@@ -1460,7 +1564,7 @@ async function startCameraSet(cameras, grid) {
         video.onerror = () => tile.append(el('span', 'error', '播放失败'));
         tile.append(video);
         $('#camGrid').append(tile);
-        watchRemote(video, camera || usable[0], () => restartRemoteCamera(camera || usable[0], video));
+        watchRemote(video, camera || usable[0], () => restartLocalCamera(camera || usable[0], generation), generation);
       }
       $('#camHint').textContent = `${streams.length} 路 HLS 已启动 · 本地端口`;
     } else {
@@ -1474,23 +1578,30 @@ async function startCameraSet(cameras, grid) {
       video.load();
       video.play().catch(() => {});
       $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · ${stream.url}`;
+      watchRemote(video, usable[0], () => restartLocalCamera(usable[0], generation), generation);
       setTimeout(() => {
-        if (!video.videoWidth) {
+        if (generation === state.cameraGeneration && !video.videoWidth) {
           $('#camHint').textContent = `没有首帧：${usable[0].name}（${usable[0].ip}）。检查 Mac 与摄像头是否在同一局域网，或是否需要家庭 VPN。`;
         }
       }, 8000);
     }
     $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
   } catch (error) {
+    if (generation !== undefined && generation !== state.cameraGeneration) return;
+    await stopCamera();
     $('#camHint').textContent = `启动摄像头失败：${error}`;
   }
 }
 
-function watchRemote(video, camera, onStall) {
+function watchRemote(video, camera, onStall, generation) {
   let lastTime = -1;
   let stalled = 0;
   const timer = setInterval(() => {
-    if (!state.remoteActive || video.hidden) return;
+    if (generation !== state.cameraGeneration || !state.cameraStreams.some((stream) => stream.id === camera.did)) {
+      clearInterval(timer);
+      state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
+      return;
+    }
     if (video.readyState < 2 || video.paused) {
       stalled = 0;
       return;
@@ -1512,36 +1623,65 @@ function watchRemote(video, camera, onStall) {
   return timer;
 }
 
-async function restartRemoteCamera(camera, video) {
-  if (!camera || state.remoteRestarting) return;
-  state.remoteRestarting = true;
+async function restartRemoteCamera(camera, video, generation) {
+  if (!camera || generation !== state.cameraGeneration || state.restartingCameras.has(camera.did)) return;
+  const existingTimer = state.restartTimers.get(camera.did);
+  if (existingTimer) clearTimeout(existingTimer);
+  state.restartTimers.delete(camera.did);
+  state.restartingCameras.add(camera.did);
   $('#camHint').textContent = `${camera.name} 画面停住，正在重连…`;
   try {
     await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 1200));
+    if (generation !== state.cameraGeneration) return;
     const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
+    if (generation !== state.cameraGeneration) return;
+    state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
     video.src = stream.url;
     video.load();
     await video.play().catch(() => {});
     $('#camHint').textContent = `${camera.name} · 已自动重连`;
-    watchRemote(video, camera, () => restartRemoteCamera(camera, video));
+    watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
   } catch (error) {
     $('#camHint').textContent = `自动重连失败：${error}`;
-    setTimeout(() => {
-      if (state.remoteActive && !state.remoteRestarting) restartRemoteCamera(camera, video);
+    const timer = setTimeout(() => {
+      state.restartTimers.delete(camera.did);
+      if (generation === state.cameraGeneration && state.remoteActive) {
+        restartRemoteCamera(camera, video, generation);
+      }
     }, 5000);
+    state.restartTimers.set(camera.did, timer);
   } finally {
-    state.remoteRestarting = false;
+    state.restartingCameras.delete(camera.did);
+  }
+}
+
+async function restartLocalCamera(camera, generation) {
+  const key = `local:${camera.did}`;
+  if (generation !== state.cameraGeneration || state.restartingCameras.has(key)) return;
+  state.restartingCameras.add(key);
+  $('#camHint').textContent = `${camera.name} 画面停住，正在重建本地通道…`;
+  try {
+    const activeDids = new Set(state.cameraStreams.map((stream) => stream.id));
+    const cameras = state.cameras.filter((item) => activeDids.has(item.did));
+    await startCameraSet(cameras.length ? cameras : [camera], state.cameraGrid);
+  } finally {
+    state.restartingCameras.delete(key);
   }
 }
 
 async function stopCamera() {
+  state.cameraGeneration += 1;
   if (state.remoteWatch) { clearInterval(state.remoteWatch); state.remoteWatch = null; }
   for (const timer of state.remoteWatches) clearInterval(timer);
   state.remoteWatches = [];
   state.cameraStreams = [];
   state.activeCamera = null;
   state.remoteActive = false;
+  state.cameraControlsRequest += 1;
+  for (const timer of state.restartTimers.values()) clearTimeout(timer);
+  state.restartTimers.clear();
+  state.restartingCameras.clear();
   $('#camControls').hidden = true;
   const video = $('#camVideo');
   video.pause();
@@ -1554,7 +1694,6 @@ async function stopCamera() {
   $('#camLayout').hidden = false;
   if (invoke) {
     try { await invoke('camera_stop'); } catch (_) {}
-    try { await invoke('camera_remote_stop'); } catch (_) {}
   }
 }
 
@@ -1627,14 +1766,20 @@ $('#camGridToggle').onclick = () => {
       if (first) startCameraSet([first], false);
     }
   } else {
-    startCameraSet(state.cameras, true);
+    if (state.remoteActive) startRemoteCameraSet(state.cameras, true);
+    else startCameraSet(state.cameras, true);
   }
 };
 
 $('#startAuth').onclick = startAuth;
 $('#reload').onclick = loadDevices;
 $('#logout').onclick = async () => {
-  await invoke('auth_logout');
+  let logoutError = null;
+  try {
+    await invoke('auth_logout');
+  } catch (error) {
+    logoutError = error;
+  }
   state.loggedIn = false;
   state.polling = false;
   state.devices = [];
@@ -1662,6 +1807,7 @@ $('#logout').onclick = async () => {
   $('#qrBox').innerHTML = '<div class="qr-placeholder">二维码准备中</div>';
   setStatus('未登录');
   $('#startAuth').disabled = false;
+  if (logoutError) toast(`本地界面已退出，但清理凭据失败：${logoutError}`, true);
 };
 
 async function boot() {

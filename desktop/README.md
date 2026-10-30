@@ -22,6 +22,16 @@ desktop/package.json  @tauri-apps/cli（打包用）
 
 ## 当前状态
 
-- 已验证：扫码登录、家庭与设备读取、常用属性读写、手动场景、本地与远程摄像头取流。
+- 已实现：扫码登录、Keychain 凭据保存、家庭与设备读取、MIoT-Spec 属性控制、手动场景、本地与远程摄像头取流。
+- 已通过自动化验证：Rust 单元测试、Clippy、前端静态检查、前端测试、依赖审计，以及基于 Mock Tauri API 的界面回归。
+- 尚未完成真实环境验证：小米账号登录、真实设备控制，以及局域网/跨网段摄像头兼容性矩阵。
 - 摄像头：局域网通道需要 go2rtc 且与摄像头同网；远程通道以 CS2 机型为主。
-- 待完善：菜单栏常驻、Keychain 持久化、更多设备型号适配。
+- 待完善：菜单栏常驻、更多设备型号与摄像头固件适配。
+
+## 检查
+
+```bash
+npm run check
+npm test
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+```

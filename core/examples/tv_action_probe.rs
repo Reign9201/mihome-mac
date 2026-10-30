@@ -10,8 +10,11 @@ async fn main() {
     for d in devices.iter().filter(|d| d.model.contains("tv")) {
         println!("online={} name={} model={}", d.online, d.name, d.model);
     }
-    for (siid, aiid) in [(2u32,1u32),(6,1)] {
-        match cloud.call_action(did, siid, aiid, serde_json::json!([])).await {
+    for (siid, aiid) in [(2u32, 1u32), (6, 1)] {
+        match cloud
+            .call_action(did, siid, aiid, serde_json::json!([]))
+            .await
+        {
             Ok(v) => println!("action {siid}/{aiid} ok {v:?}"),
             Err(e) => println!("action {siid}/{aiid} err {e}"),
         }

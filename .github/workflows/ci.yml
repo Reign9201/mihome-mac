@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --manifest-path core/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path core/Cargo.toml
+
+  desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+      - run: npm run check
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop
+      - run: npm audit --audit-level=high
+        working-directory: desktop
+      - name: Download go2rtc
+        run: |
+          mkdir -p helpers/go2rtc
+          if [ "$(uname -m)" = "arm64" ]; then asset=go2rtc_mac_arm64.zip; else asset=go2rtc_mac_amd64.zip; fi
+          curl -fsSL --retry 3 --retry-delay 2 -o /tmp/go2rtc.zip "https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/$asset"
+          unzip -o /tmp/go2rtc.zip -d helpers/go2rtc
+      - run: chmod +x helpers/go2rtc/go2rtc
+      - run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: npm run build -- --no-bundle
+        working-directory: desktop

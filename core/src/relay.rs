@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,6 +23,8 @@ const SESSION_REPEATS: usize = 24;
 const HELLO_ATTEMPTS: usize = 4;
 const PORT_ATTEMPTS: usize = 4;
 const JOIN_ATTEMPTS: usize = 6;
+const COMMAND_QUEUE: usize = 64;
+const MEDIA_QUEUE: usize = 64;
 
 pub struct RelaySession {
     uid: Uid,
@@ -218,7 +220,9 @@ impl RelaySession {
 
     fn await_device_join(&self, deadline: Instant) -> Result<bool> {
         let relay = self.relay.ok_or_else(|| anyhow!("relay 地址丢失"))?;
-        let token = self.session_token.ok_or_else(|| anyhow!("session token 丢失"))?;
+        let token = self
+            .session_token
+            .ok_or_else(|| anyhow!("session token 丢失"))?;
         let uid = self.uid_bytes();
         let addr = AddrBlock::from_socket(relay)?.encode();
         let mut request = Vec::with_capacity(UID_LEN + ADDR_LEN + 4);
@@ -280,8 +284,8 @@ impl PpppConnection {
     fn start(socket: UdpSocket, relay: SocketAddr, local: SocketAddr) -> Result<Self> {
         let socket = Arc::new(socket);
         socket.set_read_timeout(Some(Duration::from_millis(500)))?;
-        let (command_tx, command_rx) = mpsc::channel();
-        let (media_tx, media_rx) = mpsc::channel();
+        let (command_tx, command_rx) = mpsc::sync_channel(COMMAND_QUEUE);
+        let (media_tx, media_rx) = mpsc::sync_channel(MEDIA_QUEUE);
         let running = Arc::new(AtomicBool::new(true));
         let rx_socket = socket.clone();
         let rx_running = running.clone();
@@ -289,7 +293,11 @@ impl PpppConnection {
         let rx_relay = relay;
         thread::Builder::new()
             .name("pppp-rx".to_string())
-            .spawn(move || receive_loop(rx_socket, rx_running, rx_relay, rx_local, command_tx, media_tx))
+            .spawn(move || {
+                receive_loop(
+                    rx_socket, rx_running, rx_relay, rx_local, command_tx, media_tx,
+                )
+            })
             .context("启动 PPPP 接收线程失败")?;
         Ok(Self {
             socket,
@@ -325,7 +333,8 @@ impl PpppConnection {
         *seq = seq.wrapping_add(1);
         drop(seq);
 
-        self.socket.send_to(&encode_frame(MSG_DRW, &payload), self.relay)?;
+        self.socket
+            .send_to(&encode_frame(MSG_DRW, &payload), self.relay)?;
         Ok(())
     }
 
@@ -341,7 +350,9 @@ impl PpppConnection {
 impl Drop for PpppConnection {
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        let _ = self.socket.send_to(&encode_frame(MSG_CLOSE, &[]), self.relay);
+        let _ = self
+            .socket
+            .send_to(&encode_frame(MSG_CLOSE, &[]), self.relay);
     }
 }
 
@@ -350,30 +361,28 @@ fn receive_loop(
     running: Arc<AtomicBool>,
     relay: SocketAddr,
     local: SocketAddr,
-    commands: Sender<Vec<u8>>,
-    media: Sender<Vec<u8>>,
+    commands: SyncSender<Vec<u8>>,
+    media: SyncSender<Vec<u8>>,
 ) {
     let mut command_channel = DataChannel::new();
     let mut media_channel = DataChannel::new();
-    let mut buf = [0u8; 4096];
+    let mut buf = vec![0u8; usize::from(u16::MAX) + FRAME_HEADER];
     while running.load(Ordering::SeqCst) {
         let (len, from) = match socket.recv_from(&mut buf) {
             Ok(value) => value,
-            Err(error)
-                if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
-            {
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 continue;
             }
             Err(_) => break,
         };
+        if from.ip() != relay.ip() {
+            continue;
+        }
         let Some((kind, payload)) = parse_frame(&buf[..len]) else {
             continue;
         };
         match kind {
             MSG_DRW => {
-                if payload.len() < 4 || payload[0] != MSG_DRW_ACK {
-                    // DRW payload begins with the channel magic 0xD1, not the frame type.
-                }
                 if payload.len() < 4 || payload[0] != 0xD1 {
                     continue;
                 }
@@ -388,22 +397,27 @@ fn receive_loop(
                     2 => &mut media_channel,
                     _ => continue,
                 };
-                target.push(seq, &payload[4..]);
+                if target.push(seq, &payload[4..]).is_err() {
+                    running.store(false, Ordering::SeqCst);
+                    break;
+                }
                 let queue = if channel == 0 { &commands } else { &media };
                 while let Some(message) = target.poll() {
-                    let _ = queue.send(message);
+                    match queue.try_send(message) {
+                        Ok(()) | Err(TrySendError::Disconnected(_)) => {}
+                        Err(TrySendError::Full(message)) => {
+                            target.requeue(message);
+                            break;
+                        }
+                    }
                 }
             }
             MSG_ALIVE => {
                 let _ = socket.send_to(&encode_frame(MSG_ALIVE_ACK, &[]), relay);
             }
             MSG_MISS_SETUP => {
-                match miss_setup_reply(payload, local) {
-                    Ok(reply) => {
-                        let _ = socket.send_to(&encode_frame(MSG_MISS_SETUP, &reply), relay);
-                        let _ = socket.send_to(&encode_frame(MSG_MISS_SETUP, &reply), from);
-                    }
-                    Err(_) => {}
+                if let Ok(reply) = miss_setup_reply(payload, local) {
+                    let _ = socket.send_to(&encode_frame(MSG_MISS_SETUP, &reply), relay);
                 }
             }
             MSG_CLOSE => break,

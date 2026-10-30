@@ -14,7 +14,11 @@ async fn main() -> anyhow::Result<()> {
     let response = reqwest::get(&url).await?;
     println!("status={}", response.status());
     let body = response.text().await?;
-    println!("bytes={} hls={}", body.len(), body.lines().next().unwrap_or(""));
+    println!(
+        "bytes={} hls={}",
+        body.len(),
+        body.lines().next().unwrap_or("")
+    );
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
 }

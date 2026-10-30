@@ -8,13 +8,18 @@ use std::time::{Duration, Instant};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let (pending, start) = start_login_for("xiaomiio").await.context("start QR login")?;
+    let (pending, start) = start_login_for("xiaomiio")
+        .await
+        .context("start QR login")?;
     fs::write("/tmp/micam-qr.svg", &start.qr_svg).context("write QR")?;
     std::process::Command::new("open")
         .arg("/tmp/micam-qr.svg")
         .status()
         .context("open QR")?;
-    println!("二维码已打开，请用米家 App 扫码；有效期 {} 秒", start.expires_in);
+    println!(
+        "二维码已打开，请用米家 App 扫码；有效期 {} 秒",
+        start.expires_in
+    );
 
     let deadline = Instant::now() + Duration::from_secs(start.expires_in);
     while Instant::now() < deadline {
@@ -33,7 +38,12 @@ async fn main() -> Result<()> {
                 "passToken": session.pass_token
             });
             let text = serde_json::to_string_pretty(&body)?;
-            let mut file = OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&path)?;
+            let mut file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .mode(0o600)
+                .open(&path)?;
             file.write_all(text.as_bytes())?;
             println!("已写入 {}（user_id={}）", path.display(), session.user_id);
             return Ok(());

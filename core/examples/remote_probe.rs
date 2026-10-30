@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let did = std::env::args().nth(1).ok_or_else(|| anyhow!("用法: remote_probe <did> [quality]"))?;
+    let did = std::env::args()
+        .nth(1)
+        .ok_or_else(|| anyhow!("用法: remote_probe <did> [quality]"))?;
     let quality = std::env::args()
         .nth(2)
         .unwrap_or_else(|| "2".to_string())
@@ -23,7 +25,8 @@ async fn main() -> Result<()> {
     }
     eprintln!("opening {} ({}) ...", device.name, device.model);
     let audio = std::env::args().nth(3).map(|v| v != "0").unwrap_or(false);
-    let camera = RemoteCamera::open(&session, &did, quality, audio, Duration::from_secs(45)).await?;
+    let camera =
+        RemoteCamera::open(&session, &did, quality, audio, Duration::from_secs(45)).await?;
     eprintln!("relay {} p2p {}", camera.relay, camera.p2p_id);
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut frames = 0usize;
@@ -34,8 +37,21 @@ async fn main() -> Result<()> {
         if let Some(packet) = camera.next_media(Duration::from_secs(2))? {
             frames += 1;
             bytes += packet.payload.len();
-            if !packet.is_video() { audio_frames += 1; audio_bytes += packet.payload.len(); }
-            if !packet.is_video() && audio_frames <= 3 { eprintln!("audio {} codec={} seq={} flags={} ts={} bytes={:02x?}", audio_frames, packet.codec_name(), packet.sequence, packet.flags, packet.timestamp_ms, &packet.payload[..packet.payload.len().min(48)]); }
+            if !packet.is_video() {
+                audio_frames += 1;
+                audio_bytes += packet.payload.len();
+            }
+            if !packet.is_video() && audio_frames <= 3 {
+                eprintln!(
+                    "audio {} codec={} seq={} flags={} ts={} bytes={:02x?}",
+                    audio_frames,
+                    packet.codec_name(),
+                    packet.sequence,
+                    packet.flags,
+                    packet.timestamp_ms,
+                    &packet.payload[..packet.payload.len().min(48)]
+                );
+            }
             if frames == 1 || packet.is_keyframe() || (!packet.is_video() && audio_frames == 1) {
                 eprintln!(
                     "frame {} codec={} key={} {}B ts={}",

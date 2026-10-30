@@ -17,14 +17,21 @@ fn main() -> anyhow::Result<()> {
             match result {
                 Ok(stream) => {
                     let url = stream.url();
-                    let _ = tx.send(format!("READY {} {:.2}s {}", name, start.elapsed().as_secs_f64(), url));
+                    let _ = tx.send(format!(
+                        "READY {} {:.2}s {}",
+                        name,
+                        start.elapsed().as_secs_f64(),
+                        url
+                    ));
                     for i in 0..6 {
                         thread::sleep(Duration::from_secs(10));
                         let _ = tx.send(format!("FRAMES {} #{} {}", name, i + 1, stream.frames()));
                     }
                     let _ = tx.send(format!("DONE {} {}", name, stream.frames()));
                 }
-                Err(e) => { let _ = tx.send(format!("ERROR {} {:#}", name, e)); }
+                Err(e) => {
+                    let _ = tx.send(format!("ERROR {} {:#}", name, e));
+                }
             }
         });
     }
@@ -32,7 +39,9 @@ fn main() -> anyhow::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(100);
     for msg in rx {
         println!("{}", msg);
-        if Instant::now() > deadline { break; }
+        if Instant::now() > deadline {
+            break;
+        }
     }
     Ok(())
 }

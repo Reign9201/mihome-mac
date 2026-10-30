@@ -6,15 +6,32 @@ use std::time::Duration;
 
 fn grab(url: &str, path: &str) -> anyhow::Result<()> {
     let status = Command::new("/opt/homebrew/bin/ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i", url, "-frames:v", "1", path])
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            url,
+            "-frames:v",
+            "1",
+            path,
+        ])
         .status()?;
-    if !status.success() { anyhow::bail!("抓帧失败 {path}"); }
+    if !status.success() {
+        anyhow::bail!("抓帧失败 {path}");
+    }
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
-    let did = std::env::args().nth(1).unwrap_or_else(|| "1178828157".into());
-    let quality = std::env::args().nth(2).and_then(|v| v.parse().ok()).unwrap_or(2);
+    let did = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "1178828157".into());
+    let quality = std::env::args()
+        .nth(2)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
     let session = Session::restore()?.ok_or_else(|| anyhow::anyhow!("没有登录会话"))?;
     let stream = RemoteStream::start(session, &did, quality, true)?;
     let url = stream.url();

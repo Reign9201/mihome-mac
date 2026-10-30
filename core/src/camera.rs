@@ -16,6 +16,7 @@ pub struct CameraDevice {
     pub online: bool,
     pub subtype: String,
     pub channel: u32,
+    pub spec_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,7 +39,7 @@ impl Go2Rtc {
         user_id: &str,
         pass_token: &str,
     ) -> Result<Self> {
-        Self::start_for_cameras(binary, &[camera.clone()], user_id, pass_token)
+        Self::start_for_cameras(binary, std::slice::from_ref(camera), user_id, pass_token)
     }
 
     pub fn start_for_cameras(
@@ -81,11 +82,7 @@ impl Go2Rtc {
 
     /// 用于本地 HLS 验收。source 是 go2rtc 的源表达式，例如 exec:ffmpeg ...。
     pub fn start_with_source(binary: &Path, id: &str, source: &str) -> Result<Self> {
-        let yaml = format!(
-            "streams:\n  {}: {}\n",
-            yaml_string(id),
-            yaml_string(source)
-        );
+        let yaml = format!("streams:\n  {}: {}\n", yaml_string(id), yaml_string(source));
         Self::start_with_yaml(binary, id, &yaml)
     }
 
@@ -97,6 +94,7 @@ impl Go2Rtc {
         let port = ports[0];
         let rtsp_port = ports[1];
         let webrtc_port = ports[2];
+        cleanup_stale_configs();
         let config_path = std::env::temp_dir().join(format!(
             "mihome-go2rtc-{}-{}.yaml",
             std::process::id(),
@@ -143,6 +141,29 @@ impl Go2Rtc {
 
     pub fn is_alive(&mut self) -> bool {
         self.child.try_wait().ok().flatten().is_none()
+    }
+}
+
+fn cleanup_stale_configs() {
+    let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(Duration::from_secs(6 * 60 * 60))
+        .unwrap_or(std::time::UNIX_EPOCH);
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("mihome-go2rtc-") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .map(|modified| modified < cutoff)
+            .unwrap_or(false);
+        if stale {
+            let _ = fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -220,6 +241,12 @@ pub fn camera_from_raw(
         .get("channel")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1) as u32;
+    let spec_type = raw
+        .get("spec_type")
+        .or_else(|| raw.get("specType"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     Some(CameraDevice {
         did,
         name,
@@ -228,6 +255,7 @@ pub fn camera_from_raw(
         online,
         subtype,
         channel,
+        spec_type,
     })
 }
 
@@ -263,7 +291,13 @@ fn url_component(value: &str) -> String {
 }
 
 fn yaml_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"))
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+    )
 }
 
 fn write_private(path: &Path, content: &str) -> Result<()> {
@@ -274,7 +308,9 @@ fn write_private(path: &Path, content: &str) -> Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path).with_context(|| format!("写入配置失败：{}", path.display()))?;
+    let mut file = options
+        .open(path)
+        .with_context(|| format!("写入配置失败：{}", path.display()))?;
     file.write_all(content.as_bytes())?;
     file.sync_all()?;
     Ok(())

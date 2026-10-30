@@ -15,11 +15,11 @@
 
 - 使用米家 App 扫码登录，无需在应用中保存账号密码
 - 读取家庭、房间和设备列表，展示设备在线状态与连接方式
-- 控制灯光、插座、空调、窗帘、门锁等常见设备
+- 按 MIoT-Spec 动态生成设备能力，只向规格声明可写的属性发送控制
 - 执行米家手动场景，保存并运行本地定时自动化
 - 通过 go2rtc 查看同一局域网内的摄像头画面
 - 通过 Rust 实现的 CS2 relay + MISS 通道进行远程取流
-- 支持监控宫格、画面控制、云台控制和事件回放界面
+- 支持监控宫格、画面控制、云台控制和单步云台操作
 - 提供明暗主题、强调色、命令面板和菜单栏速控界面
 - 附带可离线打开、无需真实账号的交互原型
 
@@ -27,7 +27,9 @@
 
 ## 当前状态
 
-桌面端已经可以完成扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流。远程摄像头通道已在 Mac 与摄像头不同网段的条件下验证，但设备型号、固件和账号权限仍会影响可用功能。
+桌面端已经实现扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流链路。当前仓库的自动化测试、静态检查和离线交互回归已经通过；真实小米账号、不同设备型号与固件、局域网及跨网段摄像头仍需要在实际环境中建立兼容性矩阵后确认。
+
+登录凭据保存在 macOS Keychain；旧版明文 `session.json` 会在首次恢复登录时自动迁移并删除。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
 
 局域网摄像头要求 Mac 与摄像头处于同一网段；远程取流目前以 CS2 机型为主，云台控制需要按型号验证。菜单栏常驻功能尚未完成。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
 
@@ -105,6 +107,7 @@ mihome-mac/
 ├── benchmarks/                   协议解析与设备网格性能基准
 ├── docs/                         产品、架构、摄像头与实现文档
 ├── LICENSE                       GPL-3.0 许可证
+├── THIRD_PARTY_NOTICES.md        上游项目与第三方许可证说明
 └── README.md
 ```
 
@@ -126,8 +129,12 @@ mihome-mac/
 提交前建议至少运行：
 
 ```bash
+cargo fmt --manifest-path core/Cargo.toml -- --check
+cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path core/Cargo.toml
 cargo check --manifest-path desktop/src-tauri/Cargo.toml
+npm --prefix desktop run check
+npm --prefix desktop test
 ```
 
 请勿提交登录凭据、Cookie、设备 Token、完整云端响应或包含个人设备信息的日志。
@@ -154,6 +161,8 @@ cargo check --manifest-path desktop/src-tauri/Cargo.toml
 由于项目包含参考并改写自 GPL-3.0 项目的协议实现，整体项目采用 GPL-3.0-or-later，以符合上游许可证的要求。你可以按照 GPL 的条款使用、修改和分发本项目；分发修改后的版本时，需要同时提供对应的完整源代码。
 
 `helpers/go2rtc/` 中的 go2rtc 助手仍按 MIT 许可证发布，其版权声明和许可证副本保留在 [helpers/go2rtc/LICENSE](helpers/go2rtc/LICENSE)。Rust、Node.js 和其他第三方依赖分别遵循各自声明的许可证。
+
+上游项目的版权归属、许可证和代码使用方式汇总在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，该文件与 GPL 许可证副本也会随 macOS 安装包分发。
 
 ## 免责声明
 

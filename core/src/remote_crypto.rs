@@ -28,8 +28,8 @@ impl KeyPair {
     }
 
     pub fn shared_secret(&self, peer_public_hex: &str) -> Result<[u8; 32]> {
-        let bytes = hex::decode(peer_public_hex.trim())
-            .map_err(|_| anyhow!("摄像头公钥不是合法 hex"))?;
+        let bytes =
+            hex::decode(peer_public_hex.trim()).map_err(|_| anyhow!("摄像头公钥不是合法 hex"))?;
         if bytes.len() != 32 {
             return Err(anyhow!("摄像头公钥应为 32 字节，实际 {}", bytes.len()));
         }
@@ -162,10 +162,9 @@ mod tests {
 
     #[test]
     fn hsalsa20_matches_nacl_vector() {
-        let shared = hex::decode(
-            "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742",
-        )
-        .unwrap();
+        let shared =
+            hex::decode("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742")
+                .unwrap();
         let mut key = [0u8; 32];
         key.copy_from_slice(&shared);
         assert_eq!(

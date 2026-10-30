@@ -7,11 +7,13 @@ pub mod miss;
 pub mod pppp;
 pub mod relay;
 pub mod remote;
-pub mod remote_stream;
 pub mod remote_crypto;
+pub mod remote_stream;
 pub mod sign;
+pub mod spec;
 
 pub use auth::{AuthStart, PendingLogin, Session, UserInfo};
-pub use camera::{CameraDevice, CameraStream};
 pub use automation::{Automation, AutomationStore};
+pub use camera::{CameraDevice, CameraStream};
 pub use cloud::{Device, Home, MiCloud, Scene};
+pub use spec::{DeviceSpec, SpecBatch, SpecRegistry};
