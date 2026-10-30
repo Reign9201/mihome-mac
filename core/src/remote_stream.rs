@@ -179,8 +179,16 @@ impl RemoteStream {
         self.frames.load(Ordering::Relaxed)
     }
 
-    pub fn ptz(&self, direction: &str, speed: u8) -> Result<()> {
-        self.camera.motor(direction, speed)
+    pub fn ptz(&self, direction: &str, _speed: u8) -> Result<()> {
+        let operation = match direction {
+            "left" => 1,
+            "right" => 2,
+            "up" => 3,
+            "down" => 4,
+            "stop" => 0,
+            other => return Err(anyhow!("不支持的云台方向: {other}")),
+        };
+        self.camera.motor(operation)
     }
 }
 

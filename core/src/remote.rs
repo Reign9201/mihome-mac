@@ -62,7 +62,7 @@ impl RemoteCamera {
         self.client.next_media(timeout)
     }
 
-    pub fn motor(&self, direction: &str, speed: u8) -> Result<()> {
-        self.client.motor(direction, speed)
+    pub fn motor(&self, operation: u8) -> Result<()> {
+        self.client.motor(operation)
     }
 }

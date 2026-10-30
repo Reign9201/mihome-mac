@@ -642,7 +642,7 @@ async function renderCameraControls(camera, remote) {
   if (!settings.children.length) {
     settings.append(el('p', 'cam-control-note', '这台摄像头没有返回可用的控制项。'));
   } else {
-    settings.append(el('p', 'cam-control-note', remote ? '云台命令为实验，部分机型可能不响应；其他设置在云端生效。' : '云台需要先打开远程画面。'));
+    settings.append(el('p', 'cam-control-note', remote ? '云台每次按一下转一步，按住连续转；039a01 没有可见位移，其他设置在云端生效。' : '云台需要先打开远程画面。'));
   }
 }
 

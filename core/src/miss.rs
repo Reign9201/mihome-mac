@@ -120,14 +120,13 @@ impl MissClient {
         self.send_encrypted(CMD_VIDEO_STOP, "")
     }
 
-    pub fn motor(&self, direction: &str, speed: u8) -> Result<()> {
-        if !matches!(direction, "left" | "right" | "up" | "down" | "stop") {
-            return Err(anyhow!("不支持的云台方向: {direction}"));
+    /// Xiaomi 摄像头的云台命令是 `{"operation":n}`，不是方向字符串：
+    /// 1 左、2 右、3 上、4 下。相机每次命令走一个固定步长。
+    pub fn motor(&self, operation: u8) -> Result<()> {
+        if !(1..=4).contains(&operation) {
+            return Ok(());
         }
-        self.send_encrypted(
-            CMD_MOTOR,
-            &format!("{{\"direction\":\"{direction}\",\"speed\":{speed}}}"),
-        )
+        self.send_encrypted(CMD_MOTOR, &format!("{{\"operation\":{operation}}}"))
     }
 
     pub fn next_media(&self, timeout: Duration) -> Result<Option<MediaPacket>> {
