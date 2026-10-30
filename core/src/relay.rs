@@ -137,9 +137,13 @@ impl RelaySession {
                 .with_context(|| format!("rendezvous 地址无效: {server}"))?;
             self.send(addr, MSG_LIST_REQ1, &uid)?;
         }
-        let stop = (Instant::now() + Duration::from_millis(2500)).min(deadline);
+        let hard_stop = (Instant::now() + Duration::from_millis(2500)).min(deadline);
+        // The first RLY_TO usually arrives in a few hundred milliseconds. Once one
+        // relay answers, keep a short quiet window for other candidates instead of
+        // burning the full 2.5 s on every camera open.
+        let mut quiet_stop = hard_stop;
         let mut out: BTreeMap<SocketAddr, Vec<[u8; 4]>> = BTreeMap::new();
-        while let Some((kind, payload, _)) = self.receive(stop) {
+        while let Some((kind, payload, _)) = self.receive(quiet_stop) {
             if kind != MSG_RLY_TO || payload.len() < 20 {
                 continue;
             }
@@ -150,6 +154,7 @@ impl RelaySession {
             if !entry.contains(&token) {
                 entry.push(token);
             }
+            quiet_stop = (Instant::now() + Duration::from_millis(600)).min(hard_stop);
         }
         Ok(out)
     }
