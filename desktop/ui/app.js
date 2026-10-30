@@ -1157,7 +1157,7 @@ async function startRemoteCameraSet(cameras, grid) {
   $('#camEmpty').textContent = `正在建立 CS2 relay…首次约 10–20 秒`;
   $('#camHint').textContent = grid ? `正在建立 ${usable.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
   try {
-    const streams = await Promise.all(usable.map((camera) => invoke('camera_remote_start', { did: camera.did, quality: 2 })));
+    const streams = await Promise.all(usable.map((camera) => invoke('camera_remote_start', { did: camera.did, quality: 1 })));
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
@@ -1318,7 +1318,7 @@ async function renderCameraControls(camera, remote) {
       try {
         await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        const stream = await invoke('camera_remote_start', { did: camera.did, quality: 2, audio: true });
+        const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1, audio: true });
         video.src = stream.url;
         video.muted = false;
         video.load();
@@ -1489,7 +1489,7 @@ async function restartRemoteCamera(camera, video) {
   try {
     await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 1200));
-    const stream = await invoke('camera_remote_start', { did: camera.did, quality: 2 });
+    const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
     video.src = stream.url;
     video.load();
     await video.play().catch(() => {});

@@ -42,13 +42,15 @@
           <div class="actions"><button id="camRemoteGrid" class="ghost">远程宫格</button><button id="camGridToggle" class="ghost">宫格</button><button id="camReload" class="ghost">刷新</button></div>
         </div>
         <div class="cam-layout" id="camLayout">
-          <div class="cam-stage">
-            <video id="camVideo" controls autoplay muted playsinline hidden></video>
-            <div id="camEmpty" class="empty">正在读取摄像头…</div>
+          <div class="cam-left">
+            <aside id="camList" class="cam-list"></aside>
+            <div class="cam-stage">
+              <video id="camVideo" controls autoplay muted playsinline hidden></video>
+              <div id="camEmpty" class="empty">正在读取摄像头…</div>
+            </div>
           </div>
-          <aside id="camList" class="cam-list"></aside>
+          <div id="camControls" class="cam-controls" hidden></div>
         </div>
-        <div id="camControls" class="cam-controls" hidden></div>
         <div id="camGrid" class="cam-grid" hidden></div>
         <p id="camHint" class="fine">本地走 go2rtc；远程通道走 CS2 relay，首次连接约 10–20 秒。</p>
       </section>

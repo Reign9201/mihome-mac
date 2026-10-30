@@ -4,16 +4,18 @@
 /* M2 摄像头开发页 */
 .camera-page .toolbar{align-items:flex-end}
 .camera-page h2{font-family:var(--display);font-size:26px;font-weight:500;margin:2px 0 0}
-.cam-layout{display:grid;grid-template-columns:minmax(0,1fr) 252px;gap:14px;margin-top:18px}
+.cam-layout{display:grid;grid-template-columns:minmax(0,720px) minmax(320px,1fr);gap:20px;margin-top:18px;align-items:start}
+.cam-left{display:flex;flex-direction:column;gap:14px;min-width:0}
 .cam-stage{position:relative;aspect-ratio:16/9;background:#090b0d;border:1px solid #26292b;border-radius:10px;overflow:hidden}
 .cam-stage video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .cam-stage video[hidden]{display:none}
 .cam-stage .empty{position:absolute;inset:0;display:grid;place-items:center;color:#8c8f8b;background:#090b0d}.cam-stage .empty[hidden]{display:none}
-.cam-list{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden;min-height:180px}
-.cam-list .empty{padding:22px 14px}
-.cam-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;padding:13px 12px;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left;color:var(--ink);cursor:default;font:inherit}
-.cam-row:last-child{border-bottom:0}
+.cam-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.cam-list .empty{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);grid-column:1/-1}
+.cam-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);text-align:left;color:var(--ink);cursor:default;font:inherit}
 .cam-row:hover{background:var(--paper)}
+.cam-row.active{border-color:var(--accent);background:var(--accent2);box-shadow:0 0 0 1px var(--accent)}
+.cam-row.active:hover{background:var(--accent2)}
 .cam-row:disabled{opacity:.52;cursor:not-allowed}
 .cam-actions{display:flex;gap:4px;align-items:center}
 .cam-actions .pill{background:transparent;cursor:pointer;font:9px var(--sans);padding:4px 6px}
@@ -25,29 +27,28 @@
 .cam-row small{display:block;margin-top:3px;color:var(--ink3);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cam-dot{color:var(--ok);font-size:10px}
 .cam-row .pill{border:1px solid var(--line);border-radius:4px;padding:3px 5px;color:var(--ink3);font-size:9px}
-.cam-controls{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-top:14px;padding:14px;display:grid;grid-template-columns:150px minmax(0,1fr);gap:20px}
+.cam-controls{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 .cam-controls[hidden]{display:none!important}
-.cam-ptz{border-right:1px solid var(--line);padding-right:18px}
+.cam-ptz{padding-bottom:12px;border-bottom:1px solid var(--line)}
 .cam-ptz .eyebrow{margin-bottom:9px}
 .ptz-pad{display:grid;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,30px);gap:4px}
 .ptz-pad button{border:1px solid var(--line);background:var(--paper);color:var(--ink2);border-radius:5px;font:14px var(--sans);cursor:pointer;touch-action:none}
 .ptz-pad button:hover{border-color:var(--ink3);color:var(--ink)}
 .ptz-pad button:active{background:var(--accent2);border-color:var(--accent);color:var(--accent)}
 .ptz-pad .ptz-up{grid-column:2;grid-row:1}.ptz-pad .ptz-left{grid-column:1;grid-row:2}.ptz-pad .ptz-home{grid-column:2;grid-row:2;font-size:9px}.ptz-pad .ptz-right{grid-column:3;grid-row:2}.ptz-pad .ptz-down{grid-column:2;grid-row:3}
-.cam-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 18px;align-content:start}
+.cam-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 16px;align-content:start}
 .cam-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;min-height:26px;font-size:11px;color:var(--ink2)}
 .cam-control select{border:1px solid var(--line);border-radius:4px;background:var(--paper);color:var(--ink);font:10px var(--sans);padding:3px 4px;max-width:86px}
 .cam-control input[type=range]{width:72px;accent-color:var(--accent)}
 .cam-control .switch{transform:scale(.82);transform-origin:right center}
 .cam-control .muted{font-size:10px;color:var(--ink3)}
 .cam-control-note{grid-column:1/-1;font-size:10px;color:var(--ink3);border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
-@media(max-width:900px){.cam-controls{grid-template-columns:1fr}.cam-ptz{border-right:0;border-bottom:1px solid var(--line);padding:0 0 12px}.cam-settings{grid-template-columns:1fr}}
 .cam-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:18px}
 .cam-tile{position:relative;aspect-ratio:16/9;background:#000;border:1px solid #26292b;border-radius:9px;overflow:hidden}
 .cam-tile video{display:block;width:100%;height:100%;object-fit:contain}
 .cam-tile-title{position:absolute;z-index:1;left:9px;top:8px;padding:3px 6px;border-radius:3px;background:rgba(0,0,0,.55);color:#eee;font-size:9px}
 .cam-tile .error{position:absolute;left:9px;bottom:8px;font-size:10px}
-@media(max-width:900px){.cam-layout{grid-template-columns:1fr}.cam-grid{grid-template-columns:1fr}.cam-list{display:flex;overflow:auto}.cam-row{min-width:190px;border-right:1px solid var(--line);border-bottom:0}.cam-stage{aspect-ratio:16/9}}
+@media(max-width:900px){.cam-layout{grid-template-columns:1fr}.cam-grid{grid-template-columns:1fr}.cam-stage{aspect-ratio:16/9}}
 .cam-layout[hidden],.cam-grid[hidden],.camera-page[hidden]{display:none!important}
 
 /* M3 手动场景 */
@@ -353,3 +354,25 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .devices-content{min-width:0}
 .devices-layout .inspector{margin-top:13px;padding:18px;border:1px solid #e8dfd0;border-radius:16px;background:#fffdf9;box-shadow:0 10px 30px #3b332610;height:calc(100vh - 230px);min-height:0;max-height:calc(100vh - 230px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#d8cebd transparent}
 @media(max-width:1100px){.devices-layout{grid-template-columns:minmax(0,1fr) 300px}}
+/* 电视遥控 */
+.tv-remote{margin-top:12px;padding:14px;border:1px solid #e8dfd0;border-radius:16px;background:#f7f2e8}
+.tv-remote-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tv-power{width:42px;height:42px;border:0;border-radius:50%;background:#f1dfd4;color:#b3402d;display:grid;place-items:center;cursor:pointer}
+.tv-power svg{width:21px;height:21px}
+.tv-power:disabled{opacity:.45;cursor:not-allowed}
+.tv-volume{display:flex;align-items:center;gap:6px;border:1px solid #e8dfd0;border-radius:22px;padding:4px 7px;background:#fffdf9}
+.tv-volume-label{font-size:10px;color:#8b8d87;padding:0 2px}
+.tv-key{border:0;background:#fffdf9;color:#1a1c1d;border-radius:12px;font:12px var(--sans);cursor:pointer;box-shadow:0 1px 2px #3b332610}
+.tv-key:hover{background:#fff}
+.tv-key:disabled{opacity:.42;cursor:not-allowed}
+.tv-small{width:30px;height:30px;font-size:15px;line-height:1}
+.tv-dpad{width:186px;height:186px;margin:18px auto 14px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:6px;padding:8px;border-radius:50%;background:#efe8db}
+.tv-dir{width:100%;height:100%;border-radius:14px;font-size:16px;color:#6b645b}
+.tv-ok{grid-column:2;grid-row:2;width:100%;height:100%;border-radius:50%;background:#fffdf9;font-size:12px;font-weight:600;letter-spacing:.04em}
+.tv-up{grid-column:2;grid-row:1}
+.tv-left{grid-column:1;grid-row:2}
+.tv-right{grid-column:3;grid-row:2}
+.tv-down{grid-column:2;grid-row:3}
+.tv-remote-bottom{display:flex;justify-content:center;gap:8px}
+.tv-extra{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.tv-extra .tv-key{height:30px;font-size:10px;color:#4e514f}
