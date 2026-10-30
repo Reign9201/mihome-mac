@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiHome Mac · 交互原型</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body data-theme="light" data-density="comfortable">
+  <div class="stage">
+    <div class="ambient" aria-hidden="true"></div>
+    <div class="app-window" id="appWindow">
+      <header class="titlebar" id="titlebar">
+        <div class="traffic" aria-hidden="true">
+          <button class="light close" id="btnClose" aria-label="关闭"></button>
+          <button class="light min" id="btnMin" aria-label="最小化"></button>
+          <button class="light zoom" id="btnZoom" aria-label="缩放"></button>
+        </div>
+        <div class="window-title" id="windowTitle">云栖公寓</div>
+        <div class="titlebar-actions">
+          <span class="sync-state" id="syncState"><i></i> 已同步</span>
+          <button class="icon-btn" id="btnMenuBar" title="菜单栏速控 ⌘⇧M" aria-label="菜单栏速控">◱</button>
+          <button class="icon-btn" id="btnTheme" title="切换外观" aria-label="切换外观">◐</button>
+          <button class="search-trigger" id="btnPalette"><span class="search-ic" data-icon="search"></span><span>搜索设备或场景</span><kbd>⌘K</kbd></button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="sidebar">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none">
+                <path d="M5 14.5 16 5l11 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                <path d="M8.5 13v13h15V13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <circle cx="16" cy="19" r="2.4" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="brand-text">
+              <strong>MiHome</strong>
+              <span>Mac 控制台</span>
+            </div>
+            <button class="home-switch" id="btnHomeSwitch" title="切换家庭">⌄</button>
+          </div>
+
+          <nav class="nav" id="mainNav">
+            <button class="nav-item active" data-nav="overview">
+              <span class="nav-icon" data-icon="grid"></span><span>总览</span>
+            </button>
+            <button class="nav-item" data-nav="camera">
+              <span class="nav-icon" data-icon="camera"></span><span>监控</span>
+              <span class="nav-count" id="cameraCountNav">3</span>
+            </button>
+            <button class="nav-item" data-nav="scenes">
+              <span class="nav-icon" data-icon="spark"></span><span>场景</span>
+            </button>
+            <button class="nav-item" data-nav="automations">
+              <span class="nav-icon" data-icon="clock"></span><span>自动化</span>
+              <span class="nav-count">5</span>
+            </button>
+            <button class="nav-item" data-nav="devices">
+              <span class="nav-icon" data-icon="sliders"></span><span>全部设备</span>
+              <span class="nav-count" id="deviceCountNav">14</span>
+            </button>
+          </nav>
+
+          <div class="sidebar-section">
+            <div class="section-label"><span>房间</span><button class="mini-btn" id="btnAddRoom" title="添加房间">＋</button></div>
+            <div class="room-list" id="roomList"></div>
+          </div>
+
+          <div class="sidebar-spacer"></div>
+
+          <div class="sidebar-footer">
+            <button class="nav-item subtle" id="btnMenuBar2">
+              <span class="nav-icon" data-icon="menubar"></span><span>菜单栏速控</span><kbd>⌘⇧M</kbd>
+            </button>
+            <button class="nav-item subtle" data-nav="settings">
+              <span class="nav-icon" data-icon="gear"></span><span>设置</span>
+            </button>
+            <button class="account" id="btnAccount">
+              <span class="avatar">砚</span>
+              <span class="account-text"><strong>演示账号</strong><small>本地凭据 · 有效</small></span>
+              <span class="chev">›</span>
+            </button>
+          </div>
+        </aside>
+
+        <main class="main" id="main" tabindex="-1"></main>
+        <aside class="inspector" id="inspector" aria-hidden="true"></aside>
+      </div>
+
+      <footer class="statusbar">
+        <div class="status-left">
+          <span class="dot online"></span><span id="statusPath">12 台本地直连 · 2 台云端</span>
+          <span class="sep"></span><span id="statusSync">2 秒前同步</span>
+        </div>
+        <div class="status-right">
+          <button class="status-btn" id="btnHud">⌥P 性能面板</button>
+          <span class="sep"></span>
+          <span id="statusClock">16:57</span>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 登录层 -->
+  <div class="login-layer" id="loginLayer">
+    <div class="login-visual">
+      <div class="giant-word">家</div>
+      <div class="login-copy">
+        <div class="eyebrow light">MIHOME FOR MAC · 原型</div>
+        <h1>你的家，<br>在 Mac 上。</h1>
+        <p>本地直连优先，云端兜底。一次扫码，接管全部房间。</p>
+        <div class="login-badges">
+          <span>本地 12 ms</span><span>120 Hz</span><span>钥匙串存储</span>
+        </div>
+      </div>
+      <div class="login-foot">交互原型 · 不连接真实米家账号</div>
+    </div>
+    <div class="login-panel">
+      <div class="login-card">
+        <div class="login-card-head">
+          <div>
+            <h2>扫码登录</h2>
+            <p>打开米家 App，扫描下方二维码</p>
+          </div>
+          <span class="login-secure" title="凭据仅保存在本机钥匙串">⌁</span>
+        </div>
+        <div class="qr-wrap">
+          <canvas id="qrCanvas" width="440" height="440" aria-label="演示二维码"></canvas>
+          <div class="scan-line" aria-hidden="true"></div>
+          <div class="qr-corner tl"></div><div class="qr-corner tr"></div>
+          <div class="qr-corner bl"></div><div class="qr-corner br"></div>
+        </div>
+        <div class="qr-meta"><span>二维码 <b id="qrTimer">02:00</b> 后刷新</span><span class="qr-refresh" id="qrRefresh">刷新</span></div>
+        <button class="primary-btn wide" id="btnMockScan">模拟扫码成功</button>
+        <button class="text-btn" id="btnSkipLogin">直接进入演示 →</button>
+        <p class="login-note">登录信息只写入本机 Keychain。原型环境不会发起真实登录请求。</p>
+      </div>
+      <div class="login-bottom">MiHome Mac · 概念原型 v0.1</div>
+    </div>
+  </div>
+
+  <!-- 命令面板 -->
+  <div class="palette-layer" id="palette" aria-hidden="true">
+    <div class="palette-backdrop"></div>
+    <div class="palette" role="dialog" aria-label="命令面板">
+      <div class="palette-input-wrap">
+        <span class="palette-icon" data-icon="search"></span>
+        <input id="paletteInput" type="text" placeholder="搜索设备、场景或输入操作…" autocomplete="off" spellcheck="false">
+        <kbd>esc</kbd>
+      </div>
+      <div class="palette-results" id="paletteResults"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span>输入「关闭」或「离家」试试</span></div>
+    </div>
+  </div>
+
+  <!-- 菜单栏速控 -->
+  <div class="menubar-pop" id="menubarPop" aria-hidden="true">
+    <div class="pop-head"><span>米家速控</span><span class="pop-time" id="popTime">16:57</span></div>
+    <div class="pop-env"><strong>24.6°</strong><span>湿度 58%<br>空气 12</span><i class="pulse"></i></div>
+    <div class="pop-grid" id="popGrid"></div>
+    <div class="pop-scenes" id="popScenes"></div>
+    <button class="pop-open" id="popOpen">打开主窗口</button>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <!-- 性能 HUD -->
+  <div class="hud" id="hud" aria-hidden="true">
+    <div class="hud-head"><span>PERF · 演示数据</span><button id="hudClose" aria-label="关闭">×</button></div>
+    <div class="hud-fps"><strong id="hudFps">120</strong><span>fps</span><canvas id="hudGraph" width="220" height="36"></canvas></div>
+    <div class="hud-rows">
+      <div><span>帧预算</span><b id="hudFrame">8.3 ms</b></div>
+      <div><span>本次渲染</span><b id="hudRender">2.1 ms</b></div>
+      <div><span>JS 堆</span><b id="hudHeap">18.4 MB</b></div>
+      <div><span>在途请求</span><b id="hudInflight">0</b></div>
+      <div><span>云端 RTT</span><b id="hudRtt">132 ms</b></div>
+      <div><span>缓存命中</span><b id="hudCache">96%</b></div>
+    </div>
+    <div class="hud-log" id="hudLog"></div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
