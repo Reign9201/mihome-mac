@@ -3,6 +3,15 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ARCH=${1:-universal}
+DMG_FORMAT=${DMG_FORMAT:-ULMO}
+
+case "$DMG_FORMAT" in
+  UDZO|UDBZ|ULFO|ULMO) ;;
+  *)
+    echo "不支持的 DMG_FORMAT：$DMG_FORMAT（可选 UDZO|UDBZ|ULFO|ULMO）" >&2
+    exit 1
+    ;;
+esac
 
 case "$ARCH" in
   universal)
@@ -65,13 +74,24 @@ fi
 OUTPUT_DIR="$ROOT/dist/macos"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT="$OUTPUT_DIR/MiHome-Mac-${VERSION}-${ARCH}.dmg"
-cp "$SOURCE" "$OUTPUT"
+if [[ "$DMG_FORMAT" == "UDZO" ]]; then
+  cp "$SOURCE" "$OUTPUT"
+else
+  hdiutil convert "$SOURCE" -format "$DMG_FORMAT" -ov -o "$OUTPUT" >/dev/null
+fi
+
+if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$OUTPUT"
+fi
+
 (
   cd "$OUTPUT_DIR"
   shasum -a 256 "$(basename "$OUTPUT")" > "$(basename "$OUTPUT").sha256"
 )
 
 echo "DMG: $OUTPUT"
+echo "格式: $DMG_FORMAT"
+du -h "$OUTPUT"
 cat "$OUTPUT.sha256"
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "签名身份：$APPLE_SIGNING_IDENTITY"

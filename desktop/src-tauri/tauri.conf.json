@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.reign9201.mihomemac",
   "build": {
+    "beforeBundleCommand": "bash ../scripts/strip-macos-binary.sh",
     "frontendDist": "../ui"
   },
   "app": {

@@ -144,3 +144,24 @@ test('bundle keeps a strict CSP and ships license notices', () => {
   );
   assert.deepEqual(config.bundle.externalBin, ['../../helpers/go2rtc/go2rtc']);
 });
+
+test('release bundle strips symbols without requiring cargo-binutils', () => {
+  const root = path.resolve(__dirname, '..');
+  const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
+  const build = fs.readFileSync(path.resolve(root, '../scripts/build-macos.sh'), 'utf8');
+  const config = JSON.parse(fs.readFileSync(
+    path.join(root, 'src-tauri/tauri.conf.json'),
+    'utf8',
+  ));
+  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry"\] \}/);
+  assert.match(cargo, /^lto = true$/m);
+  assert.match(cargo, /^codegen-units = 1$/m);
+  assert.match(cargo, /^strip = false$/m);
+  assert.match(cargo, /^panic = "abort"$/m);
+  assert.equal(config.build.beforeBundleCommand, 'bash ../scripts/strip-macos-binary.sh');
+  assert.match(build, /DMG_FORMAT=\$\{DMG_FORMAT:-ULMO\}/);
+  assert.equal(
+    fs.existsSync(path.resolve(root, '../scripts/strip-macos-binary.sh')),
+    true,
+  );
+});

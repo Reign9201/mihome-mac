@@ -84,18 +84,27 @@ npm --prefix desktop run dev
 构建 DMG：
 
 ```bash
+./scripts/build-macos.sh arm64   # Apple Silicon
+./scripts/build-macos.sh x64     # Intel
+```
+
+单架构包只内置对应架构的 go2rtc，体积明显更小。需要同时兼容 Intel 和 Apple Silicon 时，也可以构建 universal 单包：
+
+```bash
 ./scripts/build-macos.sh universal
 ```
 
-也可以使用 `arm64` 或 `x64` 构建单架构包。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构和资源：
+universal 会同时包含两套主程序和两套 go2rtc，体积约为单架构包的两倍。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构和资源：
 
 ```bash
 ./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-0.1.0-universal.dmg universal
 ```
 
+构建脚本默认把 Tauri 的 UDZO DMG 转换为压缩率更高的 ULMO（XZ）；需要兼容旧格式时可设置 `DMG_FORMAT=UDZO`。
+
 生成 DMG 不要求 Apple 证书；Gatekeeper 放行才要求 Developer ID 签名与公证。与 Electron Builder 项目相同，未签名 DMG 可以生成、挂载和本地测试，但下载到其他 Mac 后会被 Gatekeeper 拒绝。CI 和本地默认构建都不包含签名证书。
 
-仓库还提供 `.github/workflows/macos-dmg.yml`，可在 GitHub Actions 中手动运行，或在推送 `v*` 标签时生成未签名 universal DMG 构建产物。
+仓库还提供 `.github/workflows/macos-dmg.yml`，可在 GitHub Actions 中手动运行，或在推送 `v*` 标签时分别生成 arm64、x64 未签名 DMG 构建产物。
 
 ## 项目结构
 

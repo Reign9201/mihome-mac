@@ -11,6 +11,10 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -22,14 +26,14 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
         working-directory: desktop
-      - run: ./scripts/build-macos.sh universal
+      - run: ./scripts/build-macos.sh ${{ matrix.arch }}
       - run: |
-          DMG=$(find dist/macos -maxdepth 1 -name '*-universal.dmg' -print -quit)
+          DMG=$(find dist/macos -maxdepth 1 -name "*-${{ matrix.arch }}.dmg" -print -quit)
           test -n "$DMG"
-          ./scripts/verify-macos-bundle.sh "$DMG" universal
+          ./scripts/verify-macos-bundle.sh "$DMG" "${{ matrix.arch }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: MiHome-Mac-unsigned-universal
+          name: MiHome-Mac-unsigned-${{ matrix.arch }}
           path: |
             dist/macos/*.dmg
             dist/macos/*.sha256
