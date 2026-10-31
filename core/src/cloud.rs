@@ -385,26 +385,49 @@ impl MiCloud {
     /// Read several properties in one cloud call. The card grid uses this so a
     /// page with a dozen devices does not fan out into dozens of requests.
     pub async fn get_props(&self, requests: &[(String, u32, u32)]) -> Result<Value> {
-        // The MIoT endpoint accepts at most 20 property keys per request. Keep
-        // larger card refreshes in ordered chunks and merge the result arrays.
+        // The MIoT endpoint accepts at most 20 property keys per request.
+        // Fetch independent chunks concurrently; Session's RequestGate bounds
+        // the actual cloud concurrency, and results are merged in input order.
         let mut seen = std::collections::HashSet::new();
         let requests: Vec<_> = requests
             .iter()
             .filter(|item| seen.insert((item.0.as_str(), item.1, item.2)))
             .collect();
+        let chunks: Vec<Vec<(String, u32, u32)>> = requests
+            .chunks(20)
+            .map(|chunk| {
+                chunk
+                    .iter()
+                    .map(|(did, siid, piid)| (did.clone(), *siid, *piid))
+                    .collect()
+            })
+            .collect();
+        let mut tasks = tokio::task::JoinSet::new();
+        for (index, chunk) in chunks.iter().cloned().enumerate() {
+            let session = self.session.clone();
+            tasks.spawn(async move {
+                let params: Vec<Value> = chunk
+                    .iter()
+                    .map(|(did, siid, piid)| json!({"did": did, "siid": siid, "piid": piid}))
+                    .collect();
+                let value = session
+                    .request(
+                        "/miotspec/prop/get",
+                        json!({"params": params, "datasource": 1}),
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>((index, value))
+            });
+        }
+        let mut ordered = vec![None; chunks.len()];
+        while let Some(result) = tasks.join_next().await {
+            let (index, value) = result
+                .map_err(|error| anyhow!("属性请求任务失败：{error}"))?
+                .map_err(|error| anyhow!("属性请求失败：{error:#}"))?;
+            ordered[index] = Some(value);
+        }
         let mut merged = Vec::with_capacity(requests.len());
-        for chunk in requests.chunks(20) {
-            let params: Vec<Value> = chunk
-                .iter()
-                .map(|(did, siid, piid)| json!({"did": did, "siid": siid, "piid": piid}))
-                .collect();
-            let value = self
-                .session
-                .request(
-                    "/miotspec/prop/get",
-                    json!({"params": params, "datasource": 1}),
-                )
-                .await?;
+        for value in ordered.into_iter().flatten() {
             if let Some(items) = value.as_array() {
                 merged.extend(items.iter().cloned());
             }
