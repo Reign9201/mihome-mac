@@ -27,7 +27,7 @@ jobs:
           DMG=$(find dist/macos -maxdepth 1 -name '*-universal.dmg' -print -quit)
           test -n "$DMG"
           ./scripts/verify-macos-bundle.sh "$DMG" universal
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiHome-Mac-unsigned-universal
           path: |
