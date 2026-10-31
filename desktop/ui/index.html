@@ -8,6 +8,8 @@
   <script src="icons.js"></script>
   <script src="capabilities.js"></script>
   <script src="tauri-api.js"></script>
+  <script src="diagnostics.js"></script>
+  <script src="camera-player.js"></script>
 </head>
 <body>
   <div class="app">
@@ -17,7 +19,7 @@
       <div class="side-foot"><span id="connDot" class="dot"></span><span id="connText">未登录</span></div>
     </aside>
     <main class="main">
-      <header class="top"><div><p class="eyebrow">MIHOME MAC</p><h1 id="pageTitle">连接你的米家</h1></div><button id="logout" class="ghost" hidden>退出</button></header>
+      <header class="top"><div><p class="eyebrow">MIHOME MAC</p><h1 id="pageTitle">连接你的米家</h1></div><div class="top-actions"><button id="exportLog" class="ghost">诊断日志</button><button id="logout" class="ghost" hidden>退出</button></div></header>
 
       <section id="loginView" class="login">
         <div class="qr-card">
@@ -40,7 +42,7 @@
 
       <section id="cameraView" class="camera-page" hidden>
         <div class="toolbar">
-          <div><p class="eyebrow">LIVE · 本地 P2P / 远程 CS2</p></div>
+          <div><p class="eyebrow">实时 · 局域网直连 / 远程连接</p></div>
           <div class="actions"><button id="camRemoteGrid" class="ghost">远程宫格</button><button id="camGridToggle" class="ghost">宫格</button><button id="camReload" class="ghost">刷新</button></div>
         </div>
         <div class="cam-layout" id="camLayout">
@@ -54,7 +56,7 @@
           <div id="camControls" class="cam-controls" hidden></div>
         </div>
         <div id="camGrid" class="cam-grid" hidden></div>
-        <p id="camHint" class="fine">本地走 go2rtc；远程通道走 CS2 relay，首次连接约 10–20 秒。</p>
+        <p id="camHint" class="fine">优先使用局域网直连；远程连接首次约 10–20 秒。</p>
       </section>
 
       <section id="sceneView" class="camera-page" hidden>

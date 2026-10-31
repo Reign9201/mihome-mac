@@ -7,6 +7,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
@@ -16,9 +17,6 @@ use crate::sign;
 
 const ACCOUNT: &str = "https://account.xiaomi.com";
 const LOCALE: &str = "zh_CN";
-const KEYCHAIN_SERVICE: &str = "com.reign9201.mihomemac.session";
-const KEYCHAIN_ACCOUNT: &str = "session";
-const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25300;
 const REQUEST_INTERVAL: Duration = Duration::from_millis(100);
 const REQUEST_CONCURRENCY: usize = 4;
 
@@ -49,6 +47,7 @@ pub struct PendingLogin {
     pass_o: String,
     ua: String,
     created_at: Instant,
+    poll_failures: Arc<AtomicU32>,
 }
 
 #[derive(Clone)]
@@ -160,6 +159,27 @@ fn parse_service(text: &str) -> Result<Value> {
     serde_json::from_str(text).context("小米返回不是 JSON")
 }
 
+impl PendingLogin {
+    fn poll_retry_delay(&self) -> Duration {
+        let failures = self.poll_failures.fetch_add(1, Ordering::Relaxed).min(4);
+        poll_retry_delay(failures)
+    }
+
+    async fn defer_poll_retry(&self, reason: impl fmt::Display) {
+        let delay = self.poll_retry_delay();
+        crate::logging::warn(
+            "Auth",
+            format!("{reason}；{} 秒后继续等待二维码", delay.as_secs()),
+        );
+        tokio::time::sleep(delay).await;
+    }
+}
+
+fn poll_retry_delay(failures: u32) -> Duration {
+    const DELAYS: [u64; 5] = [1, 2, 4, 8, 15];
+    Duration::from_secs(DELAYS[failures.min(DELAYS.len() as u32 - 1) as usize])
+}
+
 fn cookie_value(jar: &Jar, url: &str, name: &str) -> Option<String> {
     let url = Url::parse(url).ok()?;
     let value = jar.cookies(&url)?;
@@ -257,6 +277,7 @@ pub async fn start_login_for(sid: &str) -> Result<(PendingLogin, AuthStart)> {
         pass_o,
         ua,
         created_at: Instant::now(),
+        poll_failures: Arc::new(AtomicU32::new(0)),
     };
     Ok((
         pending,
@@ -283,9 +304,47 @@ pub async fn poll_login(pending: &PendingLogin) -> Result<Option<Session>> {
         // The QR stays valid for five minutes; a quiet long poll must not stop the
         // frontend from polling again while the user is still reaching for the phone.
         Err(error) if error.is_timeout() => return Ok(None),
-        Err(error) => return Err(error).context("长轮询失败"),
+        Err(error) => {
+            pending
+                .defer_poll_retry(format!("长轮询暂时失败：{error}"))
+                .await;
+            return Ok(None);
+        }
     };
-    let data = parse_service(&response.text().await?)?;
+    let status = response.status();
+    if matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return Err(anyhow!(
+            "小米登录长轮询被拒绝（HTTP {status}）。请重新生成二维码；若持续出现，请检查代理或 VPN"
+        ));
+    }
+    if !status.is_success() {
+        pending
+            .defer_poll_retry(format!("长轮询返回 HTTP {status}"))
+            .await;
+        return Ok(None);
+    }
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(error) => {
+            pending
+                .defer_poll_retry(format!("读取长轮询响应失败：{error}"))
+                .await;
+            return Ok(None);
+        }
+    };
+    let data = match parse_service(&body) {
+        Ok(data) => data,
+        Err(error) => {
+            pending
+                .defer_poll_retry(format!("长轮询响应暂时不可解析：{error:#}"))
+                .await;
+            return Ok(None);
+        }
+    };
+    pending.poll_failures.store(0, Ordering::Relaxed);
     let code = data.get("code").and_then(Value::as_i64).unwrap_or(-1);
     if code != 0 {
         if let Some(msg) = data.get("message").and_then(Value::as_str) {
@@ -338,8 +397,18 @@ pub async fn poll_login(pending: &PendingLogin) -> Result<Option<Session>> {
     let pass_token = data
         .get("passToken")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            [
+                "https://account.xiaomi.com/",
+                "https://api.mijia.tech/",
+                "https://api.io.mi.com/",
+            ]
+            .into_iter()
+            .find_map(|base| cookie_value(&pending.jar, base, "passToken"))
+        })
+        .unwrap_or_default();
 
     Ok(Some(Session {
         user_id,
@@ -374,15 +443,11 @@ fn session_path() -> std::path::PathBuf {
         .join("Library/Application Support/MiHome/session.json")
 }
 
-fn use_file_session() -> bool {
-    cfg!(debug_assertions) && std::env::var_os("MIHOME_FORCE_FILE_SESSION").is_some()
-}
-
-fn remove_legacy_file() -> Result<()> {
+fn remove_session_file() -> Result<()> {
     match fs::remove_file(session_path()) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).context("删除旧版明文会话失败"),
+        Err(error) => Err(error).context("删除本地会话失败"),
     }
 }
 
@@ -391,6 +456,8 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("创建会话目录失败")?;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+            .context("设置会话目录权限失败")?;
     }
     let temp = path.with_extension(format!("json.tmp-{}", std::process::id()));
     let mut file = OpenOptions::new()
@@ -407,42 +474,12 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn save_secret(bytes: &[u8]) -> Result<()> {
-    use security_framework::passwords::set_generic_password;
-
-    if use_file_session() {
-        return write_private_file(&session_path(), bytes);
-    }
-    set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, bytes)
-        .context("写入 macOS Keychain 失败")?;
-    remove_legacy_file()
+    let path = session_path();
+    write_private_file(&path, bytes)
+        .with_context(|| format!("保存本地会话失败：{}", path.display()))
 }
 
-#[cfg(not(target_os = "macos"))]
-fn save_secret(bytes: &[u8]) -> Result<()> {
-    write_private_file(&session_path(), bytes)
-}
-
-#[cfg(target_os = "macos")]
-fn load_secret() -> Result<Option<Vec<u8>>> {
-    use security_framework::passwords::get_generic_password;
-
-    if use_file_session() {
-        return match fs::read(session_path()) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error).context("读取本地会话失败"),
-        };
-    }
-    match get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => Ok(None),
-        Err(error) => Err(error).context("读取 macOS Keychain 失败"),
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
 fn load_secret() -> Result<Option<Vec<u8>>> {
     match fs::read(session_path()) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -451,23 +488,8 @@ fn load_secret() -> Result<Option<Vec<u8>>> {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn delete_secret() -> Result<()> {
-    use security_framework::passwords::delete_generic_password;
-
-    if !use_file_session() {
-        match delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
-            Ok(()) => {}
-            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {}
-            Err(error) => return Err(error).context("删除 macOS Keychain 会话失败"),
-        }
-    }
-    remove_legacy_file()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn delete_secret() -> Result<()> {
-    remove_legacy_file()
+    remove_session_file()
 }
 
 impl Session {
@@ -494,18 +516,8 @@ impl Session {
     }
 
     pub fn restore() -> Result<Option<Self>> {
-        let bytes = match load_secret()? {
-            Some(bytes) => bytes,
-            None if cfg!(target_os = "macos") && !use_file_session() => {
-                let legacy = match fs::read(session_path()) {
-                    Ok(bytes) => bytes,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                    Err(error) => return Err(error).context("读取旧版会话失败"),
-                };
-                save_secret(&legacy).context("迁移旧版会话到 Keychain 失败")?;
-                legacy
-            }
-            None => return Ok(None),
+        let Some(bytes) = load_secret()? else {
+            return Ok(None);
         };
         let stored: StoredSession = serde_json::from_slice(&bytes).context("登录凭据格式错误")?;
         let (client, _) = make_client()?;
@@ -605,7 +617,12 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use super::can_retry_request;
+    use super::{can_retry_request, cookie_value, poll_retry_delay, write_private_file};
+    use reqwest::cookie::Jar;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use url::Url;
 
     #[test]
     fn retries_only_idempotent_cloud_reads() {
@@ -616,5 +633,58 @@ mod tests {
         assert!(!can_retry_request(
             "/appgateway/miot/appsceneservice/AppSceneService/NewRunScene"
         ));
+    }
+
+    #[test]
+    fn login_poll_backoff_is_bounded() {
+        assert_eq!(poll_retry_delay(0).as_secs(), 1);
+        assert_eq!(poll_retry_delay(1).as_secs(), 2);
+        assert_eq!(poll_retry_delay(4).as_secs(), 15);
+        assert_eq!(poll_retry_delay(100).as_secs(), 15);
+    }
+
+    #[test]
+    fn login_can_read_pass_token_from_account_cookie() {
+        let jar = Jar::default();
+        let url = Url::parse("https://account.xiaomi.com/").expect("account URL");
+        jar.add_cookie_str("passToken=test-cookie-token; Path=/; Secure", &url);
+
+        assert_eq!(
+            cookie_value(&jar, "https://account.xiaomi.com/", "passToken").as_deref(),
+            Some("test-cookie-token")
+        );
+    }
+
+    #[test]
+    fn session_file_and_directory_are_private() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-auth-session-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = dir.join("nested/session.json");
+        write_private_file(&path, br#"{"user_id":"test"}"#).expect("write private session");
+
+        let parent_mode = fs::metadata(path.parent().expect("session parent"))
+            .expect("session directory")
+            .permissions()
+            .mode()
+            & 0o777;
+        let file_mode = fs::metadata(&path)
+            .expect("session file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(parent_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
+        assert_eq!(
+            fs::read(&path).expect("read session"),
+            br#"{"user_id":"test"}"#
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup session test");
     }
 }

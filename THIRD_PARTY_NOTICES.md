@@ -57,6 +57,16 @@ code and binaries are not included in this repository or its application bundle.
   is not committed to the repository. Its license is preserved at
   `helpers/go2rtc/LICENSE` and `go2rtc-LICENSE` in the application bundle.
 
+## Runtime prerequisites not distributed
+
+### FFmpeg
+
+- Project: https://ffmpeg.org/
+- License: LGPL-2.1-or-later by default; builds that enable optional GPL
+  components are GPL-licensed.
+- Use: Runtime child process for remuxing remote-camera H.264/H.265 into RTSP
+  without re-encoding. MiHome Mac does not bundle an FFmpeg binary.
+
 ## Language and package dependencies
 
 Rust crate licenses are recorded in `core/Cargo.lock` and

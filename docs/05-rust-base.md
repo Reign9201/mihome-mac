@@ -43,12 +43,12 @@ MiHomeMac/
 
 Rust core 的边界：
 
-- `auth`：二维码登录、passToken/serviceToken、Keychain 写入。
+- `auth`：二维码登录、passToken/serviceToken、本地私有会话文件。
 - `cloud`：HTTP/2、签名、20 个属性一批读写、请求优先级。
 - `lan`：UDP 54321、AES 加解密、token 和 localip 缓存、云端回退。
 - `device`：MIoT 规格解析、能力模型、乐观状态和版本号。
 - `store`：SQLite WAL、设备快照、场景、自动化、指标。
-- `camera`：go2rtc 子进程、HLS 地址、进程健康检查。
+- `camera`：go2rtc 子进程、WebRTC/MSE/HLS 地址、进程健康检查和诊断。
 
 Tauri 壳只做窗口、菜单、单实例、自动更新和 IPC。业务逻辑不写在 `#[tauri::command]` 里，命令层只做参数校验和调用 core。
 
@@ -114,7 +114,7 @@ Tauri 命令：`auth_start`、`auth_poll`、`auth_logout`、`list_homes`、`list
 - `home_device_list` 的在线字段是 `isOnline`，不是 `is_online`；原实现把所有设备误判为离线。
 - 设备本身不带房间字段，改为用 `homelist[].roomlist[].dids` 反查 `did` 对应的房间。
 
-M1 的扫码、家庭列表、设备列表和单设备控制已经用真实账号和真实设备验证。Keychain 持久化、局域网直连和摄像头不在 M1。
+M1 的扫码、家庭列表、设备列表和单设备控制已经用真实账号和真实设备验证。私有会话文件持久化、局域网直连和摄像头不在 M1。
 
 ## M2 当前实现
 
@@ -123,14 +123,14 @@ M1 的扫码、家庭列表、设备列表和单设备控制已经用真实账�
 - `CameraDevice`：从设备列表识别摄像头，读取 `localip`、型号和 channel；没有 `localip` 的摄像头在 UI 里显示不可用。
 - `Go2Rtc::start_for_cameras`：为一批摄像头生成只绑定 `127.0.0.1` 的 go2rtc 配置，使用账号的 `userId`/`passToken` 走 `xiaomi://`，同时分配独立的 API、RTSP、WebRTC 端口，避免与本机已有 go2rtc 冲突。
 - `Go2Rtc::start_with_source`：用于 HLS 验收的本地测试源，不依赖小米摄像头。
-- `stream_url`：返回 HLS 地址 `http://127.0.0.1:<port>/api/stream.m3u8?src=<did>&mp4`。
+- `stream_url`：返回 HLS 兼容地址；`webrtc_url` 返回 WebSocket 地址。本地画面优先使用 MSE，远程画面优先使用 WebRTC，失败时再按兼容性回退。
 - 配置写临时文件，权限 0600；`Drop` 时杀子进程并删除配置。
 
 Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`camera_status`。桌面 UI 增加“摄像头”页，支持单画面、宫格、刷新和错误提示。
 
 本机已验证：用 ffmpeg `testsrc` 作为 go2rtc 输入，`camera_probe` 拉起子进程后请求 HLS 主播放列表，返回 `200` 和 93 字节的 `#EXTM3U`。这验证了进程管理、端口分配和 HLS 输出。真实摄像头的远程查看已由 Rust 通道完成，详见 `docs/06-camera-product-channel.md`。
 
-2026-10-30 实测：登录后摄像头页能读取 2 台小米摄像头，`/home/device_list` 兜底取到 `localip=192.168.31.186`，go2rtc 子进程启动并生成 `http://127.0.0.1:<port>/api/stream.m3u8?src=1053392676&mp4`。但 Mac 当前在 `10.2.16.106`，与摄像头不在同一网段，`ping 192.168.31.186` 全部超时，HLS 返回空播放列表，页面显示“没有首帧”。这一步验证了 UI、IP 获取、go2rtc 启动和 HLS 请求；真实画面需要 Mac 接到 `192.168.31.0/24` 或家庭 VPN。
+2026-10-30 首次实测时 Mac 与摄像头不在同一网段，页面只能确认 IP 获取、go2rtc 启动和错误提示。后续补齐主镜头通道映射并在同一局域网复测，`.150` 和 `.186` 两台真实摄像头均已出画；本地播放现在优先使用 MSE，结果与限制记录在 `docs/06-camera-product-channel.md`。
 
 ## M2 远程 PoC（2026-10-30）
 
@@ -146,7 +146,7 @@ Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`came
 - 手机米家 App 能远程看，是因为它内置了小米私有 relay 客户端；Mac 端也能通过 CS2 relay 做到，不需要和摄像头同网。
 - micam 没有 LICENSE，只有 CS2，单路、无音频/PTZ，依赖 JDK 21；它是验证工具，不能直接打包进 MiHome Mac。
 - 产品化路线已选定第二条：把 CS2/MISS 取流按 micam 的协议重写成 Rust；当前已在 App 内出真画面，详见 `docs/06-camera-product-channel.md`。
-- App 已接 Rust 远程通道：摄像头行提供“远程”按钮，后端用 Rust 建 CS2 relay、完成 MISS 认证，再把 HEVC 交给 ffmpeg 生成 fMP4 HLS。实测 `chuangmi.camera.039a01` 在 App 内出画，画面带时间水印；首帧约 10–20 秒。
+- App 已接 Rust 远程通道：摄像头行提供“远程”按钮，后端用 Rust 建 relay、完成 MISS 认证，再把原始视频交给 ffmpeg 封装为 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS。旧版 HLS 路径实测 `chuangmi.camera.039a01` 出画；2026-10-31 在当前源码开发版中实测 039a01、069a01 均建立 WebRTC，两路远程宫格同时出画，稳定播放阶段水印延迟约 1 秒级。
 - 摄像头页新增控制面板：云台方向键（按住连发、松开停止）和 14 项属性控制；属性控制走云端 `/miotspec/prop/set`，云台走 Rust 的 0x112 加密命令，尚未用肉眼确认镜头转动。
 - `~/.micam/credentials.json` 是早期实验文件，产品通道不读取它；Rust 侧已实现 CS2 + MISS，构建产物不依赖 Java。
 
@@ -171,19 +171,7 @@ Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`came
 ## 风险
 
 - WebKit 的内存和 120 行设备列表是 v1 最大的不确定性，必须先用真实数据做 spike。
-- 小米摄像头用 go2rtc 时只在同一局域网内取流；远程路径已由 Rust CS2 relay 实现，但仍是单路、无音频，产品文案不能承诺“任何地方都能看”。
+- 小米摄像头用 go2rtc 时只在同一局域网内取流；远程路径已由 Rust relay 实现，并支持音频，但不同型号和网络环境仍需验证，产品文案不能承诺“任何地方都能看”或“绝对零延迟”。
 - go2rtc 是独立进程，需要崩溃隔离和端口鉴权；打包时带 MIT 许可证和版本号。
-- 小米账号扫码登录、设备 token 和摄像头 passToken 都要走 Keychain，不能写日志或明文配置。
+- 小米账号扫码登录、设备 token 和摄像头 passToken 都只写入用户目录下的 0600 私有会话文件，不能写日志或进入诊断包。该方案是在未签名构建中规避 Keychain 弹窗的折中，正式签名发行版应改用 Keychain。
 - 设备型号差异大，第一版只承诺已验证的型号；未验证型号使用通用属性面板，不显示摄像头画面。
-
-## 术语说明
-
-**Tauri**：用系统 WebView 承载前端页面的桌面应用框架，Rust 负责窗口和本地能力。
-**WKWebView**：macOS 自带的网页渲染组件，Tauri 在 macOS 上使用它。
-**Rust core**：不依赖界面的 Rust 业务库，负责协议、数据和设备控制。
-**axum**：Rust 的 HTTP 服务库，Montage 用它提供本机接口。
-**UniFFI**：把 Rust 库暴露给 Swift/Kotlin 等语言的绑定生成工具。
-**go2rtc**：把摄像头 P2P 流转成 HLS/WebRTC 的本地取流程序。
-**HLS**：基于 HTTP 的分片视频协议，首帧较慢但兼容性好。
-**WebRTC**：浏览器实时音视频协议，延迟低，网络要求高。
-**RSS**：进程占用的常驻内存，多个进程相加会重复计算共享内存。

@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::logging as app_log;
 use crate::pppp::*;
 
 const SERVER_PORT: u16 = 32100;
@@ -62,6 +63,7 @@ impl RelaySession {
     pub fn connect(mut self, timeout: Duration) -> Result<PpppConnection> {
         let deadline = Instant::now() + timeout;
         let mut last_failure = "等待 relay 超时".to_string();
+        let started = Instant::now();
         while Instant::now() < deadline {
             let candidates = match self.discover_relays(deadline) {
                 Ok(value) if !value.is_empty() => value,
@@ -81,6 +83,10 @@ impl RelaySession {
                     continue;
                 }
             };
+            app_log::info(
+                "Relay",
+                format!("发现 {} 个候选，已选择 {chosen}", candidates.len()),
+            );
             if !self.allocate_session_port(chosen, deadline)? {
                 last_failure = "relay 没有分配会话端口".to_string();
                 continue;
@@ -94,8 +100,22 @@ impl RelaySession {
                 .local_ip
                 .unwrap_or_else(|| std::net::Ipv4Addr::new(0, 0, 0, 0));
             let local = SocketAddr::from((local_ip, self.socket.local_addr()?.port()));
+            app_log::info(
+                "Relay",
+                format!(
+                    "设备加入完成：relay={relay} local={local} elapsed={}ms",
+                    started.elapsed().as_millis()
+                ),
+            );
             return PpppConnection::start(self.socket, relay, local);
         }
+        app_log::error(
+            "Relay",
+            format!(
+                "Relay 建立失败：{last_failure} elapsed={}ms",
+                started.elapsed().as_millis()
+            ),
+        );
         Err(anyhow!("建立 relay 失败：{last_failure}"))
     }
 

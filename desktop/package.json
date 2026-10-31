@@ -9,7 +9,7 @@
     "bridge": "esbuild ui/tauri-bridge.mjs --bundle --format=iife --platform=browser --target=safari15 --outfile=ui/tauri-api.js",
     "dev": "npm run bridge && tauri dev",
     "build": "npm run bridge && tauri build",
-    "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js",
+    "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/diagnostics.js && node --check ui/camera-player.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js",
     "test": "node --test tests/*.test.js"
   },
   "devDependencies": {

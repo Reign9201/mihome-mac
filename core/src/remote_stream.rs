@@ -1,7 +1,7 @@
-//! Rust remote-camera stream: MISS media -> ffmpeg (Annex-B -> fMP4 HLS) -> loopback HTTP.
+//! Rust remote-camera stream: MISS media -> ffmpeg (Annex-B -> RTSP) -> go2rtc.
 //!
 //! This replaces the Java `micam` experiment for the product path. ffmpeg remains only as the
-//! HLS packager; the Xiaomi cloud, CS2 relay, MISS authentication and media decryption are all
+//! remuxer; the Xiaomi cloud, CS2 relay, MISS authentication and media decryption are all
 //! implemented in this crate.
 
 use anyhow::{anyhow, Context, Result};
@@ -16,7 +16,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::auth::Session;
-use crate::media::{find_ffmpeg, free_port, tail, FileServer};
+use crate::camera::Go2Rtc;
+use crate::logging as app_log;
+use crate::media::{find_ffmpeg, free_port, tail};
 use crate::miss::{MediaPacket, CODEC_H264, CODEC_H265, CODEC_OPUS};
 use crate::remote::RemoteCamera;
 
@@ -25,12 +27,11 @@ static REMOTE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub struct RemoteStream {
     camera: Arc<RemoteCamera>,
     ffmpeg: Child,
-    server: FileServer,
+    relay: Go2Rtc,
     temp_dir: PathBuf,
     reader: Option<JoinHandle<()>>,
     running: Arc<AtomicBool>,
     frames: Arc<std::sync::atomic::AtomicUsize>,
-    port: u16,
 }
 
 struct StartupResources {
@@ -38,7 +39,7 @@ struct StartupResources {
     child: Option<Child>,
     reader: Option<JoinHandle<()>>,
     running: Arc<AtomicBool>,
-    server: Option<FileServer>,
+    relay: Option<Go2Rtc>,
     active: bool,
 }
 
@@ -49,7 +50,7 @@ impl StartupResources {
             child: None,
             reader: None,
             running,
-            server: None,
+            relay: None,
             active: true,
         }
     }
@@ -68,9 +69,7 @@ impl Drop for StartupResources {
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
-        if let Some(mut server) = self.server.take() {
-            server.stop();
-        }
+        self.relay.take();
         let _ = fs::remove_dir_all(&self.temp_dir);
     }
 }
@@ -78,21 +77,60 @@ impl Drop for StartupResources {
 impl RemoteStream {
     /// Blocking entry point. Call it from a worker thread, not the UI thread.
     pub fn start(session: Session, did: &str, quality: u8, audio: bool) -> Result<Self> {
+        cleanup_stale_remote_dirs();
+        let started = Instant::now();
+        app_log::info(
+            "Remote",
+            format!(
+                "开始建立远程画面：did={} quality={quality} audio={audio}",
+                app_log::mask_id(did)
+            ),
+        );
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .context("创建摄像头运行时失败")?;
-        let camera = runtime.block_on(RemoteCamera::open(
-            &session,
-            did,
-            quality,
-            audio,
-            Duration::from_secs(90),
-        ))?;
-        Self::from_camera(camera, audio)
+        let camera = runtime
+            .block_on(RemoteCamera::open(
+                &session,
+                did,
+                quality,
+                audio,
+                Duration::from_secs(90),
+            ))
+            .map_err(|error| {
+                app_log::error(
+                    "Remote",
+                    format!(
+                        "MISS 通道建立失败：did={} error={error:#}",
+                        app_log::mask_id(did)
+                    ),
+                );
+                error
+            })?;
+        let stream = Self::from_camera(camera, audio).map_err(|error| {
+            app_log::error(
+                "Remote",
+                format!(
+                    "远程画面启动失败：did={} error={error:#}",
+                    app_log::mask_id(did)
+                ),
+            );
+            error
+        })?;
+        app_log::info(
+            "Remote",
+            format!(
+                "远程画面已就绪：did={} elapsed={}ms",
+                app_log::mask_id(did),
+                started.elapsed().as_millis()
+            ),
+        );
+        Ok(stream)
     }
 
     fn from_camera(camera: RemoteCamera, audio: bool) -> Result<Self> {
+        let started = Instant::now();
         let camera = Arc::new(camera);
         let first = first_video_packet(&camera, Duration::from_secs(20))?;
         let (input_format, tag) = match first.codec_id {
@@ -100,8 +138,17 @@ impl RemoteStream {
             CODEC_H265 => ("hevc", "hvc1"),
             other => return Err(anyhow!("不支持的视频编码 id={other}")),
         };
+        app_log::info(
+            "Remote",
+            format!(
+                "收到首帧：codec={input_format} bytes={} elapsed={}ms",
+                first.payload.len(),
+                started.elapsed().as_millis()
+            ),
+        );
 
         let ffmpeg = find_ffmpeg()?;
+        app_log::info("ffmpeg", format!("使用编码封装器：{}", ffmpeg.display()));
         let sequence = REMOTE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -114,8 +161,10 @@ impl RemoteStream {
         create_private_dir(&temp_dir)?;
         let running = Arc::new(AtomicBool::new(true));
         let mut resources = StartupResources::new(temp_dir.clone(), Arc::clone(&running));
-        let playlist = temp_dir.join("index.m3u8");
-        let segment_pattern = temp_dir.join("seg%03d.m4s");
+        let go2rtc = crate::camera::find_binary()?;
+        let relay = Go2Rtc::start_for_ingest(&go2rtc, "remote")?;
+        let rtsp_target = relay.rtsp_url("remote");
+        resources.relay = Some(relay);
         let ffmpeg_log = temp_dir.join("ffmpeg.log");
         let ffmpeg_log_file = OpenOptions::new()
             .create(true)
@@ -141,60 +190,13 @@ impl RemoteStream {
             None
         };
 
-        let mut args = vec![
-            "-hide_banner".to_string(),
-            "-loglevel".to_string(),
-            "warning".to_string(),
-            "-fflags".to_string(),
-            "+genpts".to_string(),
-            "-f".to_string(),
-            input_format.to_string(),
-            "-i".to_string(),
-            "pipe:0".to_string(),
-        ];
-        if audio_target.is_some() {
-            args.extend([
-                "-protocol_whitelist".to_string(),
-                "file,udp,rtp".to_string(),
-                "-i".to_string(),
-                temp_dir.join("audio.sdp").to_string_lossy().to_string(),
-                "-map".to_string(),
-                "0:v".to_string(),
-                "-map".to_string(),
-                "1:a".to_string(),
-                "-c:a".to_string(),
-                "aac".to_string(),
-                "-b:a".to_string(),
-                "64k".to_string(),
-                "-ar".to_string(),
-                "48000".to_string(),
-                "-ac".to_string(),
-                "1".to_string(),
-            ]);
-        } else {
-            args.extend(["-an".to_string()]);
-        }
-        args.extend([
-            "-c:v".to_string(),
-            "copy".to_string(),
-            "-tag:v".to_string(),
-            tag.to_string(),
-            "-f".to_string(),
-            "hls".to_string(),
-            "-hls_time".to_string(),
-            "1".to_string(),
-            "-hls_list_size".to_string(),
-            "6".to_string(),
-            "-hls_flags".to_string(),
-            "delete_segments+append_list+omit_endlist".to_string(),
-            "-hls_segment_type".to_string(),
-            "fmp4".to_string(),
-            "-hls_fmp4_init_filename".to_string(),
-            "init.mp4".to_string(),
-            "-hls_segment_filename".to_string(),
-            segment_pattern.to_str().unwrap_or_default().to_string(),
-            playlist.to_str().unwrap_or_default().to_string(),
-        ]);
+        let audio_sdp = audio_target.as_ref().map(|_| temp_dir.join("audio.sdp"));
+        let args = ffmpeg_args(
+            input_format,
+            tag,
+            audio_sdp.as_deref(),
+            rtsp_target.as_str(),
+        );
         let mut child = Command::new(&ffmpeg)
             .args(&args)
             .stdin(Stdio::piped())
@@ -202,6 +204,15 @@ impl RemoteStream {
             .stderr(Stdio::from(ffmpeg_err))
             .spawn()
             .with_context(|| format!("启动 ffmpeg 失败：{}", ffmpeg.display()))?;
+        app_log::info(
+            "ffmpeg",
+            format!(
+                "进程已启动：pid={} audio={} temp={}",
+                child.id(),
+                audio,
+                temp_dir.display()
+            ),
+        );
         let mut stdin = child
             .stdin
             .take()
@@ -230,7 +241,13 @@ impl RemoteStream {
                                 continue;
                             }
                             last_video_seq = Some(packet.sequence);
-                            if stdin.write_all(&packet.payload).is_err() {
+                            if let Err(error) = stdin.write_all(&packet.payload) {
+                                if thread_running.load(Ordering::Relaxed) {
+                                    app_log::warn(
+                                        "Remote",
+                                        format!("写入视频帧失败，媒体线程退出：{error}"),
+                                    );
+                                }
                                 break;
                             }
                             thread_frames.fetch_add(1, Ordering::Relaxed);
@@ -257,15 +274,23 @@ impl RemoteStream {
                             rtp.extend_from_slice(&0x1234_5678u32.to_be_bytes());
                             rtp.extend_from_slice(&packet.payload);
                             rtp_seq = rtp_seq.wrapping_add(1);
-                            if socket
-                                .send_to(&rtp, format!("127.0.0.1:{audio_port}"))
-                                .is_err()
+                            if let Err(error) =
+                                socket.send_to(&rtp, format!("127.0.0.1:{audio_port}"))
                             {
+                                if thread_running.load(Ordering::Relaxed) {
+                                    app_log::warn(
+                                        "Remote",
+                                        format!("发送音频包失败，媒体线程退出：{error}"),
+                                    );
+                                }
                                 break;
                             }
                         }
                         Ok(_) => {}
-                        Err(_) => break,
+                        Err(error) => {
+                            app_log::error("Remote", format!("读取媒体包失败：{error:#}"));
+                            break;
+                        }
                     }
                 }
             })
@@ -275,11 +300,13 @@ impl RemoteStream {
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut ready = false;
         while Instant::now() < deadline {
-            if let Ok(text) = fs::read_to_string(&playlist) {
-                if text.contains("#EXTM3U") && text.contains("#EXTINF") {
-                    ready = true;
-                    break;
-                }
+            if resources
+                .relay
+                .as_ref()
+                .is_some_and(|relay| relay.producer_ready("remote"))
+            {
+                ready = true;
+                break;
             }
             if let Some(status) = resources
                 .child
@@ -295,39 +322,54 @@ impl RemoteStream {
             thread::sleep(Duration::from_millis(150));
         }
         if !ready {
+            app_log::error(
+                "ffmpeg",
+                format!(
+                    "低延迟中继等待超时：elapsed={}ms tail={}",
+                    started.elapsed().as_millis(),
+                    tail(&ffmpeg_log, 8)
+                ),
+            );
             return Err(anyhow!(
-                "远程画面没有生成 HLS。\nffmpeg: {}",
+                "远程画面没有推送到低延迟中继。\nffmpeg: {}",
                 tail(&ffmpeg_log, 6)
             ));
         }
 
-        let server = FileServer::start(temp_dir.clone())?;
-        let port = server.port();
-        resources.server = Some(server);
+        app_log::info(
+            "Remote",
+            format!(
+                "低延迟中继已就绪：rtsp={rtsp_target} elapsed={}ms",
+                started.elapsed().as_millis()
+            ),
+        );
         let ffmpeg = resources
             .child
             .take()
             .ok_or_else(|| anyhow!("ffmpeg 子进程丢失"))?;
-        let server = resources
-            .server
+        let relay = resources
+            .relay
             .take()
-            .ok_or_else(|| anyhow!("HLS 服务丢失"))?;
+            .ok_or_else(|| anyhow!("go2rtc 中继丢失"))?;
         let reader = resources.reader.take();
         resources.active = false;
         Ok(Self {
             camera,
             ffmpeg,
-            server,
+            relay,
             temp_dir: resources.temp_dir.clone(),
             reader,
             running,
             frames,
-            port,
         })
     }
 
     pub fn url(&self) -> String {
-        format!("http://127.0.0.1:{}/index.m3u8", self.port)
+        self.relay.stream_url("remote")
+    }
+
+    pub fn webrtc_url(&self) -> String {
+        self.relay.webrtc_url("remote")
     }
 
     pub fn frames(&self) -> usize {
@@ -347,6 +389,73 @@ impl RemoteStream {
     }
 }
 
+fn ffmpeg_args(
+    input_format: &str,
+    tag: &str,
+    audio_sdp: Option<&std::path::Path>,
+    rtsp_target: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "warning".to_string(),
+        // Raw H.264/H.265 has no timestamps. Wall-clock timestamps track the
+        // camera instead of forcing every model to ffmpeg's default 25 fps.
+        "-use_wallclock_as_timestamps".to_string(),
+        "1".to_string(),
+        "-fflags".to_string(),
+        "+genpts+nobuffer".to_string(),
+        "-f".to_string(),
+        input_format.to_string(),
+        "-i".to_string(),
+        "pipe:0".to_string(),
+    ];
+    if let Some(path) = audio_sdp {
+        args.extend([
+            "-protocol_whitelist".to_string(),
+            "file,udp,rtp".to_string(),
+            "-i".to_string(),
+            path.to_string_lossy().to_string(),
+            "-map".to_string(),
+            "0:v".to_string(),
+            "-map".to_string(),
+            "1:a".to_string(),
+            "-c:a".to_string(),
+            "aac".to_string(),
+            "-b:a".to_string(),
+            "64k".to_string(),
+            "-ar".to_string(),
+            "48000".to_string(),
+            "-ac".to_string(),
+            "1".to_string(),
+        ]);
+    } else {
+        args.push("-an".to_string());
+    }
+    args.extend([
+        "-c:v".to_string(),
+        "copy".to_string(),
+        "-tag:v".to_string(),
+        tag.to_string(),
+        "-vsync".to_string(),
+        "0".to_string(),
+        "-max_delay".to_string(),
+        "0".to_string(),
+        "-flush_packets".to_string(),
+        "1".to_string(),
+        "-muxdelay".to_string(),
+        "0".to_string(),
+        "-muxpreload".to_string(),
+        "0".to_string(),
+        "-rtsp_transport".to_string(),
+        "tcp".to_string(),
+        "-f".to_string(),
+        "rtsp".to_string(),
+        rtsp_target.to_string(),
+    ]);
+    args
+}
+
 fn create_private_dir(path: &std::path::Path) -> Result<()> {
     fs::create_dir_all(path)?;
     #[cfg(unix)]
@@ -357,15 +466,77 @@ fn create_private_dir(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+fn cleanup_stale_remote_dirs() {
+    let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("mihome-remote-") {
+            continue;
+        }
+        let pid = remote_dir_pid(&name);
+        let age = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .unwrap_or_default();
+        let owner_gone = pid.is_some_and(|pid| pid != std::process::id() && !process_is_alive(pid));
+        if owner_gone || age > Duration::from_secs(24 * 60 * 60) {
+            if let Err(error) = fs::remove_dir_all(entry.path()) {
+                app_log::warn(
+                    "Remote",
+                    format!("清理残留临时目录失败：{}：{error}", entry.path().display()),
+                );
+            }
+        }
+    }
+}
+
+fn remote_dir_pid(name: &str) -> Option<u32> {
+    name.strip_prefix("mihome-remote-")?
+        .split('-')
+        .next()?
+        .parse()
+        .ok()
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(true)
+}
+
+#[cfg(not(unix))]
+fn process_is_alive(_pid: u32) -> bool {
+    true
+}
+
 impl Drop for RemoteStream {
     fn drop(&mut self) {
+        app_log::info(
+            "Remote",
+            format!(
+                "停止远程画面：port={} frames={}",
+                self.relay.port,
+                self.frames.load(Ordering::Relaxed)
+            ),
+        );
         self.running.store(false, Ordering::Relaxed);
         let _ = self.ffmpeg.kill();
         let _ = self.ffmpeg.wait();
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
-        self.server.stop();
         let _ = fs::remove_dir_all(&self.temp_dir);
     }
 }
@@ -406,5 +577,47 @@ mod tests {
             );
         }
         let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn remote_ffmpeg_publishes_low_latency_rtsp_without_hls() {
+        let args = ffmpeg_args(
+            "hevc",
+            "hvc1",
+            Some(std::path::Path::new("/tmp/audio.sdp")),
+            "rtsp://127.0.0.1:41002/remote",
+        );
+        let joined = args.join(" ");
+        assert!(joined.contains("-use_wallclock_as_timestamps 1"));
+        assert!(joined.contains("-fflags +genpts+nobuffer"));
+        assert!(joined.contains("-vsync 0"));
+        assert!(joined.contains("-rtsp_transport tcp"));
+        assert!(joined.contains("-f rtsp rtsp://127.0.0.1:41002/remote"));
+        assert!(!joined.contains("m3u8"));
+        assert!(!joined.contains("hls"));
+    }
+
+    #[test]
+    fn parses_owner_pid_from_remote_temp_directory() {
+        assert_eq!(
+            remote_dir_pid("mihome-remote-1234-2-1793420811427261000"),
+            Some(1234)
+        );
+        assert_eq!(remote_dir_pid("mihome-remote-not-a-pid"), None);
+        assert_eq!(remote_dir_pid("unrelated"), None);
+    }
+
+    #[test]
+    fn removes_remote_temp_directory_owned_by_dead_process() {
+        let path = std::env::temp_dir().join(format!(
+            "mihome-remote-999999-0-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        create_private_dir(&path).unwrap();
+        cleanup_stale_remote_dirs();
+        assert!(!path.exists());
     }
 }

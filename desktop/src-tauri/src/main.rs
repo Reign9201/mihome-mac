@@ -2,13 +2,15 @@
 
 use chrono::Local;
 use mihome_core::automation::{Automation, AutomationStore};
-use mihome_core::camera::{self, CameraDevice, CameraStream, Go2Rtc};
+use mihome_core::camera::{self, CameraDevice, CameraDiagnostics, CameraStream, Go2Rtc};
+use mihome_core::logging::{self as app_log, Level};
 use mihome_core::remote_stream::RemoteStream;
 use mihome_core::{auth, AuthStart, MiCloud, PendingLogin, SpecBatch, SpecRegistry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -42,9 +44,21 @@ fn automation_path() -> PathBuf {
 impl Default for AppState {
     fn default() -> Self {
         let (cloud, session_error) = match auth::Session::restore() {
-            Ok(Some(session)) => (Some(MiCloud::new(session)), None),
+            Ok(Some(session)) => {
+                app_log::info(
+                    "Auth",
+                    format!(
+                        "已恢复登录凭据：user={}",
+                        app_log::mask_id(&session.user_id)
+                    ),
+                );
+                (Some(MiCloud::new(session)), None)
+            }
             Ok(None) => (None, None),
-            Err(error) => (None, Some(error.to_string())),
+            Err(error) => {
+                app_log::error("Auth", format!("恢复登录凭据失败：{error:#}"));
+                (None, Some(error.to_string()))
+            }
         };
         Self {
             pending: Mutex::new(None),
@@ -92,8 +106,13 @@ fn app_meta() -> AppMeta {
 
 #[tauri::command]
 async fn auth_start(state: State<'_, Arc<AppState>>) -> Result<AuthStart, String> {
-    let (pending, start) = auth::start_login().await.map_err(error_text)?;
+    app_log::info("Auth", "开始二维码登录");
+    let (pending, start) = auth::start_login().await.map_err(|error| {
+        app_log::error("Auth", format!("申请登录二维码失败：{error:#}"));
+        error_text(error)
+    })?;
     *state.pending.lock().await = Some(pending);
+    app_log::info("Auth", "登录二维码已生成");
     Ok(start)
 }
 
@@ -108,10 +127,14 @@ async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> 
     match auth::poll_login(&pending).await {
         Ok(Some(session)) => {
             let user_id = session.user_id.clone();
-            let save_warning = session
-                .save()
-                .err()
-                .map(|error| format!("登录成功，但保存凭据失败：{error}"));
+            let save_warning = session.save().err().map(|error| {
+                app_log::error("Auth", format!("登录成功，但保存凭据失败：{error:#}"));
+                format!("登录成功，但保存凭据失败：{error}")
+            });
+            app_log::info(
+                "Auth",
+                format!("扫码登录成功：user={}", app_log::mask_id(&user_id)),
+            );
             *state.cloud.lock().await = Some(MiCloud::new(session));
             *state.session_error.lock().await = None;
             *state.pending.lock().await = None;
@@ -126,16 +149,20 @@ async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> 
             user_id: None,
             message: None,
         }),
-        Err(error) => Ok(AuthPoll {
-            status: "error",
-            user_id: None,
-            message: Some(error.to_string()),
-        }),
+        Err(error) => {
+            app_log::error("Auth", format!("轮询扫码登录失败：{error:#}"));
+            Ok(AuthPoll {
+                status: "error",
+                user_id: None,
+                message: Some(error.to_string()),
+            })
+        }
     }
 }
 
 #[tauri::command]
 async fn auth_logout(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    app_log::info("Auth", "用户退出登录");
     *state.pending.lock().await = None;
     *state.cloud.lock().await = None;
     *state.session_error.lock().await = None;
@@ -148,10 +175,16 @@ async fn auth_resume(state: State<'_, Arc<AppState>>) -> Result<Option<String>, 
     let cloud = state.cloud.lock().await.clone();
     let Some(cloud) = cloud else {
         if let Some(error) = state.session_error.lock().await.clone() {
+            app_log::warn("Auth", format!("无法恢复登录：{error}"));
             return Err(format!("恢复登录凭据失败：{error}"));
         }
+        app_log::info("Auth", "当前没有已保存的登录状态");
         return Ok(None);
     };
+    app_log::info(
+        "Auth",
+        format!("登录状态可用：user={}", app_log::mask_id(cloud.user_id())),
+    );
     // The UI immediately calls list_homes after resume. Avoid a duplicate cloud
     // request here so startup needs only one family-list round trip.
     Ok(Some(cloud.user_id().to_string()))
@@ -165,7 +198,12 @@ async fn list_homes(state: State<'_, Arc<AppState>>) -> Result<Vec<mihome_core::
         .await
         .clone()
         .ok_or_else(|| "未登录".to_string())?;
-    cloud.homes().await.map_err(error_text)
+    let homes = cloud.homes().await.map_err(|error| {
+        app_log::error("Cloud", format!("读取家庭列表失败：{error:#}"));
+        error_text(error)
+    })?;
+    app_log::info("Cloud", format!("已读取 {} 个家庭", homes.len()));
+    Ok(homes)
 }
 
 #[tauri::command]
@@ -179,7 +217,12 @@ async fn list_devices(
         .await
         .clone()
         .ok_or_else(|| "未登录".to_string())?;
-    cloud.devices(home_id.as_deref()).await.map_err(error_text)
+    let devices = cloud.devices(home_id.as_deref()).await.map_err(|error| {
+        app_log::error("Cloud", format!("读取设备列表失败：{error:#}"));
+        error_text(error)
+    })?;
+    app_log::info("Cloud", format!("已读取 {} 台设备", devices.len()));
+    Ok(devices)
 }
 
 #[tauri::command]
@@ -228,7 +271,7 @@ async fn run_scene(
 #[tauri::command]
 fn ui_ready(state: State<'_, Arc<AppState>>) -> u128 {
     let elapsed = state.started.elapsed().as_millis();
-    eprintln!("ui-ready {}ms", elapsed);
+    app_log::info("App", format!("界面已就绪：elapsed={elapsed}ms"));
     elapsed
 }
 
@@ -297,11 +340,14 @@ async fn run_due_automations(state: &Arc<AppState>) {
     if due.is_empty() {
         return;
     }
-    eprintln!(
-        "automation tick {} -> {}: {} due",
-        since.format("%Y-%m-%d %H:%M:%S"),
-        now.format("%Y-%m-%d %H:%M:%S"),
-        due.len()
+    app_log::info(
+        "Automation",
+        format!(
+            "检查定时任务 {} -> {}：{} 项到期",
+            since.format("%Y-%m-%d %H:%M:%S"),
+            now.format("%Y-%m-%d %H:%M:%S"),
+            due.len()
+        ),
     );
     for item in due {
         let cloud = state.cloud.lock().await.clone();
@@ -311,20 +357,36 @@ async fn run_due_automations(state: &Arc<AppState>) {
                 .await
             {
                 Ok(_) => {
+                    app_log::info(
+                        "Automation",
+                        format!(
+                            "定时任务 {} 执行成功",
+                            app_log::mask_id(&item.automation.id)
+                        ),
+                    );
                     if let Err(error) = state
                         .automations
                         .lock()
                         .await
                         .mark_run_for(&item.automation.id, item.scheduled_for)
                     {
-                        eprintln!(
-                            "automation {} ran but could not be persisted: {error}",
-                            item.automation.id
+                        app_log::error(
+                            "Automation",
+                            format!(
+                                "定时任务 {} 已执行，但状态保存失败：{error:#}",
+                                app_log::mask_id(&item.automation.id)
+                            ),
                         );
                     }
                 }
                 Err(error) => {
-                    eprintln!("automation {} failed: {error}", item.automation.id);
+                    app_log::error(
+                        "Automation",
+                        format!(
+                            "定时任务 {} 执行失败：{error:#}",
+                            app_log::mask_id(&item.automation.id)
+                        ),
+                    );
                 }
             }
         }
@@ -339,7 +401,30 @@ async fn list_cameras(state: State<'_, Arc<AppState>>) -> Result<Vec<CameraDevic
         .await
         .clone()
         .ok_or_else(|| "未登录".to_string())?;
-    cloud.cameras().await.map_err(error_text)
+    let cameras = cloud.cameras().await.map_err(|error| {
+        app_log::error("Camera", format!("读取摄像头列表失败：{error:#}"));
+        error_text(error)
+    })?;
+    app_log::info(
+        "Camera",
+        format!(
+            "已读取 {} 台摄像头：{}",
+            cameras.len(),
+            cameras
+                .iter()
+                .map(|camera| format!(
+                    "{} did={} model={} ip={} online={}",
+                    camera.name,
+                    app_log::mask_id(&camera.did),
+                    camera.model,
+                    camera.ip.as_deref().unwrap_or("无"),
+                    camera.online
+                ))
+                .collect::<Vec<_>>()
+                .join("；")
+        ),
+    );
+    Ok(cameras)
 }
 
 async fn drop_off_runtime<T: Send + 'static>(value: T) {
@@ -377,6 +462,17 @@ async fn camera_start(
     state: State<'_, Arc<AppState>>,
     dids: Vec<String>,
 ) -> Result<Vec<CameraStream>, String> {
+    app_log::info(
+        "Camera",
+        format!(
+            "请求本地画面：{} 路 {}",
+            dids.len(),
+            dids.iter()
+                .map(|did| app_log::mask_id(did))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    );
     let (generation, remote) = {
         let _lifecycle = state.camera_lifecycle.lock().await;
         let generation = state.local_camera_epoch.fetch_add(1, Ordering::SeqCst) + 1;
@@ -397,12 +493,16 @@ async fn camera_start(
         .await
         .clone()
         .ok_or_else(|| "未登录".to_string())?;
-    let all = cloud.cameras().await.map_err(error_text)?;
+    let all = cloud.cameras().await.map_err(|error| {
+        app_log::error("Camera", format!("启动本地取流前读取摄像头失败：{error:#}"));
+        error_text(error)
+    })?;
     let selected: Vec<CameraDevice> = all
         .into_iter()
         .filter(|camera| dids.iter().any(|did| did == &camera.did))
         .collect();
     if selected.is_empty() {
+        app_log::warn("Camera", "请求的摄像头未出现在账号设备列表中");
         return Err("没有选中的摄像头".to_string());
     }
     let binary = camera::find_binary().map_err(error_text)?;
@@ -412,19 +512,24 @@ async fn camera_start(
     let (runtime, streams) = tauri::async_runtime::spawn_blocking(move || {
         let runtime =
             Go2Rtc::start_for_cameras(&binary, &selected_for_worker, &user_id, &pass_token)?;
-        let streams = selected_for_worker
+        let streams: Vec<CameraStream> = selected_for_worker
             .iter()
             .map(|camera| CameraStream {
                 id: camera.did.clone(),
                 url: runtime.stream_url_for_did(&camera.did),
+                webrtc_url: Some(runtime.webrtc_url_for_did(&camera.did)),
                 host: camera.ip.clone().unwrap_or_default(),
+                prefer_mse: true,
             })
             .collect();
         Ok::<_, anyhow::Error>((runtime, streams))
     })
     .await
     .map_err(error_text)?
-    .map_err(error_text)?;
+    .map_err(|error| {
+        app_log::error("Camera", format!("本地取流启动失败：{error:#}"));
+        error_text(error)
+    })?;
     let mut pending = Some(runtime);
     let mut previous = None;
     let stale = {
@@ -443,12 +548,34 @@ async fn camera_start(
     };
     if stale {
         drop_off_runtime(pending).await;
+        app_log::warn("Camera", "本地取流启动在完成前已被新请求取消");
         return Err("摄像头启动已取消".to_string());
     }
     if let Some(previous) = previous {
         drop_off_runtime(previous).await;
     }
+    app_log::info(
+        "Camera",
+        format!(
+            "本地画面地址已生成：{} 路；{}",
+            streams.len(),
+            streams
+                .iter()
+                .map(|stream| format!("did={} host={}", app_log::mask_id(&stream.id), stream.host))
+                .collect::<Vec<_>>()
+                .join("；")
+        ),
+    );
     Ok(streams)
+}
+
+#[tauri::command]
+async fn camera_diagnostics(state: State<'_, Arc<AppState>>) -> Result<CameraDiagnostics, String> {
+    let mut camera = state.camera.lock().await;
+    camera
+        .as_mut()
+        .map(Go2Rtc::diagnostics)
+        .ok_or_else(|| "本地取流服务未启动".to_string())
 }
 
 #[tauri::command]
@@ -458,6 +585,15 @@ async fn camera_remote_start(
     quality: Option<u8>,
     audio: Option<bool>,
 ) -> Result<CameraStream, String> {
+    app_log::info(
+        "Camera",
+        format!(
+            "请求远程画面：did={} quality={} audio={}",
+            app_log::mask_id(&did),
+            quality.unwrap_or(2),
+            audio.unwrap_or(false)
+        ),
+    );
     let session = state
         .cloud
         .lock()
@@ -470,13 +606,16 @@ async fn camera_remote_start(
     let _start_guard = start_lock.lock().await;
     let existing = {
         let map = state.remote_cameras.lock().await;
-        map.get(&did).map(|stream| stream.url())
+        map.get(&did)
+            .map(|stream| (stream.url(), stream.webrtc_url()))
     };
-    if let Some(url) = existing {
+    if let Some((url, webrtc_url)) = existing {
         return Ok(CameraStream {
             id: did,
             url,
+            webrtc_url: Some(webrtc_url),
             host: "CS2 relay".to_string(),
+            prefer_mse: false,
         });
     }
     let (remote_generation, stop_generation, local) = {
@@ -507,11 +646,24 @@ async fn camera_remote_start(
     })
     .await
     .map_err(error_text)?
-    .map_err(error_text)?;
+    .map_err(|error| {
+        app_log::error(
+            "Camera",
+            format!(
+                "远程取流启动失败：did={} error={error:#}",
+                app_log::mask_id(&did)
+            ),
+        );
+        error_text(error)
+    })?;
     let mut pending = Some(stream);
     let Some(url) = pending.as_ref().map(RemoteStream::url) else {
         return Err("远程摄像头流已失效".to_string());
     };
+    let webrtc_url = pending
+        .as_ref()
+        .map(RemoteStream::webrtc_url)
+        .ok_or_else(|| "远程低延迟地址已失效".to_string())?;
     let stale = {
         let _lifecycle = state.camera_lifecycle.lock().await;
         let current_remote = state.remote_camera_epoch.load(Ordering::SeqCst);
@@ -539,12 +691,18 @@ async fn camera_remote_start(
     };
     if stale {
         drop_off_runtime(pending).await;
+        app_log::warn(
+            "Camera",
+            format!("远程画面启动已取消：did={}", app_log::mask_id(&did)),
+        );
         return Err("远程摄像头启动已取消".to_string());
     }
     Ok(CameraStream {
         id: did,
         url,
+        webrtc_url: Some(webrtc_url),
         host: "CS2 relay".to_string(),
+        prefer_mse: false,
     })
 }
 
@@ -555,6 +713,13 @@ async fn camera_remote_ptz(
     direction: String,
     speed: u8,
 ) -> Result<(), String> {
+    app_log::info(
+        "Camera",
+        format!(
+            "云台命令：did={} direction={direction} speed={speed}",
+            app_log::mask_id(&did)
+        ),
+    );
     let stream = state
         .remote_cameras
         .lock()
@@ -562,7 +727,16 @@ async fn camera_remote_ptz(
         .get(&did)
         .cloned()
         .ok_or_else(|| "远程画面还没有建立".to_string())?;
-    stream.ptz(&direction, speed).map_err(error_text)
+    stream.ptz(&direction, speed).map_err(|error| {
+        app_log::error(
+            "Camera",
+            format!(
+                "云台命令失败：did={} direction={direction} error={error:#}",
+                app_log::mask_id(&did)
+            ),
+        );
+        error_text(error)
+    })
 }
 
 #[tauri::command]
@@ -595,6 +769,13 @@ async fn camera_remote_stop(
     state: State<'_, Arc<AppState>>,
     did: Option<String>,
 ) -> Result<(), String> {
+    app_log::info(
+        "Camera",
+        match did.as_deref() {
+            Some(did) => format!("停止远程画面：did={}", app_log::mask_id(did)),
+            None => "停止全部远程画面".to_string(),
+        },
+    );
     let streams = {
         let _lifecycle = state.camera_lifecycle.lock().await;
         match did {
@@ -632,6 +813,7 @@ async fn camera_remote_stop(
 
 #[tauri::command]
 async fn camera_stop(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    app_log::info("Camera", "停止全部摄像头画面");
     stop_all_cameras(&state).await;
     Ok(())
 }
@@ -690,6 +872,14 @@ async fn set_property(
     piid: u32,
     value: Value,
 ) -> Result<Value, String> {
+    app_log::info(
+        "Device",
+        format!(
+            "设置属性：did={} siid={siid} piid={piid} value={}",
+            app_log::mask_id(&did),
+            value.to_string().chars().take(80).collect::<String>()
+        ),
+    );
     let cloud = state
         .cloud
         .lock()
@@ -699,13 +889,62 @@ async fn set_property(
     cloud
         .set_prop(&did, siid, piid, value)
         .await
-        .map_err(error_text)
+        .map_err(|error| {
+            app_log::error(
+                "Device",
+                format!(
+                    "设置属性失败：did={} siid={siid} piid={piid} error={error:#}",
+                    app_log::mask_id(&did)
+                ),
+            );
+            error_text(error)
+        })
+}
+
+#[tauri::command]
+fn log_frontend(level: String, tag: Option<String>, message: String) -> Result<(), String> {
+    let level = match level.to_ascii_lowercase().as_str() {
+        "debug" => Level::Debug,
+        "warn" | "warning" => Level::Warn,
+        "error" => Level::Error,
+        _ => Level::Info,
+    };
+    app_log::write(level, tag.as_deref().unwrap_or("UI"), &message);
+    Ok(())
+}
+
+#[tauri::command]
+fn log_export() -> Result<String, String> {
+    let path =
+        app_log::export_diagnostics("MiHome Mac", env!("CARGO_PKG_VERSION")).map_err(|error| {
+            app_log::error("Log", format!("导出诊断日志失败：{error:#}"));
+            error_text(error)
+        })?;
+    app_log::info("Log", format!("诊断日志已导出：{}", path.display()));
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open").arg("-R").arg(&path).spawn();
+    }
+    Ok(path.to_string_lossy().to_string())
 }
 
 fn main() {
+    match app_log::install_default() {
+        Ok(path) => app_log::info(
+            "App",
+            format!(
+                "MiHome Mac {} 启动；arch={}；logs={}",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::ARCH,
+                path.display()
+            ),
+        ),
+        Err(error) => eprintln!("日志系统初始化失败：{error:#}"),
+    }
     tauri::Builder::default()
         .manage(Arc::new(AppState::default()))
         .setup(|app| {
+            app_log::info("App", "Tauri 应用初始化");
             let state = app.state::<Arc<AppState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_secs(30));
@@ -734,6 +973,7 @@ fn main() {
             toggle_automation,
             list_cameras,
             camera_start,
+            camera_diagnostics,
             camera_remote_start,
             camera_remote_stop,
             camera_remote_ptz,
@@ -742,7 +982,9 @@ fn main() {
             camera_status,
             get_property,
             get_properties,
-            set_property
+            set_property,
+            log_frontend,
+            log_export
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MiHome Mac");

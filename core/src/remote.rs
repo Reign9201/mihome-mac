@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::auth::Session;
 use crate::cloud::MiCloud;
+use crate::logging as app_log;
 use crate::miss::MissClient;
 use crate::pppp::{decode_init_string, Uid};
 use crate::relay::RelaySession;
@@ -28,12 +29,28 @@ impl RemoteCamera {
         audio: bool,
         timeout: Duration,
     ) -> Result<Self> {
+        let started = std::time::Instant::now();
         if !(0..=3).contains(&quality) {
             return Err(anyhow!("quality 只能是 0、1、2、3"));
         }
+        app_log::info(
+            "MISS",
+            format!(
+                "请求远程通道：did={} quality={quality} audio={audio}",
+                app_log::mask_id(did)
+            ),
+        );
         let keys = KeyPair::generate();
         let cloud = MiCloud::new(session.clone());
         let vendor = cloud.miss_vendor(did, &keys.public_hex).await?;
+        app_log::info(
+            "MISS",
+            format!(
+                "云端已返回传输信息：vendor={} p2p={}",
+                vendor.vendor_id,
+                app_log::mask_id(&vendor.p2p_id)
+            ),
+        );
         if vendor.vendor_id != 4 {
             return Err(anyhow!(
                 "摄像头返回的传输类型是 {}，当前产品通道只支持 CS2",
@@ -47,9 +64,23 @@ impl RemoteCamera {
         let uid = Uid::parse(&vendor.p2p_id)?;
         let relay = RelaySession::new(uid, servers)?.connect(timeout)?;
         let relay_addr = relay.relay_addr();
+        app_log::info(
+            "MISS",
+            format!(
+                "Relay 已连接：{relay_addr} elapsed={}ms",
+                started.elapsed().as_millis()
+            ),
+        );
         let key = keys.session_key(&vendor.device_public)?;
         let client = MissClient::new(relay, key);
         client.authenticate(&keys.public_hex, &vendor.sign, Duration::from_secs(15))?;
+        app_log::info(
+            "MISS",
+            format!(
+                "认证完成，请求视频：elapsed={}ms",
+                started.elapsed().as_millis()
+            ),
+        );
         client.start_video(quality, audio)?;
         Ok(Self {
             client,

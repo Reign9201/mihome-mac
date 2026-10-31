@@ -2,6 +2,7 @@ pub mod auth;
 pub mod automation;
 pub mod camera;
 pub mod cloud;
+pub mod logging;
 pub mod media;
 pub mod miss;
 pub mod pppp;

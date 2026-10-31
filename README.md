@@ -1,6 +1,6 @@
 # MiHome Mac
 
-一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建协议核心，以 Tauri 2 提供桌面壳，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
+一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建本地核心，以 Tauri 2 提供桌面窗口，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS-black)
@@ -17,21 +17,38 @@
 - 读取家庭、房间和设备列表，展示设备在线状态与连接方式
 - 按 MIoT-Spec 动态生成设备能力，只向规格声明可写的属性发送控制
 - 执行米家手动场景，保存并运行本地定时自动化
-- 通过 go2rtc 查看同一局域网内的摄像头画面
-- 通过 Rust 实现的 CS2 relay + MISS 通道进行远程取流
+- 查看同一局域网内的摄像头画面，优先使用低延迟实时传输
+- 不在同一局域网时，可通过应用内置的远程连接查看画面
+- 播放失败时自动切换兼容模式，减少黑屏和长时间等待
+- 远程宫格逐路出画，较快的摄像头不再等待较慢的一路
 - 支持监控宫格、画面控制、云台控制和单步云台操作
-- 提供明暗主题、强调色、命令面板和菜单栏速控界面
+- 设备卡片提供常用指标、开关和快捷控制，摄像头设置按型号中文化
+- 内置独立诊断日志，可导出脱敏汇总并定位取流失败
 - 附带可离线打开、无需真实账号的交互原型
 
 ![监控页](docs/assets/shot-camera.jpg)
 
 ## 当前状态
 
-桌面端已经实现扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流链路。当前仓库的自动化测试、静态检查和离线交互回归已经通过；真实小米账号、不同设备型号与固件、局域网及跨网段摄像头仍需要在实际环境中建立兼容性矩阵后确认。
+桌面端已经实现扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流链路。当前仓库的自动化测试、静态检查和离线交互回归已经通过；不同设备型号、固件和网络环境仍需要在真实环境中逐步建立兼容性清单。
 
-登录凭据保存在 macOS Keychain；旧版明文 `session.json` 会在首次恢复登录时自动迁移并删除。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
+登录凭据只保存在当前用户目录下的本地会话文件中，目录权限 `0700`、文件权限 `0600`。未签名构建若使用系统 Keychain，每次升级二进制都会触发钥匙串授权，因此默认不调用 Keychain。这个方案能避免启动弹窗，但不能防御同一 macOS 账号下的恶意进程；正式签名的发行版应改用 Keychain 或更严格的系统凭据保护。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
 
-局域网摄像头要求 Mac 与摄像头处于同一网段；远程取流目前以 CS2 机型为主，云台控制需要按型号验证。菜单栏常驻功能尚未完成。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
+局域网摄像头要求 Mac 与摄像头处于同一网段；远程连接目前只覆盖已适配的小米摄像头，云台控制需要按型号验证。视频会优先选择延迟最低的播放方式，再按兼容性逐级回退。网络传输和摄像头转发无法做到绝对零延迟，项目目标是稳定在约 1 秒级并自动追赶延迟。菜单栏常驻功能尚未完成。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
+
+2026-10-31 已完成真实摄像头验证：本地画面优先使用 MSE，两台摄像头首包分别约 0.39 秒和 0.73 秒；远程画面优先使用 WebRTC，低延迟中继从启动到就绪约 2.6 秒，MSE 回退首包约 62 毫秒。远程首次连接受候选节点和 relay 状态影响，常见约 3–16 秒，也出现过约 30 秒的长尾，稳定出画后水印延迟约为 1 秒级。该结果来自当前源码和真实设备，不代表所有网络环境都能达到相同表现。
+
+## 诊断日志
+
+应用默认把诊断日志写入 `~/Library/Logs/MiHome/`，按天和 2 MB 轮转，保留 7 天；未捕获崩溃会另行写入 `crash-*.txt`。点击界面右上角“诊断日志”会生成一份脱敏汇总到 `~/Downloads/`，并在访达中定位该文件。
+
+需要更详细的内置取流和远程握手日志时，从终端启动开发版：
+
+```bash
+MIHOME_LOG_LEVEL=debug npm --prefix desktop run dev
+```
+
+可用 `MIHOME_LOG_DIR=/path/to/logs` 修改日志目录，用 `MIHOME_DIAGNOSTICS_DIR=/path/to/export` 修改导出目录。日志模块不依赖 Tauri，接入方式和轮转边界见 [诊断日志设计](docs/07-diagnostic-log.md)。
 
 ## 快速开始
 
@@ -62,7 +79,7 @@ python3 -m http.server 8899
 - Xcode Command Line Tools
 - Node.js 20 或更高版本（仅构建安装包时需要）
 - ffmpeg（远程摄像头取流需要）
-- go2rtc（运行和打包时作为 Tauri sidecar 加载，首次构建前需要准备）
+- go2rtc（随应用一起运行和分发，首次构建前需要准备）
 
 先准备 go2rtc。脚本会按当前架构下载固定版本并校验 SHA256：
 
@@ -100,7 +117,7 @@ universal 会同时包含两套主程序和两套 go2rtc，体积约为单架构
 ./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-0.1.0-universal.dmg universal
 ```
 
-构建脚本默认把 Tauri 的 UDZO DMG 转换为压缩率更高的 ULMO（XZ）；需要兼容旧格式时可设置 `DMG_FORMAT=UDZO`。
+当前单架构 DMG 约 7–10 MB。主程序经过符号裁剪，最大的固定开销是必须随应用分发的 go2rtc；它未压缩约 21 MB，DMG 压缩后占比仍然最高。仅通过更换压缩格式无法把包含 go2rtc 的安装包压到 5 MB。
 
 生成 DMG 不要求 Apple 证书；Gatekeeper 放行才要求 Developer ID 签名与公证。与 Electron Builder 项目相同，未签名 DMG 可以生成、挂载和本地测试，但下载到其他 Mac 后会被 Gatekeeper 拒绝。CI 和本地默认构建都不包含签名证书。
 
@@ -110,7 +127,7 @@ universal 会同时包含两套主程序和两套 go2rtc，体积约为单架构
 
 ```text
 mihome-mac/
-├── core/                         Rust 协议层：登录、签名、设备、场景、摄像头
+├── core/                         Rust 协议层：登录、签名、设备、场景、摄像头、日志
 ├── desktop/
 │   ├── ui/                       桌面界面，纯 HTML/CSS/JavaScript
 │   └── src-tauri/                Tauri 2 壳与 IPC 命令
@@ -132,7 +149,7 @@ mihome-mac/
 | 桌面应用 | Tauri 2、WebView |
 | 界面 | 原生 HTML、CSS、JavaScript |
 | 本地摄像头 | go2rtc（独立子进程） |
-| 远程摄像头 | Rust CS2 relay、MISS、ffmpeg |
+| 远程摄像头 | Rust 远程连接、ffmpeg、内置 go2rtc |
 | 性能验证 | Rust、Swift、Node.js、Python 基准脚本 |
 
 ## 参与贡献
@@ -161,6 +178,7 @@ npm --prefix desktop test
 | [Do1e/mijia-api](https://github.com/Do1e/mijia-api) | 扫码登录、请求签名、云端接口与设备模型 | GPL-3.0-or-later | 协议实现的重要参考，部分逻辑改写为 Rust |
 | [huanyuejue/MiHome-Windows](https://github.com/huanyuejue/MiHome-Windows) | 桌面端功能组织、交互与设备控制流程 | GPL-3.0-or-later | 功能与设计参考，macOS 界面重新实现 |
 | [AlexxIT/go2rtc](https://github.com/AlexxIT/go2rtc) | 局域网摄像头取流 | MIT | 作为独立助手程序使用 |
+| [FFmpeg](https://ffmpeg.org/) | 远程摄像头无转码封装 | LGPL-2.1-or-later 或 GPL（取决于构建选项） | 运行时外部依赖，不随安装包分发 |
 | [Squachen/micloud](https://github.com/Squachen/micloud) | 小米云登录与 RC4 签名算法的早期实现 | MIT | 通过 mijia-api 间接参考 |
 | [XiaoMi/ha_xiaomi_home](https://github.com/XiaoMi/ha_xiaomi_home) | 局域网与消息协议事实核对 | 小米自定义许可证 | 仅作协议研究，不复制、不打包其代码 |
 | [eugeneRover/micam](https://github.com/eugeneRover/micam) | CS2 远程取流可行性验证 | 仓库未声明许可证 | 仅作独立验证，不复制、不打包其代码 |

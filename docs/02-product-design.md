@@ -708,35 +708,3 @@ App Sandbox 需要 `com.apple.security.network.client` 与 `com.apple.security.n
 | 第 6 周 | 性能、可访问性、签名、公证、内测 | 可分发测试版 |
 
 详细任务拆解、风险与验证方式见 `03-tech-stack.md`。
-
-## 术语说明
-
-**SwiftUI**：Apple 的声明式界面框架，用状态驱动 macOS 与 iOS 界面。
-
-**actor**：Swift 的并发隔离类型，同一时刻只允许一个任务访问它的可变状态。
-
-**@MainActor**：Swift 的全局 actor，标记必须主线程执行的代码。
-
-**GRDB**：Swift 的 SQLite 封装库，提供数据库迁移、查询与并发控制。
-
-**Keychain**：macOS 的系统凭据存储，按应用和访问组隔离，适合保存 Token。
-
-**App Sandbox**：macOS 的应用沙盒。开启后应用只能访问授权目录与网络能力。
-
-**App Group**：同一开发者的多个应用或扩展共享数据的容器，小组件用它读主应用写入的状态。
-
-**App Intents**：Apple 的快捷指令与系统级操作接口，让应用的动作出现在快捷指令、Spotlight 搜索和 Siri 中。
-
-**MenuBarExtra**：SwiftUI 的菜单栏常驻入口，用来放菜单栏速控面板。
-
-**WidgetKit**：Apple 的小组件框架，界面由时间线驱动，不能直接发网络请求。
-
-**mDNS**：局域网内的设备发现协议，用组播查询设备提供的服务。
-
-**NWPathMonitor**：Apple 的网络状态监听接口，用来感知 Wi-Fi、有线与断网切换。
-
-**p50 / p95**：延迟分布的第 50 与第 95 百分位。p50 表示一半请求快于这个值，p95 表示 95% 的请求快于这个值。
-
-**单飞（single-flight）**：多个调用同时需要同一份结果时，只发一次请求，其他调用等待同一个结果。
-
-**乐观更新**：用户操作后先改界面，再等服务器确认；失败时回滚。

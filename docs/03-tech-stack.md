@@ -141,7 +141,7 @@
 | 菜单栏 | MenuBarExtra + NSStatusItem 兜底 | 内置 | 常驻入口与自定义浮层 |
 | 小组件 | WidgetKit | 内置 | 时间线读取 App Group 数据 |
 | 快捷指令 | App Intents | 内置 | 系统级动作 |
-| 视频取流 | go2rtc helper | 1.9.15 | MIT，局域网 CS2/TUTK，输出 HLS/WebRTC |
+| 视频取流 | go2rtc helper | 1.9.15 | MIT，局域网取流，输出 WebRTC/MSE/HLS |
 | 视频播放 | AVPlayer + VideoToolbox | 内置 | HLS 硬解；WebRTC 后续用 WKWebView |
 | 更新 | Sparkle 2 | 2.x | EdDSA 签名、增量更新、成熟 |
 | 测试 | Swift Testing + XCTest + XCUITest | 内置 | 单元、集成、界面测试 |
@@ -207,16 +207,16 @@ GRDB 负责：
 
 摄像头不放进主工程的 Swift 协议层，单独做一个本机 helper 边界：
 
-- helper 用 go2rtc 1.9.15 的 macOS 单架构或 universal 二进制，作为 Tauri sidecar 随 App 打包到 `Contents/MacOS/go2rtc`。
+- helper 用 go2rtc 1.9.15 的 macOS 单架构或 universal 二进制，随 App 打包到 `Contents/MacOS/go2rtc`。
 - App 启动时拉起，监听 `127.0.0.1` 的随机端口；退出、切换账号、空闲回收时结束进程。
 - 扫码拿到的 `userID` 与 `passToken` 通过临时配置交给 helper，不写用户目录、不写日志。
 - 播放优先 AVPlayer + HLS；低延迟模式用 WKWebView 承载 WebRTC。视频解码走 VideoToolbox。
 - helper 只负责协议与转封装，不参与 UI、不做云存储、不监听局域网网卡。
 - 许可证是 MIT，分发时保留版权声明。MiBeeNvr 是 AGPL-3.0，不采用；micam 依赖 Java 运行时，包体过大，不采用。
 
-这条边界的代价是多一个进程和约 7–15 MB 安装体积；收益是摄像头崩溃不会拖垮主 App，且不必把 P2P 协议塞进 Swift 代码。若后续要换实现，App 侧只依赖“本地 HLS 地址”和“启动/停止”两个接口。
+这条边界的代价是多一个进程和相应安装体积；收益是摄像头崩溃不会拖垮主 App，且不必把 P2P 协议塞进 Swift 代码。App 侧依赖播放地址、WebSocket 地址和启动/停止接口。
 
-远程查看不在第一版：go2rtc 要求摄像头与 Mac 在同一局域网。Mac 不在家时只能依赖用户已有的 WireGuard、Tailscale 等家庭 VPN，App 不内置穿透服务，也不把“云端转发”写成已实现能力。
+远程查看已由 Rust 的 CS2 relay + MISS 通道实现，不依赖家庭 VPN：摄像头媒体先由 ffmpeg 无转码封装到本机 RTSP，再由内置 go2rtc 输出 WebRTC/MSE/HLS。局域网仍直接走 go2rtc 的 `xiaomi://` 源。两类链路都只监听 `127.0.0.1`，不把本地取流服务暴露到局域网；跨网启动时间受小米 relay 发现影响，不能承诺绝对零延迟。
 
 ## 四、基准与解读
 
@@ -529,41 +529,6 @@ MiHomeMac/
 | ADR-006 | SQLite + GRDB | 批量 upsert、迁移、观察查询 | Core Data、Realm |
 | ADR-007 | 不做设备状态推送，先轮询 | 云端推送协议未公开，MQTT 风险高 | 自建 MQTT |
 
-## 术语说明
-
-**Swift**：Apple 开发的编译型语言，用于 macOS、iOS 等平台的原生应用。
-
-**SwiftUI**：Apple 的声明式界面框架，用状态描述界面，系统负责渲染。
-
-**AppKit**：macOS 的传统界面框架。SwiftUI 覆盖不到的地方用它补，例如复杂表格与菜单栏自定义面板。
-
-**GRDB**：Swift 的 SQLite 封装库，提供迁移、事务、查询观察。
-
-**URLSession**：Apple 的 HTTP 客户端，支持 HTTP/2、连接复用、取消与代理。
-
-**Network.framework**：Apple 的网络框架，提供 TCP、UDP、TLS 与网络路径监控。
-
-**CryptoKit**：Apple 的加密框架，提供哈希、对称加密、签名等接口。
-
-**CommonCrypto**：Apple 的底层加密库，提供 AES-CBC 等 CryptoKit 未覆盖的算法。
-
-**RC4**：一种流加密算法。米家 HTTP 接口用它加密请求参数，本文只用它做协议兼容。
-
-**AES-128-CBC**：一种分组加密模式，米家局域网 UDP 包用它加密负载。
-
-**Keychain**：macOS 的系统凭据存储，按应用与访问组隔离。
-
-**OSLog**：Apple 的统一日志系统，支持分类、隐私标记与 Instruments 联动。
-
-**Signpost**：OSLog 的性能标记，用来在 Instruments 时间轴上标注阶段耗时。
-
-**GRDB 的 DatabasePool**：GRDB 提供的数据库连接池，允许多个读并发、单写串行。
-
-**UniFFI**：Mozilla 的工具，把 Rust 接口生成 Swift、Kotlin 等语言的绑定。
-
-**Tauri**：用 Rust 做后端、系统 WebView 做界面的桌面应用框架。
-
-**Electron**：用 Chromium 与 Node.js 做桌面应用的框架。
 
 **Flutter**：Google 的跨平台界面框架，自绘控件，支持桌面端。
 

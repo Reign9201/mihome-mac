@@ -1,9 +1,12 @@
 const invoke = window.__MIHOME_TAURI__?.invoke;
 const $ = (selector) => document.querySelector(selector);
 const SPEC_BATCH_SIZE = 128;
+const log = window.MiLog || Object.freeze({
+  debug() {}, info() {}, warn() {}, error() {},
+});
 
-for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart']) {
-  document.addEventListener(eventName, (event) => event.preventDefault());
+for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart', 'contextmenu']) {
+  document.addEventListener(eventName, (event) => event.preventDefault(), true);
 }
 
 function esc(value) {
@@ -26,6 +29,7 @@ const state = {
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
   remoteWatch: null, remoteWatches: [], cameraGeneration: 0, cameraControlsRequest: 0,
   restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
+  videoPlayers: new WeakMap(), streamCleanups: new Set(),
   hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
   cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
   devicesRequest: 0, inspectorRequest: 0, scenesRequest: 0, camerasRequest: 0,
@@ -46,6 +50,35 @@ function el(tag, className, text) {
   return node;
 }
 
+function attachCameraStream(video, stream, camera, generation) {
+  const previous = state.videoPlayers.get(video);
+  if (previous) {
+    previous();
+    state.streamCleanups.delete(previous);
+  }
+  const name = camera?.name || stream.id;
+  if (!window.MiCameraPlayer) {
+    video.src = stream.url;
+    video.load();
+    video.play().catch(() => {});
+    return;
+  }
+  const transportCleanup = window.MiCameraPlayer.play(video, stream, {
+    onMode: (mode, detail) => {
+      log.info('Camera', `${name} 播放模式：${mode}${detail ? `（${detail}）` : ''}`);
+    },
+    onError: (mode, error) => {
+      log.warn('Camera', `${name} ${mode} 播放失败：${error}`);
+    },
+  });
+  const cleanup = () => {
+    transportCleanup();
+    state.streamCleanups.delete(cleanup);
+  };
+  state.videoPlayers.set(video, cleanup);
+  state.streamCleanups.add(cleanup);
+}
+
 async function startAuth() {
   if (!invoke) {
     setStatus('请从 MiHome Mac 桌面应用打开这个页面', 'error');
@@ -53,6 +86,7 @@ async function startAuth() {
   }
   $('#startAuth').disabled = true;
   setStatus('正在向小米申请二维码…');
+  log.info('Auth', '开始申请登录二维码');
   try {
     const result = await invoke('auth_start');
     $('#qrBox').innerHTML = result.qr_svg;
@@ -60,6 +94,7 @@ async function startAuth() {
     state.polling = true;
     pollAuth();
   } catch (error) {
+    log.error('Auth', `申请二维码失败：${error}`);
     setStatus(`申请二维码失败：${error}`, 'error');
     $('#startAuth').disabled = false;
   }
@@ -75,9 +110,11 @@ async function pollAuth() {
         setStatus(`登录成功，用户 ${result.user_id}`);
         if (result.message) toast(result.message, true);
         await loadHomes();
+        log.info('Auth', '扫码登录成功');
         return;
       }
       if (result.status === 'error') {
+        log.error('Auth', `扫码登录失败：${result.message || '未知错误'}`);
         state.polling = false;
         setStatus(result.message || '登录失败', 'error');
         $('#startAuth').disabled = false;
@@ -87,6 +124,7 @@ async function pollAuth() {
     } catch (error) {
       const text = String(error);
       if (text.includes('没有进行中的登录') || text.includes('二维码已过期')) {
+        log.warn('Auth', text);
         state.polling = false;
         setStatus(text.includes('过期') ? '二维码已过期，请重新生成' : '登录会话已结束，请重新生成二维码', 'error');
         $('#startAuth').disabled = false;
@@ -107,6 +145,7 @@ async function loadHomes() {
     state.homeId = homes[0].id;
     renderHomeTabs();
     await loadDevices();
+    log.info('Home', `已加载家庭 ${homes.length} 个`);
     $('#loginView').hidden = true;
     $('#devicesView').hidden = false;
     document.querySelector('.main').classList.add('devices-mode');
@@ -117,6 +156,7 @@ async function loadHomes() {
     }
     $('#pageTitle').textContent = homes[0].name;
   } catch (error) {
+    log.error('Home', `读取家庭失败：${error}`);
     state.loggedIn = false;
     $('#logout').hidden = true;
     setStatus(`读取家庭失败：${error}`, 'error');
@@ -213,7 +253,7 @@ async function loadDevices() {
 
 const DEVICE_ICONS = window.MiIcons.icons;
 const deviceKind = window.MiIcons.kindFor;
-const { profileFromSpec } = window.MiCapabilities;
+const { profileFromSpec, summarizeCardMetrics } = window.MiCapabilities;
 
 function deviceGlyph(device) {
   const kind = deviceKind(device);
@@ -367,12 +407,36 @@ async function flushCardHydration() {
 function formatCardValue(value, def) {
   if (value === undefined || value === null) return '—';
   if (typeof value === 'boolean') return value ? '开' : '关';
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const text = String(item ?? '').trim();
+      return /^untested$/i.test(text) ? '未检测' : text;
+    }).filter(Boolean).join('、') || '—';
+  }
   if (def.options) {
     const option = def.options.find(([key]) => String(key) === String(value));
-    if (option) return option[1];
+    if (option) {
+      const label = String(option[1] ?? '').trim();
+      return /^-?\d+(?:\.\d+)?$/.test(label) ? '未知' : label;
+    }
   }
   const number = Number(value);
   if (!Number.isFinite(number)) return String(value);
+  if (def.suffix?.startsWith('storage-')) {
+    const bytes = Math.max(0, number) * 1024;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let amount = bytes;
+    let unit = units[0];
+    for (let index = 1; index < units.length && amount >= 1024; index += 1) {
+      amount /= 1024;
+      unit = units[index];
+    }
+    const digits = amount >= 100 ? 0 : amount >= 10 ? 1 : 2;
+    return `${amount.toFixed(digits)} ${unit}`;
+  }
+  if (!def.unit && Math.abs(number) >= 1000) {
+    return new Intl.NumberFormat('zh-CN').format(number);
+  }
   return `${number.toFixed(def.digits ?? 0)}${def.unit || ''}`;
 }
 
@@ -587,28 +651,27 @@ function cardAction(device, action) {
 
 function cardSummary(device, profile) {
   if (!device.online) return '设备离线';
-  const parts = [];
-  for (const def of profile.metrics) {
-    if (def.secondary) continue;
-    const value = cardValue(device, def.siid, def.piid);
-    if (value === undefined || value === null) continue;
-    parts.push(formatCardValue(value, def));
-  }
-  if (!parts.length) {
+  const summary = summarizeCardMetrics(
+    profile,
+    (def) => cardValue(device, def.siid, def.piid),
+  );
+  if (summary) return summary;
+  if (profile.controls.length) {
     const range = profile.controls.find((item) => item.type === 'range');
-    if (range) {
+    if (range && (range.suffix || range.unit)) {
       const value = cardValue(device, range.siid, range.piid);
-      if (value !== undefined && value !== null) parts.push(`${Number(value).toFixed(0)}${range.suffix || ''}`);
+      const number = Number(value);
+      if (value !== undefined && value !== null && Number.isFinite(number)) {
+        return `${range.label} ${number.toFixed(0)}${range.suffix || range.unit || ''}`;
+      }
     }
   }
-  if (!parts.length) {
-    const primary = profile.controls.find((item) => item.primary);
-    if (primary) {
-      const value = cardValue(device, primary.siid, primary.piid);
-      if (value !== undefined && value !== null) parts.push(value ? '已开启' : '已关闭');
-    }
+  const primary = profile.controls.find((item) => item.primary);
+  if (primary) {
+    const value = cardValue(device, primary.siid, primary.piid);
+    if (value !== undefined && value !== null) return value ? '已开启' : '已关闭';
   }
-  return parts.join(' ') || '在线';
+  return '在线';
 }
 
 function renderDeviceCard(device) {
@@ -1229,10 +1292,12 @@ async function loadCameras() {
     const cameras = await invoke('list_cameras');
     if (request !== state.camerasRequest) return;
     state.cameras = cameras;
+    log.info('Camera', `摄像头列表已加载：${cameras.length} 台`);
     setNavCount('cameraCount', state.cameras.length);
     renderCameras();
     loadDeviceSpecs(cameras);
   } catch (error) {
+    log.error('Camera', `读取摄像头列表失败：${error}`);
     if (request !== state.camerasRequest) return;
     state.cameras = [];
     setNavCount('cameraCount', 0);
@@ -1288,66 +1353,112 @@ async function startRemoteCameraSet(cameras, grid) {
     return;
   }
   await stopCamera();
+  log.info('Camera', `开始远程画面：count=${usable.length} grid=${grid}`);
   const generation = state.cameraGeneration;
+  state.cameraStreams = [];
+  state.cameraGrid = grid;
+  state.activeCamera = usable[0];
+  state.selectedCameraDid = usable[0].did;
+  state.remoteActive = true;
   $('#camLayout').hidden = grid;
   $('#camGrid').hidden = !grid;
   $('#camEmpty').hidden = false;
-  $('#camEmpty').textContent = `正在建立 CS2 relay…首次约 10–20 秒`;
+  $('#camEmpty').textContent = '正在连接远程画面…首次约 10–20 秒';
   $('#camHint').textContent = grid ? `正在建立 ${usable.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
-  try {
-    const settled = await Promise.allSettled(usable.map((camera) =>
-      invoke('camera_remote_start', { did: camera.did, quality: 1 })));
-    if (generation !== state.cameraGeneration) {
-      return;
+  $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
+
+  let tiles = null;
+  let singleVideo = null;
+  if (grid) {
+    $('#camGrid').replaceChildren();
+    $('#camControls').hidden = true;
+    tiles = new Map();
+    for (const camera of usable) {
+      const tile = el('div', 'cam-tile');
+      tile.append(el('span', 'cam-tile-title', camera.name));
+      const status = el('span', 'cam-tile-status', '正在连接…');
+      tile.append(status);
+      $('#camGrid').append(tile);
+      tiles.set(camera.did, { tile, status, video: null });
     }
-    const streams = settled.filter((result) => result.status === 'fulfilled').map((result) => result.value);
-    const failures = settled.filter((result) => result.status === 'rejected');
-    if (!streams.length) throw failures[0]?.reason || new Error('远程通道没有启动');
-    if (failures.length) toast(`${failures.length} 路摄像头取流失败`, true);
-    state.cameraStreams = streams;
-    state.cameraGrid = grid;
-    state.activeCamera = usable[0];
-    state.selectedCameraDid = usable[0].did;
-    state.remoteActive = true;
-    $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
-    if (grid) {
-      $('#camGrid').replaceChildren();
-      for (const stream of streams) {
-        const camera = usable.find((item) => item.did === stream.id);
-        const tile = el('div', 'cam-tile');
-        tile.append(el('span', 'cam-tile-title', camera?.name || stream.id));
+  } else {
+    singleVideo = $('#camVideo');
+    singleVideo.hidden = false;
+    $('#camEmpty').hidden = true;
+  }
+
+  let readyCount = 0;
+  const failures = [];
+  const starts = usable.map(async (camera) => {
+    try {
+      const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
+      if (generation !== state.cameraGeneration) return null;
+      state.cameraStreams = [
+        ...state.cameraStreams.filter((item) => item.id !== stream.id),
+        stream,
+      ];
+      readyCount += 1;
+      if (grid) {
+        const target = tiles.get(camera.did);
+        if (!target) return stream;
         const video = document.createElement('video');
         video.controls = true;
         video.autoplay = true;
         video.muted = true;
         video.playsInline = true;
-        video.src = stream.url;
-        video.onerror = () => tile.append(el('span', 'error', '播放失败'));
-        tile.append(video);
-        $('#camGrid').append(tile);
-        watchRemote(video, camera || usable[0], () => restartRemoteCamera(camera || usable[0], video, generation), generation);
+        video.onerror = () => {
+          log.error('Camera', `远程宫格播放失败：${camera.name}`);
+          target.status.textContent = '播放失败';
+          target.status.hidden = false;
+        };
+        target.status.hidden = true;
+        target.video = video;
+        target.tile.append(video);
+        attachCameraStream(video, stream, camera, generation);
+        watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
+      } else {
+        renderCameraControls(camera, true).catch((error) => {
+          log.error('Camera', `渲染远程控制项失败：${error}`);
+        });
+        attachCameraStream(singleVideo, stream, camera, generation);
+        $('#camHint').textContent = `${camera.name} · 远程连接`;
+        if (state.remoteWatch) clearInterval(state.remoteWatch);
+        watchRemote(singleVideo, camera, () => restartRemoteCamera(camera, singleVideo, generation), generation);
+        setTimeout(() => {
+          if (generation === state.cameraGeneration && !singleVideo.videoWidth) {
+            log.warn('Camera', `远程播放器 12 秒无首帧：${camera.name}`);
+            $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${camera.name}。检查 ffmpeg/WebView 的 HEVC 支持。`;
+          }
+        }, 12000);
       }
-      $('#camControls').hidden = true;
-      $('#camHint').textContent = `${streams.length} 路远程 HLS 已启动 · CS2 relay${failures.length ? ` · ${failures.length} 路失败` : ''}`;
-    } else {
-      const stream = streams[0];
-      await renderCameraControls(usable[0], true);
-      const video = $('#camVideo');
-      video.hidden = false;
-      $('#camEmpty').hidden = true;
-      video.src = stream.url;
-      video.load();
-      video.play().catch(() => {});
-      $('#camHint').textContent = `${usable[0].name} · 远程 CS2`;
-      if (state.remoteWatch) clearInterval(state.remoteWatch);
-      watchRemote(video, usable[0], () => restartRemoteCamera(usable[0], video, generation), generation);
-      setTimeout(() => {
-        if (generation === state.cameraGeneration && !video.videoWidth) {
-          $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${usable[0].name}。检查 ffmpeg/WebView 的 HEVC 支持。`;
+      return stream;
+    } catch (error) {
+      failures.push(error);
+      if (grid) {
+        const target = tiles.get(camera.did);
+        if (target) {
+          target.status.textContent = '连接失败';
+          target.status.hidden = false;
         }
-      }, 12000);
+      }
+      log.error('Camera', `远程画面失败：${camera.name} ${String(error)}`);
+      return null;
+    }
+  });
+
+  try {
+    await Promise.all(starts);
+    if (generation !== state.cameraGeneration) {
+      return;
+    }
+    if (!readyCount) throw failures[0] || new Error('远程通道没有启动');
+    if (failures.length) toast(`${failures.length} 路摄像头取流失败`, true);
+    log.info('Camera', `远程画面通道已建立：count=${readyCount} failed=${failures.length}`);
+    if (grid) {
+      $('#camHint').textContent = `${readyCount}/${usable.length} 路远程画面已启动${failures.length ? ` · ${failures.length} 路失败` : ''}`;
     }
   } catch (error) {
+    log.error('Camera', `远程画面失败：${String(error)}`);
     if (generation === state.cameraGeneration) await stopCamera();
     const text = String(error);
     const busy = /没有返回画面|no authentication|no frames|End of file|提前退出|peer closed/.test(text);
@@ -1356,7 +1467,7 @@ async function startRemoteCameraSet(cameras, grid) {
       ? '摄像头没有返回画面。若米家 App 正在看同一台摄像头，先在手机上退出直播，再点“远程”重试。'
       : `远程取流失败：${text}`;
     $('#camHint').textContent = busy
-      ? '同一台摄像头通常只允许一路 P2P 取流。'
+      ? '同一台摄像头通常只允许一台设备查看实时画面。'
       : '远程通道初始化失败。确认本机已安装 ffmpeg。';
   }
 }
@@ -1366,8 +1477,10 @@ async function setCameraProp(camera, def, value) {
     await invoke('set_property', { did: camera.did, siid: def.siid, piid: def.piid, value });
     state.cardProps.set(propKey(camera.did, def.siid, def.piid), value);
     refreshDeviceCard(camera);
+    log.info('Camera', `设置已提交：${camera.name} ${def.label}=${value}`);
     return true;
   } catch (error) {
+    log.error('Camera', `设置失败：${camera.name} ${def.label} ${error}`);
     toast(`${def.label}设置失败：${error}`, true);
     await renderCameraControls(camera, state.remoteActive);
     return false;
@@ -1385,7 +1498,7 @@ async function renderCameraControls(camera, remote) {
   box.hidden = false;
   box.replaceChildren();
   const ptz = el('div', 'cam-ptz');
-  ptz.append(el('p', 'eyebrow', '云台'));
+  ptz.append(el('p', 'eyebrow', '云台控制'));
   const supportsPtz = !String(camera.model || '').includes('039a01');
   if (!supportsPtz) {
     ptz.append(el('p', 'muted', '该机型不支持云台'));
@@ -1401,6 +1514,7 @@ async function renderCameraControls(camera, remote) {
         try {
           await invoke('camera_remote_ptz', { did: camera.did, direction, speed: 40 });
         } catch (error) {
+          log.error('Camera', `云台命令失败：${camera.name} ${direction} ${error}`);
           toast(`云台命令失败：${error}`, true);
         }
       };
@@ -1439,12 +1553,11 @@ async function renderCameraControls(camera, remote) {
         const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1, audio: true });
         if (generation !== state.cameraGeneration) return;
         state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
-        video.src = stream.url;
         video.muted = false;
-        video.load();
-        await video.play().catch(() => {});
+        attachCameraStream(video, stream, camera, generation);
         $('#camHint').textContent = `${camera.name} · 声音已打开`;
       } catch (error) {
+        log.error('Camera', `打开声音失败：${camera.name} ${error}`);
         soundInput.checked = false;
         video.muted = true;
         $('#camHint').textContent = `打开声音失败：${error}`;
@@ -1458,8 +1571,11 @@ async function renderCameraControls(camera, remote) {
     box.append(sound);
   }
 
+  const settingsSection = el('section', 'cam-settings-section');
+  settingsSection.append(el('p', 'eyebrow', '摄像头设置'));
   const settings = el('div', 'cam-settings');
-  box.append(settings);
+  settingsSection.append(settings);
+  box.append(settingsSection);
   const profile = inspectorProfile(camera);
   const controls = profile.controls.filter((def) =>
     def.type === 'toggle' || def.type === 'segments' || def.type === 'range');
@@ -1467,6 +1583,7 @@ async function renderCameraControls(camera, remote) {
     .filter((def) => def.readable !== false)
     .map((def) => ({ did: camera.did, siid: def.siid, piid: def.piid }));
   let values = new Map();
+  log.info('Camera', `渲染控制项：${camera.name} controls=${controls.length} remote=${remote}`);
   if (requests.length) {
     try {
       const result = await invoke('get_properties', { requests });
@@ -1479,6 +1596,7 @@ async function renderCameraControls(camera, remote) {
         state.cardProps.set(propKey(camera.did, item.siid, item.piid), item.value);
       }
     } catch (error) {
+      log.error('Camera', `读取摄像头设置失败：${camera.name} ${error}`);
       if (request !== state.cameraControlsRequest) return;
       toast(`读取摄像头设置失败：${error}`, true);
     }
@@ -1486,6 +1604,7 @@ async function renderCameraControls(camera, remote) {
   for (const def of controls) {
     const value = values.get(`${def.siid}:${def.piid}`);
     const row = el('div', 'cam-control');
+    row.title = def.group || '摄像头设置';
     const label = el('span', '', def.label);
     row.append(label);
     if (def.type === 'toggle') {
@@ -1502,7 +1621,7 @@ async function renderCameraControls(camera, remote) {
         const option = document.createElement('option');
         option.value = String(optionValue);
         option.textContent = optionLabel;
-        option.selected = Number(value) === optionValue;
+        option.selected = Number(value) === Number(optionValue);
         select.append(option);
       }
       select.onchange = () => setCameraProp(camera, def, Number(select.value));
@@ -1535,6 +1654,28 @@ async function renderCameraControls(camera, remote) {
   }
 }
 
+async function diagnoseLocalTimeout(camera, video, generation) {
+  if (generation !== state.cameraGeneration || state.remoteActive || video.videoWidth) return;
+  let detail = '本地通道长时间没有收到视频。请确认摄像头未被其他设备占用后重试，或切换到远程画面。';
+  try {
+    const diagnostics = await invoke('camera_diagnostics');
+    if (generation !== state.cameraGeneration || state.remoteActive || video.videoWidth) return;
+    if (diagnostics?.detail) detail = diagnostics.detail;
+    log.warn('Camera', `本地取流诊断：${JSON.stringify(diagnostics)}`);
+    if (diagnostics && !diagnostics.alive) {
+      detail = '本地取流服务已退出。请重新打开摄像头页，或重启应用后重试。';
+    } else if (diagnostics && !diagnostics.api_ready) {
+      detail = '本地取流服务没有正常响应。请重启应用后重试。';
+    }
+  } catch (error) {
+    log.error('Camera', `读取本地诊断失败：${error}`);
+    detail = `无法读取本地取流状态：${error}`;
+  }
+  if (generation === state.cameraGeneration && !state.remoteActive && !video.videoWidth) {
+    $('#camHint').textContent = `没有首帧：${camera.name}（${camera.ip}）。${detail}`;
+  }
+}
+
 async function startCameraSet(cameras, grid) {
   const usable = cameras.filter((camera) => camera.online && camera.ip);
   if (!usable.length) {
@@ -1545,6 +1686,7 @@ async function startCameraSet(cameras, grid) {
   try {
     await stopCamera();
     generation = state.cameraGeneration;
+    log.info('Camera', `开始本地画面：count=${usable.length} grid=${grid}`);
     const streams = await invoke('camera_start', { dids: usable.map((camera) => camera.did) });
     if (generation !== state.cameraGeneration) {
       return;
@@ -1554,7 +1696,10 @@ async function startCameraSet(cameras, grid) {
     state.activeCamera = usable[0];
     state.selectedCameraDid = usable[0].did;
     state.remoteActive = false;
-    await renderCameraControls(usable[0], false);
+    log.info('Camera', `本地画面地址已返回：count=${streams.length}`);
+    renderCameraControls(usable[0], false).catch((error) => {
+      log.error('Camera', `渲染本地控制项失败：${error}`);
+    });
     if (grid) {
       $('#camLayout').hidden = true;
       $('#camGrid').hidden = false;
@@ -1568,13 +1713,16 @@ async function startCameraSet(cameras, grid) {
         video.autoplay = true;
         video.muted = true;
         video.playsInline = true;
-        video.src = stream.url;
-        video.onerror = () => tile.append(el('span', 'error', '播放失败'));
+        video.onerror = () => {
+          log.error('Camera', `本地宫格播放失败：${camera?.name || stream.id}`);
+          tile.append(el('span', 'error', '播放失败'));
+        };
         tile.append(video);
         $('#camGrid').append(tile);
+        attachCameraStream(video, stream, camera || usable[0], generation);
         watchRemote(video, camera || usable[0], () => restartLocalCamera(camera || usable[0], generation), generation);
       }
-      $('#camHint').textContent = `${streams.length} 路 HLS 已启动 · 本地端口`;
+      $('#camHint').textContent = `${streams.length} 路画面正在建立本地连接`;
     } else {
       const stream = streams[0];
       $('#camLayout').hidden = false;
@@ -1582,19 +1730,26 @@ async function startCameraSet(cameras, grid) {
       const video = $('#camVideo');
       video.hidden = false;
       $('#camEmpty').hidden = true;
-      video.src = stream.url;
-      video.load();
-      video.play().catch(() => {});
-      $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · ${stream.url}`;
+      video.onloadeddata = () => {
+        if (generation === state.cameraGeneration && !state.remoteActive) {
+          log.info('Camera', `本地首帧已加载：${usable[0].name}`);
+          $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 本地实时画面`;
+        }
+      };
+      attachCameraStream(video, stream, usable[0], generation);
+      $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 正在建立本地连接`;
       watchRemote(video, usable[0], () => restartLocalCamera(usable[0], generation), generation);
       setTimeout(() => {
-        if (generation === state.cameraGeneration && !video.videoWidth) {
-          $('#camHint').textContent = `没有首帧：${usable[0].name}（${usable[0].ip}）。检查 Mac 与摄像头是否在同一局域网，或是否需要家庭 VPN。`;
+        if (generation === state.cameraGeneration && !state.remoteActive && !video.videoWidth) {
+          log.warn('Camera', `本地画面 8 秒无首帧：${usable[0].name}`);
+          $('#camHint').textContent = `${usable[0].name} · 本地画面仍在连接，正在等待摄像头响应…`;
         }
       }, 8000);
+      setTimeout(() => diagnoseLocalTimeout(usable[0], video, generation), 25000);
     }
     $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
   } catch (error) {
+    log.error('Camera', `本地画面启动失败：${error}`);
     if (generation !== undefined && generation !== state.cameraGeneration) return;
     await stopCamera();
     $('#camHint').textContent = `启动摄像头失败：${error}`;
@@ -1603,7 +1758,9 @@ async function startCameraSet(cameras, grid) {
 
 function watchRemote(video, camera, onStall, generation) {
   let lastTime = -1;
+  let lastFrames = -1;
   let stalled = 0;
+  let hadFrames = false;
   const timer = setInterval(() => {
     if (generation !== state.cameraGeneration || !state.cameraStreams.some((stream) => stream.id === camera.did)) {
       clearInterval(timer);
@@ -1611,12 +1768,30 @@ function watchRemote(video, camera, onStall, generation) {
       return;
     }
     if (video.readyState < 2 || video.paused) {
-      stalled = 0;
+      if (video.paused) {
+        stalled = 0;
+        return;
+      }
+      stalled = hadFrames ? stalled + 1 : 0;
+      if (stalled >= 3) {
+        log.warn('Camera', `画面数据中断，准备重连：${camera.name}`);
+        clearInterval(timer);
+        state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
+        onStall();
+      }
       return;
     }
-    if (Math.abs(video.currentTime - lastTime) < 0.05) {
+    if (video.videoWidth) hadFrames = true;
+    const quality = video.getVideoPlaybackQuality?.();
+    const frames = quality ? quality.totalVideoFrames : video.webkitDecodedFrameCount;
+    const useFrames = typeof frames === 'number' && frames > 0;
+    const frozen = useFrames
+      ? lastFrames >= 0 && frames <= lastFrames
+      : Math.abs(video.currentTime - lastTime) < 0.05;
+    if (frozen) {
       stalled += 1;
       if (stalled >= 3) {
+        log.warn('Camera', `画面停滞，准备重连：${camera.name}`);
         clearInterval(timer);
         state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
         onStall();
@@ -1624,8 +1799,9 @@ function watchRemote(video, camera, onStall, generation) {
     } else {
       stalled = 0;
       lastTime = video.currentTime;
+      if (useFrames) lastFrames = frames;
     }
-  }, 2500);
+  }, 1800);
   state.remoteWatches.push(timer);
   state.remoteWatch = timer;
   return timer;
@@ -1637,6 +1813,7 @@ async function restartRemoteCamera(camera, video, generation) {
   if (existingTimer) clearTimeout(existingTimer);
   state.restartTimers.delete(camera.did);
   state.restartingCameras.add(camera.did);
+  log.warn('Camera', `远程画面重连：${camera.name}`);
   $('#camHint').textContent = `${camera.name} 画面停住，正在重连…`;
   try {
     await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
@@ -1645,12 +1822,11 @@ async function restartRemoteCamera(camera, video, generation) {
     const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
     if (generation !== state.cameraGeneration) return;
     state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
-    video.src = stream.url;
-    video.load();
-    await video.play().catch(() => {});
+    attachCameraStream(video, stream, camera, generation);
     $('#camHint').textContent = `${camera.name} · 已自动重连`;
     watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
   } catch (error) {
+    log.error('Camera', `远程画面重连失败：${camera.name} ${error}`);
     $('#camHint').textContent = `自动重连失败：${error}`;
     const timer = setTimeout(() => {
       state.restartTimers.delete(camera.did);
@@ -1668,6 +1844,7 @@ async function restartLocalCamera(camera, generation) {
   const key = `local:${camera.did}`;
   if (generation !== state.cameraGeneration || state.restartingCameras.has(key)) return;
   state.restartingCameras.add(key);
+  log.warn('Camera', `本地画面重连：${camera.name}`);
   $('#camHint').textContent = `${camera.name} 画面停住，正在重建本地通道…`;
   try {
     const activeDids = new Set(state.cameraStreams.map((stream) => stream.id));
@@ -1679,6 +1856,7 @@ async function restartLocalCamera(camera, generation) {
 }
 
 async function stopCamera() {
+  log.debug('Camera', '停止摄像头页面');
   state.cameraGeneration += 1;
   if (state.remoteWatch) { clearInterval(state.remoteWatch); state.remoteWatch = null; }
   for (const timer of state.remoteWatches) clearInterval(timer);
@@ -1687,6 +1865,9 @@ async function stopCamera() {
   state.activeCamera = null;
   state.remoteActive = false;
   state.cameraControlsRequest += 1;
+  for (const cleanup of state.streamCleanups) cleanup();
+  state.streamCleanups = new Set();
+  state.videoPlayers = new WeakMap();
   for (const timer of state.restartTimers.values()) clearTimeout(timer);
   state.restartTimers.clear();
   state.restartingCameras.clear();
@@ -1781,6 +1962,21 @@ $('#camGridToggle').onclick = () => {
 
 $('#startAuth').onclick = startAuth;
 $('#reload').onclick = loadDevices;
+$('#exportLog').onclick = async () => {
+  if (!invoke) return;
+  const button = $('#exportLog');
+  button.disabled = true;
+  log.info('Log', '用户请求导出诊断日志');
+  try {
+    await invoke('log_export');
+    toast('诊断日志已导出，并已在访达中显示');
+  } catch (error) {
+    log.error('Log', `导出诊断日志失败：${error}`);
+    toast(`导出诊断日志失败：${error}`, true);
+  } finally {
+    button.disabled = false;
+  }
+};
 $('#logout').onclick = async () => {
   let logoutError = null;
   try {
@@ -1828,9 +2024,11 @@ async function boot() {
       return;
     }
     state.loggedIn = true;
+    log.info('App', '登录状态恢复成功');
     setStatus(`已恢复登录，用户 ${userId}`);
     await loadHomes();
   } catch (error) {
+    log.error('App', `恢复登录失败：${error}`);
     setStatus(`恢复登录失败：${error}`, 'error');
     $('#startAuth').disabled = false;
     startAuth();
