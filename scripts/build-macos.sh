@@ -61,7 +61,22 @@ if [[ "${REQUIRE_SIGNED:-0}" == "1" && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  # macOS local-network TCC only applies reliably to a signed app bundle.
+  # Use an ad-hoc signature for local/CI builds when no Developer ID exists.
+  export APPLE_SIGNING_IDENTITY="-"
+  SIGNING_MODE=ad-hoc
+else
+  SIGNING_MODE=developer-id
+fi
+
 npm --prefix "$ROOT/desktop" run build -- --target "$TARGET"
+
+APP_BUNDLE=$(find "$ROOT/desktop/src-tauri/target/$TARGET/release/bundle/macos" \
+  -maxdepth 1 -name '*.app' -print -quit)
+if [[ -n "$APP_BUNDLE" ]]; then
+  codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+fi
 
 VERSION=$(node -p "require('$ROOT/desktop/package.json').version")
 SOURCE=$(find "$ROOT/desktop/src-tauri/target/$TARGET/release/bundle/dmg" \
@@ -80,7 +95,7 @@ else
   hdiutil convert "$SOURCE" -format "$DMG_FORMAT" -ov -o "$OUTPUT" >/dev/null
 fi
 
-if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
   codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$OUTPUT"
 fi
 
@@ -93,8 +108,8 @@ echo "DMG: $OUTPUT"
 echo "格式: $DMG_FORMAT"
 du -h "$OUTPUT"
 cat "$OUTPUT.sha256"
-if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
-  echo "签名身份：$APPLE_SIGNING_IDENTITY"
+if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+  echo "Developer ID 签名：$APPLE_SIGNING_IDENTITY"
 else
-  echo "未发现 Developer ID Application 证书，产物为未签名版本。"
+  echo "未发现 Developer ID Application 证书，产物使用 ad-hoc 签名。"
 fi

@@ -33,7 +33,7 @@ jobs:
           ./scripts/verify-macos-bundle.sh "$DMG" "${{ matrix.arch }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: MiHome-Mac-unsigned-${{ matrix.arch }}
+          name: MiHome-Mac-ad-hoc-${{ matrix.arch }}
           path: |
             dist/macos/*.dmg
             dist/macos/*.sha256
