@@ -94,7 +94,7 @@ if [[ -f "$SHA_FILE" ]]; then
   echo "DMG SHA256: $ACTUAL_SHA"
 fi
 
-if codesign -dv "$APP" >/dev/null 2>&1; then
+if codesign --verify --deep --strict "$APP" >/dev/null 2>&1; then
   codesign --verify --deep --strict --verbose=2 "$APP"
   spctl --assess --type execute --verbose=4 "$APP"
   echo "签名与 Gatekeeper 校验通过"
