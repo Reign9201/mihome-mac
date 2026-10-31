@@ -253,7 +253,7 @@ async function loadDevices() {
 
 const DEVICE_ICONS = window.MiIcons.icons;
 const deviceKind = window.MiIcons.kindFor;
-const { profileFromSpec, summarizeCardMetrics } = window.MiCapabilities;
+const { profileFromSpec, summarizeCardMetrics, formatArrayValue } = window.MiCapabilities;
 
 function deviceGlyph(device) {
   const kind = deviceKind(device);
@@ -408,10 +408,7 @@ function formatCardValue(value, def) {
   if (value === undefined || value === null) return '—';
   if (typeof value === 'boolean') return value ? '开' : '关';
   if (Array.isArray(value)) {
-    return value.map((item) => {
-      const text = String(item ?? '').trim();
-      return /^untested$/i.test(text) ? '未检测' : text;
-    }).filter(Boolean).join('、') || '—';
+    return formatArrayValue(value);
   }
   if (def.options) {
     const option = def.options.find(([key]) => String(key) === String(value));
@@ -1326,7 +1323,8 @@ function renderCameras() {
     row.append(el('span', 'cam-dot', camera.online ? '●' : '○'));
     const copy = el('div');
     copy.append(el('strong', '', camera.name));
-    copy.append(el('small', '', `${camera.model} · ${camera.ip || '远程可用'}`));
+    copy.append(el('small', '', camera.ip ? `局域网 · ${camera.ip}` : '通过远程连接'));
+    copy.title = camera.model;
     row.append(copy);
     const actions = el('div', 'cam-actions');
     const local = el('button', 'pill', '本地');

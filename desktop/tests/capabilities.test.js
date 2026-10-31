@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { profileFromSpec, summarizeCardMetrics } = require('../ui/capabilities.js');
+const {
+  profileFromSpec,
+  summarizeCardMetrics,
+  formatArrayValue,
+} = require('../ui/capabilities.js');
 
 const spec = {
   services: [
@@ -361,6 +365,12 @@ test('device card summary omits value-list entries that only expose a number', (
   assert.equal(summary, '温度 23.2°C');
 });
 
+test('array values hide status codes and localize readable labels', () => {
+  assert.equal(formatArrayValue([0, 'Untested']), '未检测');
+  assert.equal(formatArrayValue([0, 1, 2]), '—');
+  assert.equal(formatArrayValue(['normal', 'Ptz Check']), '正常、云台检测');
+});
+
 test('ignores unnamed vendor properties while retaining known lock state', () => {
   const profile = profileFromSpec({
     services: [{
@@ -439,6 +449,14 @@ test('global UI lock disables selection and copying', () => {
   assert.match(js, /MiCameraPlayer/);
   assert.match(js, /云台控制/);
   assert.match(js, /摄像头设置/);
+});
+
+test('camera list keeps vendor model identifiers out of the primary label', () => {
+  const root = path.resolve(__dirname, '..');
+  const source = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
+  assert.match(source, /局域网 · \$\{camera\.ip\}/);
+  assert.match(source, /copy\.title = camera\.model/);
+  assert.doesNotMatch(source, /`\$\{camera\.model\} · \$\{camera\.ip/);
 });
 
 test('ships an independent frontend-to-backend diagnostic log', () => {

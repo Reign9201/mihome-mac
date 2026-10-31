@@ -273,7 +273,7 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .card-subline{display:flex;align-items:center;gap:5px;min-height:13px;overflow:hidden;white-space:nowrap;font-size:10px;color:#6f6a61}
 .device-card .device-room{max-width:52%;margin:0;overflow:hidden;text-overflow:ellipsis;font-size:10px;color:#6f6a61;line-height:1.35}
 .card-subline-sep{color:#a39c90;font-size:11px;line-height:1}
-.card-summary{overflow:hidden;text-overflow:ellipsis;color:#57524a;font-size:12px;font-variant-numeric:tabular-nums;line-height:1.35}
+.card-summary{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#57524a;font-size:12px;font-variant-numeric:tabular-nums;line-height:1.35}
 .device-card[data-family="lighting"]{--card-a:#fcf2df;--card-b:#f2ddba;--card-ink:#996326}
 .device-card[data-family="climate"]{--card-a:#eef7fb;--card-b:#dcebf4;--card-ink:#4f7485}
 .device-card[data-family="security"]{--card-a:#f3f0f8;--card-b:#e5e0ee;--card-ink:#665b79}

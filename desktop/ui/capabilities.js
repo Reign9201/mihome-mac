@@ -81,6 +81,7 @@
     on: '开启', off: '关闭', auto: '自动', automatic: '自动',
     'all record': '全部录像', 'motion record': '移动侦测录像', 'no record': '不录像',
     low: '低', medium: '中', high: '高', normal: '正常', abnormal: '异常',
+    untested: '未检测', tested: '已检测',
     'not exist': '未插入', full: '已满', broken: '已损坏', formating: '格式化中',
     formatting: '格式化中', eject: '已弹出', fixing: '修复中', ejecting: '弹出中',
     uninitialized: '未初始化', 'not enough space': '空间不足', 'file err': '文件错误',
@@ -125,6 +126,19 @@
     const translated = VALUE_LABELS[normalizedText(description)];
     if (translated) return translated;
     return localizedText(description) || String(item?.value ?? '');
+  }
+
+  function arrayValueLabel(item) {
+    if (item === undefined || item === null || typeof item === 'object') return '';
+    const text = String(item).trim();
+    if (!text || /^-?\d+(?:\.\d+)?$/.test(text)) return '';
+    return VALUE_LABELS[normalizedText(text)] || localizedText(text) || '';
+  }
+
+  function formatArrayValue(value) {
+    if (!Array.isArray(value)) return '';
+    const labels = value.map(arrayValueLabel).filter(Boolean);
+    return labels.length ? labels.join('、') : '—';
   }
 
   function formatCardMetric(def, value) {
@@ -330,6 +344,7 @@
     propertyUnit,
     serviceGroup,
     optionLabel,
+    formatArrayValue,
     localizedText,
     summarizeCardMetrics,
     profileFromSpec,
