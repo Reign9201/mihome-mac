@@ -27,7 +27,7 @@
     'active-fav-area': '当前收藏区域', 'current-temperature': '当前温度',
     'target-humidity': '目标湿度', 'child-lock': '童锁', 'indicator-light': '指示灯',
     'baby-wake-switch': '宝宝起床提醒', 'babycry-switch': '宝宝哭声提醒',
-    ejected: '弹出存储卡', 'door-state': '门状态',
+    'door-state': '门状态',
     'motion-detection-start-time': '侦测开始', 'motion-detection-end-time': '侦测结束',
     'connected-device-number': '连接设备数', 'ir-mode': '空调模式',
     'ir-temperature': '空调温度',
@@ -64,6 +64,10 @@
     'self check items': '自检项目', status: '状态',
     'storage total space': '存储总容量', 'storage free space': '可用空间',
     'storage used space': '已用空间', 'record duration': '录像时长',
+    'sd status': '存储卡状态', 'sd card status': '存储卡状态',
+    'storage card status': '存储卡状态', 'memory card status': '存储卡状态',
+    'night vision mode': '夜视模式', 'wide dynamic range': '宽动态范围',
+    'motion detection sensitivity': '侦测灵敏度',
     'device manufacturer': '设备制造商', 'device model': '设备型号',
     'device serial number': '设备序列号', 'device id': '设备 ID',
     'current firmware version': '当前固件版本', 'serial number': '序列号',
@@ -121,11 +125,20 @@
     return /[A-Za-z]/.test(text) ? '' : text;
   }
 
+  function localizedUnitValue(value) {
+    const match = String(value ?? '').trim().match(
+      /^(-?(?:\d+(?:\.\d+)?|\.\d+))\s*([A-Za-z]+)$/,
+    );
+    if (!match) return '';
+    const unit = UNIT_LABELS[normalizedText(match[2])];
+    return unit ? `${match[1]}${unit}` : '';
+  }
+
   function optionLabel(item) {
     const description = String(item?.description ?? '').trim();
     const translated = VALUE_LABELS[normalizedText(description)];
     if (translated) return translated;
-    return localizedText(description) || String(item?.value ?? '');
+    return localizedText(description) || localizedUnitValue(description) || '未知选项';
   }
 
   function arrayValueLabel(item) {
@@ -344,6 +357,7 @@
     propertyUnit,
     serviceGroup,
     optionLabel,
+    localizedUnitValue,
     formatArrayValue,
     localizedText,
     summarizeCardMetrics,

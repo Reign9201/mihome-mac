@@ -157,8 +157,8 @@ Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`came
 - `MiCloud::scenes(home_id)` 调用 `AppSceneService/GetSimpleSceneList`，返回 `Scene { id, name, home_id, raw }`。
 - `MiCloud::run_scene(scene_id, home_id)` 调用 `AppSceneService/NewRunScene`。
 - Tauri 命令 `list_scenes`、`run_scene` 已注册，桌面 UI 的“场景”页可以读取并执行米家手动场景。
-- 本机定时自动化：`core/src/automation.rs` 保存任务，Tauri 每 30 秒检查一次，到点调用 `run_scene`；任务存在 `~/Library/Application Support/MiHome/automations.json`，只在本机执行，窗口关闭后应用退出就不触发。
-- 菜单栏仍未做；按用户要求等全部验证后再研究 MenuBarMijia。
+- 本机定时自动化：`core/src/automation.rs` 保存任务，Tauri 每 30 秒检查一次，到点调用 `run_scene`；任务存在 `~/Library/Application Support/MiHome/automations.json`，只在本机执行。
+- 菜单栏常驻已接入：关闭主窗口只隐藏窗口，菜单栏可重新显示主窗口或完全退出，隐藏期间定时自动化继续运行。
 
 ### 打包结果
 
@@ -172,6 +172,6 @@ Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`came
 
 - WebKit 的内存和 120 行设备列表是 v1 最大的不确定性，必须先用真实数据做 spike。
 - 小米摄像头用 go2rtc 时只在同一局域网内取流；远程路径已由 Rust relay 实现，并支持音频，但不同型号和网络环境仍需验证，产品文案不能承诺“任何地方都能看”或“绝对零延迟”。
-- go2rtc 是独立进程，需要崩溃隔离和端口鉴权；打包时带 MIT 许可证和版本号。
+- go2rtc 是独立进程，需要崩溃隔离和端口鉴权；当前 API 使用随机 Basic Auth，应用侧另有随机路径令牌代理和最小路径白名单。打包时带 MIT 许可证和版本号。
 - 小米账号扫码登录、设备 token 和摄像头 passToken 都只写入用户目录下的 0600 私有会话文件，不能写日志或进入诊断包。该方案是在未签名构建中规避 Keychain 弹窗的折中，正式签名发行版应改用 Keychain。
 - 设备型号差异大，第一版只承诺已验证的型号；未验证型号使用通用属性面板，不显示摄像头画面。

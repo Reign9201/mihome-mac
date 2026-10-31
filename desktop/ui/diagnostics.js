@@ -1,6 +1,6 @@
 (function (root) {
   const MAX_MESSAGE = 4000;
-  let forwarding = false;
+  let pending = Promise.resolve();
 
   function text(value) {
     return String(value ?? '').slice(0, MAX_MESSAGE);
@@ -8,15 +8,13 @@
 
   function invokeLog(level, tag, message) {
     const invoke = root.__MIHOME_TAURI__?.invoke;
-    if (!invoke || forwarding) return;
-    forwarding = true;
-    Promise.resolve(invoke('log_frontend', {
+    if (!invoke) return;
+    // Serialize frontend log IPC so bursty diagnostics are never dropped.
+    pending = pending.then(() => invoke('log_frontend', {
       level,
       tag: text(tag || 'UI').slice(0, 48),
       message: text(message),
-    })).catch(() => {}).finally(() => {
-      forwarding = false;
-    });
+    })).catch(() => {});
   }
 
   const originalError = root.console.error.bind(root.console);
