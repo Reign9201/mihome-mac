@@ -13,6 +13,9 @@
   const WEBRTC_FRAME_TIMEOUT = 15000;
   const MSE_STARTUP_TIMEOUT = 8000;
   const MSE_FRAME_TIMEOUT = 12000;
+  const HLS_STARTUP_TIMEOUT = 12000;
+  const MSE_LIVE_TARGET = 1;
+  const MSE_LIVE_MAX = 2.5;
 
   function supportedMseTypes(MediaSourceClass) {
     if (!MediaSourceClass?.isTypeSupported) return '';
@@ -21,8 +24,12 @@
       .join(',');
   }
 
-  function runPlayback(video) {
-    video.play().catch(() => {});
+  function runPlayback(video, onError, onSuccess) {
+    const result = video.play();
+    if (result?.then) {
+      result.then(() => onSuccess?.(), (error) => onError?.(String(error)));
+    }
+    return result;
   }
 
   function play(video, stream, options = {}) {
@@ -34,6 +41,11 @@
     const failed = (mode, error) => {
       try {
         options.onError?.(mode, error);
+      } catch (_) {}
+    };
+    const diagnostics = (mode, detail) => {
+      try {
+        options.onDiagnostics?.(mode, detail);
       } catch (_) {}
     };
 
@@ -48,6 +60,9 @@
       video.pause();
       video.removeAttribute('src');
       video.srcObject = null;
+      // MSE temporarily speeds playback up to catch the live edge. Do not let
+      // that rate leak into WebRTC, where it would also pitch-shift the audio.
+      video.playbackRate = 1;
       video.load();
     };
 
@@ -65,19 +80,32 @@
       if (disposed) return;
       resetVideo();
       let closed = false;
+      let startupTimer = 0;
       const onError = () => {
         if (!closed && !disposed) failed('hls', 'video element error');
       };
+      const onFrame = () => {
+        if (!closed && video.videoWidth) clearTimeout(startupTimer);
+      };
       const stop = () => {
         closed = true;
+        clearTimeout(startupTimer);
         video.removeEventListener('error', onError);
+        video.removeEventListener('loadeddata', onFrame);
       };
       cleanupTransport = stop;
       video.addEventListener('error', onError, { once: true });
+      video.addEventListener('loadeddata', onFrame);
       video.src = stream.url;
       video.load();
       runPlayback(video);
       notify('hls', reason);
+      startupTimer = setTimeout(() => {
+        if (!closed && !video.videoWidth) {
+          failed('hls', 'hls first frame timeout');
+          stop();
+        }
+      }, HLS_STARTUP_TIMEOUT);
     };
 
     const startMse = (reason = '') => {
@@ -138,20 +166,22 @@
         if (closed || !sourceBuffer?.buffered?.length) return;
         const end = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
         const start = sourceBuffer.buffered.start(0);
-        if (end - start > 5) {
-          try { sourceBuffer.remove(start, end - 3); } catch (_) {}
+        if (end - start > MSE_LIVE_MAX) {
+          try {
+            sourceBuffer.remove(start, Math.max(start, end - MSE_LIVE_TARGET));
+          } catch (_) {}
         }
         if (video.currentTime < start || video.currentTime === 0) {
-          video.currentTime = Math.max(start, end - 0.25);
+          video.currentTime = Math.max(start, end - 0.15);
         }
         const gap = end - video.currentTime;
-        if (gap > 2.5) {
-          video.currentTime = Math.max(start, end - 0.25);
+        if (gap > MSE_LIVE_MAX) {
+          video.currentTime = Math.max(start, end - 0.15);
           video.playbackRate = 1;
-        } else if (gap > 0.5) {
-          video.playbackRate = Math.min(1.75, 1 + (gap - 0.25) * 1.2);
-        } else if (gap > 0.25) {
-          video.playbackRate = 1.05;
+        } else if (gap > 0.4) {
+          video.playbackRate = Math.min(1.25, 1 + (gap - 0.25) * 0.25);
+        } else if (gap > 0.2) {
+          video.playbackRate = 1.04;
         } else {
           video.playbackRate = 1;
         }
@@ -238,9 +268,15 @@
         pendingBytes += chunk.byteLength;
         appendNext();
       });
-      ws.addEventListener('error', () => fail('mse websocket error'));
-      ws.addEventListener('close', () => {
-        if (!closed) fail(opened ? 'mse websocket closed' : 'mse websocket closed before media');
+      // WebKit's error event carries no status; the following close event does.
+      ws.addEventListener('error', () => {});
+      ws.addEventListener('close', (event) => {
+        if (!closed) {
+          fail(
+            `${opened ? 'mse websocket closed' : 'mse websocket closed before media'}`
+            + ` (code=${event.code}, clean=${event.wasClean}, reason=${event.reason || '-'})`,
+          );
+        }
       });
       startupTimer = setTimeout(() => {
         if (!opened) fail('mse startup timeout');
@@ -274,6 +310,9 @@
       let trackTimer = 0;
       let frameTimer = 0;
       let disconnectTimer = 0;
+      let loadedDataHandler = null;
+      let volumeChangeHandler = null;
+      let lastPlaybackError = '';
 
       const stop = () => {
         if (closed) return;
@@ -282,6 +321,14 @@
         clearTimeout(trackTimer);
         clearTimeout(frameTimer);
         clearTimeout(disconnectTimer);
+        if (loadedDataHandler) {
+          video.removeEventListener('loadeddata', loadedDataHandler);
+          loadedDataHandler = null;
+        }
+        if (volumeChangeHandler) {
+          video.removeEventListener('volumechange', volumeChangeHandler);
+          volumeChangeHandler = null;
+        }
         try { ws.close(); } catch (_) {}
         try { pc.close(); } catch (_) {}
         tracks.forEach((track) => track.stop());
@@ -297,17 +344,93 @@
 
       const useTracks = () => {
         if (closed || !videoTrack) return;
-        video.srcObject = new MediaStream([...tracks.values()]);
-        runPlayback(video);
+        const current = video.srcObject;
+        const media = current instanceof MediaStream ? current : new MediaStream();
+        let changed = current !== media;
+        for (const track of tracks.values()) {
+          if (media.getTracks().some((item) => item.id === track.id)) continue;
+          media.addTrack(track);
+          changed = true;
+        }
+        if (current !== media) video.srcObject = media;
+        if (changed || video.paused) {
+          runPlayback(
+            video,
+            (error) => {
+              lastPlaybackError = error;
+              diagnostics('webrtc', { reason: 'play rejected', error });
+            },
+            () => { lastPlaybackError = ''; },
+          );
+        }
       };
 
-      const finishSignaling = () => {
+      const reportMedia = async (reason) => {
+        if (closed || !connected) return;
+        const inbound = {};
+        try {
+          const stats = await pc.getStats();
+          stats.forEach((report) => {
+            if (report.type !== 'inbound-rtp') return;
+            const kind = report.kind || report.mediaType || 'unknown';
+            inbound[kind] = {
+              bytes: report.bytesReceived || 0,
+              packets: report.packetsReceived || 0,
+              audioLevel: report.audioLevel,
+              totalAudioEnergy: report.totalAudioEnergy,
+              totalSamplesDuration: report.totalSamplesDuration,
+              frames: report.framesDecoded,
+            };
+          });
+        } catch (_) {}
+        const audioTrack = tracks.get('audio');
+        const codecs = [];
+        try {
+          for (const receiver of pc.getReceivers()) {
+            codecs.push({
+              kind: receiver.track.kind,
+              codecs: receiver.getParameters().codecs?.map((codec) => ({
+                mimeType: codec.mimeType,
+                clockRate: codec.clockRate,
+                channels: codec.channels,
+              })),
+            });
+          }
+        } catch (_) {}
+        const remoteAudioCodecs = String(pc.remoteDescription?.sdp || '')
+          .split(/\r?\n/)
+          .filter((line) => /^a=rtpmap:\d+\s+/i.test(line))
+          .map((line) => line.replace(/^a=rtpmap:\d+\s+/i, ''))
+          .filter((line) => /opus|pcmu|pcma|g722|telephone-event/i.test(line));
+        diagnostics('webrtc', {
+          reason,
+          muted: video.muted,
+          volume: video.volume,
+          paused: video.paused,
+          readyState: video.readyState,
+          networkState: video.networkState,
+          mediaError: video.error?.message || '',
+          lastPlaybackError,
+          audioTrack: audioTrack && {
+            muted: audioTrack.muted,
+            enabled: audioTrack.enabled,
+            readyState: audioTrack.readyState,
+          },
+          codecs,
+          remoteAudioCodecs,
+          inbound,
+        });
+      };
+
+      loadedDataHandler = () => {
         if (closed || !video.videoWidth) return;
         clearTimeout(frameTimer);
         // Keep the live media transport once decoded frames are observable.
         try { ws.close(); } catch (_) {}
       };
-      video.addEventListener('loadeddata', finishSignaling, { once: true });
+      volumeChangeHandler = () => reportMedia('volumechange');
+      video.addEventListener('loadeddata', loadedDataHandler, { once: true });
+      video.addEventListener('volumechange', volumeChangeHandler);
 
       pc.addEventListener('icecandidate', (event) => {
         if (!event.candidate || ws.readyState !== WebSocket.OPEN) return;
@@ -338,6 +461,9 @@
           }
           notify('webrtc', 'connected');
           useTracks();
+          setTimeout(() => reportMedia('connected'), 3000);
+          setTimeout(() => reportMedia('connected+7s'), 7000);
+          setTimeout(() => reportMedia('connected+12s'), 12000);
           return;
         }
         if (pc.connectionState === 'disconnected' && connected) {
@@ -406,9 +532,15 @@
           fail(`webrtc offer failed: ${error}`);
         }
       });
-      ws.addEventListener('error', () => fail('webrtc websocket error'));
-      ws.addEventListener('close', () => {
-        if (!closed && !connected) fail('webrtc websocket closed');
+      // WebKit's error event carries no status; the following close event does.
+      ws.addEventListener('error', () => {});
+      ws.addEventListener('close', (event) => {
+        if (!closed && !connected) {
+          fail(
+            `webrtc websocket closed (code=${event.code}, clean=${event.wasClean},`
+            + ` reason=${event.reason || '-'})`,
+          );
+        }
       });
 
       connectTimer = setTimeout(() => {

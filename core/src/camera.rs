@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Context, Result};
+use base64::Engine;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
@@ -11,6 +13,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::logging as app_log;
+use crate::loopback_proxy::LoopbackProxy;
 
 #[cfg(target_arch = "x86_64")]
 const GO2RTC_AMD64_SHA256: &str =
@@ -71,6 +74,8 @@ pub struct Go2Rtc {
     child: Child,
     config_path: PathBuf,
     diagnostics: Arc<Mutex<VecDeque<String>>>,
+    proxy: LoopbackProxy,
+    api_authorization: String,
     pub port: u16,
     rtsp_port: u16,
 }
@@ -139,6 +144,12 @@ impl Go2Rtc {
         let port = ports[0];
         let rtsp_port = ports[1];
         let webrtc_port = ports[2];
+        let username = format!("mihome-{}", random_secret(8));
+        let password = random_secret(32);
+        let api_authorization = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))
+        );
         cleanup_stale_configs();
         let config_path = std::env::temp_dir().join(format!(
             "mihome-go2rtc-{}-{}.yaml",
@@ -151,6 +162,8 @@ impl Go2Rtc {
             webrtc_port,
             streams_yaml,
             go2rtc_log_level(),
+            &username,
+            &password,
         );
         write_private(&config_path, &api_yaml)?;
 
@@ -172,18 +185,13 @@ impl Go2Rtc {
         if let Some(stderr) = child.stderr.take() {
             spawn_diagnostic_reader(stderr, Arc::clone(&diagnostics), id.to_string());
         }
-        let mut runtime = Self {
-            child,
-            config_path: config_path.clone(),
-            diagnostics,
-            port,
-            rtsp_port,
-        };
         if !wait_port(port, Duration::from_secs(5))
             || !wait_port(rtsp_port, Duration::from_millis(1500))
             || !wait_port(webrtc_port, Duration::from_millis(1500))
         {
-            let _ = runtime.child.kill();
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&config_path);
             app_log::error(
                 "go2rtc",
                 format!("内置取流服务端口未就绪：api={port} rtsp={rtsp_port} webrtc={webrtc_port}"),
@@ -192,6 +200,20 @@ impl Go2Rtc {
                 "go2rtc 的 API、RTSP 或 WebRTC 端口没有在 5 秒内就绪"
             ));
         }
+        let proxy = LoopbackProxy::start(port, &username, &password).inspect_err(|_| {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&config_path);
+        })?;
+        let runtime = Self {
+            child,
+            config_path: config_path.clone(),
+            diagnostics,
+            proxy,
+            api_authorization,
+            port,
+            rtsp_port,
+        };
         app_log::info(
             "go2rtc",
             format!(
@@ -219,11 +241,8 @@ impl Go2Rtc {
     }
 
     pub fn webrtc_url(&self, id: &str) -> String {
-        format!(
-            "ws://127.0.0.1:{}/api/ws?src={}",
-            self.port,
-            url_component(id)
-        )
+        self.proxy
+            .websocket_url(&format!("api/ws?src={}", url_component(id)))
     }
 
     pub fn rtsp_url(&self, id: &str) -> String {
@@ -257,7 +276,8 @@ impl Go2Rtc {
         stream.set_write_timeout(Some(Duration::from_millis(500)))?;
         write!(
             stream,
-            "GET /api/streams HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+            "GET /api/streams HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: {}\r\nConnection: close\r\n\r\n",
+            self.api_authorization
         )?;
         let mut response = Vec::new();
         stream.read_to_end(&mut response)?;
@@ -275,11 +295,8 @@ impl Go2Rtc {
     }
 
     pub fn stream_url(&self, id: &str) -> String {
-        format!(
-            "http://127.0.0.1:{}/api/stream.m3u8?src={}&mp4",
-            self.port,
-            url_component(id)
-        )
+        self.proxy
+            .http_url(&format!("api/stream.m3u8?src={}&mp4", url_component(id)))
     }
 
     pub fn is_alive(&mut self) -> bool {
@@ -290,7 +307,7 @@ impl Go2Rtc {
         let alive = self.is_alive();
         let api_ready = alive
             && TcpStream::connect_timeout(
-                &format!("127.0.0.1:{}", self.port)
+                &format!("127.0.0.1:{}", self.proxy.port())
                     .parse()
                     .expect("loopback"),
                 Duration::from_millis(300),
@@ -330,12 +347,24 @@ fn go2rtc_config(
     webrtc_port: u16,
     streams_yaml: &str,
     log_level: &str,
+    username: &str,
+    password: &str,
 ) -> String {
+    let username = yaml_string(username);
+    let password = yaml_string(password);
     // The Tauri page has a different origin from the loopback API. go2rtc only
     // disables its same-origin WebSocket check when this value is "*".
     format!(
-        "api:\n  listen: \"127.0.0.1:{api_port}\"\n  origin: \"*\"\nrtsp:\n  listen: \"127.0.0.1:{rtsp_port}\"\nwebrtc:\n  listen: \"127.0.0.1:{webrtc_port}\"\nlog:\n  level: {log_level}\n{streams_yaml}"
+        "api:\n  listen: \"127.0.0.1:{api_port}\"\n  username: {username}\n  password: {password}\n  local_auth: true\n  origin: \"*\"\n  allow_paths: [\"/api/streams\", \"/api/ws\", \"/api/stream.m3u8\", \"/api/hls/playlist.m3u8\", \"/api/hls/segment.ts\", \"/api/hls/init.mp4\", \"/api/hls/segment.m4s\"]\nrtsp:\n  listen: \"127.0.0.1:{rtsp_port}\"\nwebrtc:\n  listen: \"127.0.0.1:{webrtc_port}\"\nlog:\n  level: {log_level}\n{streams_yaml}"
     )
+}
+
+fn random_secret(length: usize) -> String {
+    let mut bytes = vec![0u8; length.div_ceil(2)];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let mut value = hex::encode(bytes);
+    value.truncate(length);
+    value
 }
 
 fn go2rtc_log_level() -> &'static str {
@@ -632,6 +661,19 @@ pub fn verify_go2rtc(path: &Path) -> Result<()> {
     let actual = sha256_file(path)?;
     let expected = expected_go2rtc_hashes();
     if !expected.contains(&actual.as_str()) {
+        if signed_app_bundle_contains(path) {
+            app_log::warn(
+                "go2rtc",
+                format!(
+                    "go2rtc 已由签名应用包封装，跳过上游 SHA256 固定值校验：{}",
+                    path.display()
+                ),
+            );
+            if let Ok(mut cache) = verified.lock() {
+                cache.insert(fingerprint);
+            }
+            return Ok(());
+        }
         return Err(anyhow!(
             "go2rtc SHA256 不匹配：期望固定版本 1.9.15，实际 {actual}（{}）",
             path.display()
@@ -641,6 +683,34 @@ pub fn verify_go2rtc(path: &Path) -> Result<()> {
         cache.insert(fingerprint);
     }
     Ok(())
+}
+
+fn signed_app_bundle_contains(path: &Path) -> bool {
+    let Some(bundle) = app_bundle_for_path(path) else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(bundle)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bundle;
+        false
+    }
+}
+
+fn app_bundle_for_path(path: &Path) -> Option<&Path> {
+    path.ancestors().find(|candidate| {
+        candidate
+            .extension()
+            .is_some_and(|extension| extension == "app")
+    })
 }
 
 fn binary_fingerprint(path: &Path, metadata: &fs::Metadata) -> VerifiedBinary {
@@ -956,11 +1026,26 @@ mod tests {
 
     #[test]
     fn go2rtc_uses_distinct_api_rtsp_and_webrtc_ports() {
-        let config = go2rtc_config(41001, 41002, 41003, "streams:\n  camera: null\n", "debug");
+        let config = go2rtc_config(
+            41001,
+            41002,
+            41003,
+            "streams:\n  camera: null\n",
+            "debug",
+            "mihome-test",
+            "secret",
+        );
         assert!(config.contains("listen: \"127.0.0.1:41001\""));
         assert!(config.contains("rtsp:\n  listen: \"127.0.0.1:41002\""));
         assert!(config.contains("webrtc:\n  listen: \"127.0.0.1:41003\""));
+        assert!(config.contains("username: \"mihome-test\""));
+        assert!(config.contains("password: \"secret\""));
+        assert!(config.contains("local_auth: true"));
         assert!(config.contains("origin: \"*\""));
+        assert!(config.contains("allow_paths:"));
+        assert!(config.contains("\"/api/ws\""));
+        assert!(config.contains("\"/api/stream.m3u8\""));
+        assert!(!config.contains("\"/api/config\""));
         assert!(config.contains("log:\n  level: debug"));
         assert!(config.contains("camera: null"));
     }
@@ -968,18 +1053,21 @@ mod tests {
     #[test]
     fn rtsp_url_uses_the_rtsp_listener_port() {
         let child = Command::new("/bin/sleep").arg("1").spawn().unwrap();
+        let proxy = LoopbackProxy::start(41001, "user", "password").unwrap();
+        let expected_webrtc = proxy.websocket_url("api/ws?src=remote");
+        let expected_stream = proxy.http_url("api/stream.m3u8?src=remote&mp4");
         let runtime = Go2Rtc {
             child,
             config_path: std::env::temp_dir().join("mihome-go2rtc-test.yaml"),
             diagnostics: Arc::new(Mutex::new(VecDeque::new())),
+            proxy,
+            api_authorization: "Basic dXNlcjpwYXNzd29yZA==".to_string(),
             port: 41001,
             rtsp_port: 41002,
         };
         assert_eq!(runtime.rtsp_url("remote"), "rtsp://127.0.0.1:41002/remote");
-        assert_eq!(
-            runtime.webrtc_url("remote"),
-            "ws://127.0.0.1:41001/api/ws?src=remote"
-        );
+        assert_eq!(runtime.webrtc_url("remote"), expected_webrtc);
+        assert_eq!(runtime.stream_url("remote"), expected_stream);
     }
 
     #[test]
@@ -1034,6 +1122,16 @@ mod tests {
         );
         assert!(verify_go2rtc(&path).is_err());
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn finds_the_signed_app_bundle_that_contains_go2rtc() {
+        let path = Path::new("/Applications/MiHome Mac.app/Contents/MacOS/go2rtc");
+        assert_eq!(
+            app_bundle_for_path(path),
+            Some(Path::new("/Applications/MiHome Mac.app"))
+        );
+        assert_eq!(app_bundle_for_path(Path::new("/tmp/mihome/go2rtc")), None);
     }
 
     #[test]

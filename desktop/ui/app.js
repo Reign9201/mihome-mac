@@ -1,6 +1,10 @@
 const invoke = window.__MIHOME_TAURI__?.invoke;
 const $ = (selector) => document.querySelector(selector);
 const SPEC_BATCH_SIZE = 128;
+const MAX_REMOTE_STREAMS = 6;
+const MAX_REMOTE_START_CONCURRENCY = 3;
+const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
+const CAMERA_STALL_INTERVALS = 6;
 const log = window.MiLog || Object.freeze({
   debug() {}, info() {}, warn() {}, error() {},
 });
@@ -28,7 +32,10 @@ const state = {
   polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
   remoteWatch: null, remoteWatches: [], cameraGeneration: 0, cameraControlsRequest: 0,
+  cameraStopSequence: 0,
+  cameraQueue: Promise.resolve(),
   restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
+  remoteAudio: new Map(),
   videoPlayers: new WeakMap(), streamCleanups: new Set(),
   hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
   cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
@@ -50,6 +57,24 @@ function el(tag, className, text) {
   return node;
 }
 
+async function runLimited(items, limit, worker) {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+}
+
+function queueCameraOperation(operation) {
+  const result = state.cameraQueue.then(operation, operation);
+  state.cameraQueue = result.catch(() => {});
+  return result;
+}
+
 function attachCameraStream(video, stream, camera, generation) {
   const previous = state.videoPlayers.get(video);
   if (previous) {
@@ -69,6 +94,9 @@ function attachCameraStream(video, stream, camera, generation) {
     },
     onError: (mode, error) => {
       log.warn('Camera', `${name} ${mode} 播放失败：${error}`);
+    },
+    onDiagnostics: (mode, detail) => {
+      log.debug('Camera', `${name} ${mode} 媒体诊断：${JSON.stringify(detail)}`);
     },
   });
   const cleanup = () => {
@@ -410,6 +438,7 @@ function formatCardValue(value, def) {
   if (Array.isArray(value)) {
     return formatArrayValue(value);
   }
+  if (typeof value === 'object') return '—';
   if (def.options) {
     const option = def.options.find(([key]) => String(key) === String(value));
     if (option) {
@@ -417,6 +446,9 @@ function formatCardValue(value, def) {
       return /^-?\d+(?:\.\d+)?$/.test(label) ? '未知' : label;
     }
   }
+  const numeric = typeof value === 'number'
+    || (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value.trim()));
+  if (!numeric) return formatArrayValue([value]) || '—';
   const number = Number(value);
   if (!Number.isFinite(number)) return String(value);
   if (def.suffix?.startsWith('storage-')) {
@@ -1344,17 +1376,22 @@ async function startRemoteCamera(camera) {
   return startRemoteCameraSet([camera], false);
 }
 
-async function startRemoteCameraSet(cameras, grid) {
+function startRemoteCameraSet(cameras, grid) {
+  return queueCameraOperation(() => startRemoteCameraSetNow(cameras, grid));
+}
+
+async function startRemoteCameraSetNow(cameras, grid) {
   const usable = cameras.filter((camera) => camera.online);
   if (!usable.length) {
     $('#camHint').textContent = '没有在线摄像头';
     return;
   }
-  await stopCamera();
+  await stopCameraNow('切换到远程画面');
   log.info('Camera', `开始远程画面：count=${usable.length} grid=${grid}`);
   const generation = state.cameraGeneration;
   state.cameraStreams = [];
   state.cameraGrid = grid;
+  state.remoteAudio.clear();
   state.activeCamera = usable[0];
   state.selectedCameraDid = usable[0].did;
   state.remoteActive = true;
@@ -1362,7 +1399,8 @@ async function startRemoteCameraSet(cameras, grid) {
   $('#camGrid').hidden = !grid;
   $('#camEmpty').hidden = false;
   $('#camEmpty').textContent = '正在连接远程画面…首次约 10–20 秒';
-  $('#camHint').textContent = grid ? `正在建立 ${usable.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
+  const selected = grid ? usable.slice(0, MAX_REMOTE_STREAMS) : usable;
+  $('#camHint').textContent = grid ? `正在建立 ${selected.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
   $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
 
   let tiles = null;
@@ -1371,10 +1409,15 @@ async function startRemoteCameraSet(cameras, grid) {
     $('#camGrid').replaceChildren();
     $('#camControls').hidden = true;
     tiles = new Map();
+    const selectedDids = new Set(selected.map((camera) => camera.did));
     for (const camera of usable) {
       const tile = el('div', 'cam-tile');
       tile.append(el('span', 'cam-tile-title', camera.name));
-      const status = el('span', 'cam-tile-status', '正在连接…');
+      const status = el(
+        'span',
+        'cam-tile-status',
+        selectedDids.has(camera.did) ? '正在连接…' : '未启动 · 已达同时显示上限',
+      );
       tile.append(status);
       $('#camGrid').append(tile);
       tiles.set(camera.did, { tile, status, video: null });
@@ -1387,9 +1430,13 @@ async function startRemoteCameraSet(cameras, grid) {
 
   let readyCount = 0;
   const failures = [];
-  const starts = usable.map(async (camera) => {
+  const starts = runLimited(selected, MAX_REMOTE_START_CONCURRENCY, async (camera) => {
     try {
-      const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
+      // Keep a silent audio track in single-view mode so the sound toggle is
+      // immediate and does not rebuild the whole camera transport.
+      const stream = await invoke('camera_remote_start', {
+        did: camera.did, quality: 1, audio: !grid,
+      });
       if (generation !== state.cameraGeneration) return null;
       state.cameraStreams = [
         ...state.cameraStreams.filter((item) => item.id !== stream.id),
@@ -1418,6 +1465,8 @@ async function startRemoteCameraSet(cameras, grid) {
         renderCameraControls(camera, true).catch((error) => {
           log.error('Camera', `渲染远程控制项失败：${error}`);
         });
+        singleVideo.muted = true;
+        singleVideo.volume = 1;
         attachCameraStream(singleVideo, stream, camera, generation);
         $('#camHint').textContent = `${camera.name} · 远程连接`;
         if (state.remoteWatch) clearInterval(state.remoteWatch);
@@ -1445,7 +1494,7 @@ async function startRemoteCameraSet(cameras, grid) {
   });
 
   try {
-    await Promise.all(starts);
+    await starts;
     if (generation !== state.cameraGeneration) {
       return;
     }
@@ -1453,11 +1502,19 @@ async function startRemoteCameraSet(cameras, grid) {
     if (failures.length) toast(`${failures.length} 路摄像头取流失败`, true);
     log.info('Camera', `远程画面通道已建立：count=${readyCount} failed=${failures.length}`);
     if (grid) {
-      $('#camHint').textContent = `${readyCount}/${usable.length} 路远程画面已启动${failures.length ? ` · ${failures.length} 路失败` : ''}`;
+      const skipped = usable.length - selected.length;
+      $('#camHint').textContent = `${readyCount}/${selected.length} 路远程画面已启动${failures.length ? ` · ${failures.length} 路失败` : ''}${skipped ? ` · 最多同时显示 ${MAX_REMOTE_STREAMS} 路` : ''}`;
+      for (const camera of usable.slice(selected.length)) {
+        const target = tiles?.get(camera.did);
+        if (target) {
+          target.status.textContent = '未启动 · 已限制同时显示数量';
+          target.status.hidden = false;
+        }
+      }
     }
   } catch (error) {
     log.error('Camera', `远程画面失败：${String(error)}`);
-    if (generation === state.cameraGeneration) await stopCamera();
+    if (generation === state.cameraGeneration) await stopCameraNow('远程启动失败');
     const text = String(error);
     const busy = /没有返回画面|no authentication|no frames|End of file|提前退出|peer closed/.test(text);
     $('#camEmpty').hidden = false;
@@ -1510,7 +1567,7 @@ async function renderCameraControls(camera, remote) {
       button.setAttribute('aria-label', `云台${text}`);
       button.onclick = async () => {
         try {
-          await invoke('camera_remote_ptz', { did: camera.did, direction, speed: 40 });
+          await invoke('camera_remote_ptz', { did: camera.did, direction });
         } catch (error) {
           log.error('Camera', `云台命令失败：${camera.name} ${direction} ${error}`);
           toast(`云台命令失败：${error}`, true);
@@ -1534,12 +1591,28 @@ async function renderCameraControls(camera, remote) {
     const soundToggle = el('label', 'switch');
     const soundInput = document.createElement('input');
     soundInput.type = 'checkbox';
-    soundInput.checked = false;
+    soundInput.checked = state.remoteAudio.get(camera.did) === true;
     soundInput.disabled = !camera;
     soundInput.onchange = async () => {
       if (!video || !camera) return;
       if (!soundInput.checked) {
+        state.remoteAudio.set(camera.did, false);
         video.muted = true;
+        log.info('Camera', `声音已关闭：${camera.name}`);
+        $('#camHint').textContent = `${camera.name} · 声音已关闭`;
+        return;
+      }
+      state.remoteAudio.set(camera.did, true);
+      const audioTracks = video.srcObject?.getAudioTracks?.() || [];
+      if (audioTracks.length) {
+        video.muted = false;
+        video.volume = 1;
+        video.play().catch((error) => {
+          log.error('Camera', `恢复声音播放失败：${camera.name} ${error}`);
+          $('#camHint').textContent = `声音已开启，但播放器没有开始播放：${error}`;
+        });
+        log.info('Camera', `声音已打开：${camera.name} tracks=${audioTracks.length}`);
+        $('#camHint').textContent = `${camera.name} · 声音已打开`;
         return;
       }
       soundInput.disabled = true;
@@ -1552,10 +1625,13 @@ async function renderCameraControls(camera, remote) {
         if (generation !== state.cameraGeneration) return;
         state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
         video.muted = false;
+        video.volume = 1;
         attachCameraStream(video, stream, camera, generation);
+        log.info('Camera', `声音通道已建立：${camera.name}`);
         $('#camHint').textContent = `${camera.name} · 声音已打开`;
       } catch (error) {
         log.error('Camera', `打开声音失败：${camera.name} ${error}`);
+        state.remoteAudio.set(camera.did, false);
         soundInput.checked = false;
         video.muted = true;
         $('#camHint').textContent = `打开声音失败：${error}`;
@@ -1674,7 +1750,11 @@ async function diagnoseLocalTimeout(camera, video, generation) {
   }
 }
 
-async function startCameraSet(cameras, grid) {
+function startCameraSet(cameras, grid) {
+  return queueCameraOperation(() => startCameraSetNow(cameras, grid));
+}
+
+async function startCameraSetNow(cameras, grid) {
   const usable = cameras.filter((camera) => camera.online && camera.ip);
   if (!usable.length) {
     $('#camHint').textContent = '没有在线且带局域网地址的摄像头';
@@ -1682,7 +1762,7 @@ async function startCameraSet(cameras, grid) {
   }
   let generation;
   try {
-    await stopCamera();
+    await stopCameraNow('切换到本地画面');
     generation = state.cameraGeneration;
     log.info('Camera', `开始本地画面：count=${usable.length} grid=${grid}`);
     const streams = await invoke('camera_start', { dids: usable.map((camera) => camera.did) });
@@ -1761,7 +1841,7 @@ async function startCameraSet(cameras, grid) {
   } catch (error) {
     log.error('Camera', `本地画面启动失败：${error}`);
     if (generation !== undefined && generation !== state.cameraGeneration) return;
-    await stopCamera();
+    await stopCameraNow('本地启动失败');
     $('#camHint').textContent = `启动摄像头失败：${error}`;
   }
 }
@@ -1771,27 +1851,41 @@ function watchRemote(video, camera, onStall, generation) {
   let lastFrames = -1;
   let stalled = 0;
   let hadFrames = false;
+  const startedAt = Date.now();
+  const firstFrameTimeout = state.remoteActive ? REMOTE_FIRST_FRAME_TIMEOUT : 30000;
+  const removeWatch = () => {
+    clearInterval(timer);
+    state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
+    if (state.remoteWatch === timer) state.remoteWatch = null;
+  };
+  const triggerRestart = (reason) => {
+    const quality = video.getVideoPlaybackQuality?.();
+    const frames = quality?.totalVideoFrames ?? video.webkitDecodedFrameCount ?? 'unknown';
+    log.warn(
+      'Camera',
+      `${reason}，准备重连：${camera.name} `
+      + `(ready=${video.readyState}, paused=${video.paused}, width=${video.videoWidth}, `
+      + `time=${video.currentTime}, frames=${frames})`,
+    );
+    removeWatch();
+    onStall();
+  };
   const timer = setInterval(() => {
     if (generation !== state.cameraGeneration || !state.cameraStreams.some((stream) => stream.id === camera.did)) {
-      clearInterval(timer);
-      state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
-      return;
-    }
-    if (video.readyState < 2 || video.paused) {
-      if (video.paused) {
-        stalled = 0;
-        return;
-      }
-      stalled = hadFrames ? stalled + 1 : 0;
-      if (stalled >= 3) {
-        log.warn('Camera', `画面数据中断，准备重连：${camera.name}`);
-        clearInterval(timer);
-        state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
-        onStall();
-      }
+      removeWatch();
       return;
     }
     if (video.videoWidth) hadFrames = true;
+    if (!hadFrames && Date.now() - startedAt >= firstFrameTimeout) {
+      triggerRestart('画面长时间没有首帧');
+      return;
+    }
+    // MSE may briefly drop out of HAVE_CURRENT_DATA while it trims its live
+    // buffer. Judge stalls by decoded progress instead of readyState alone.
+    if (video.paused) {
+      stalled = 0;
+      return;
+    }
     const quality = video.getVideoPlaybackQuality?.();
     const frames = quality ? quality.totalVideoFrames : video.webkitDecodedFrameCount;
     const useFrames = typeof frames === 'number' && frames > 0;
@@ -1800,11 +1894,8 @@ function watchRemote(video, camera, onStall, generation) {
       : Math.abs(video.currentTime - lastTime) < 0.05;
     if (frozen) {
       stalled += 1;
-      if (stalled >= 3) {
-        log.warn('Camera', `画面停滞，准备重连：${camera.name}`);
-        clearInterval(timer);
-        state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
-        onStall();
+      if (stalled >= CAMERA_STALL_INTERVALS) {
+        triggerRestart('画面停滞');
       }
     } else {
       stalled = 0;
@@ -1829,9 +1920,13 @@ async function restartRemoteCamera(camera, video, generation) {
     await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 1200));
     if (generation !== state.cameraGeneration) return;
-    const stream = await invoke('camera_remote_start', { did: camera.did, quality: 1 });
+    const audio = state.remoteAudio.get(camera.did) === true;
+    const stream = await invoke('camera_remote_start', {
+      did: camera.did, quality: 1, audio,
+    });
     if (generation !== state.cameraGeneration) return;
     state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
+    video.muted = !audio;
     attachCameraStream(video, stream, camera, generation);
     $('#camHint').textContent = `${camera.name} · 已自动重连`;
     watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
@@ -1865,8 +1960,13 @@ async function restartLocalCamera(camera, generation) {
   }
 }
 
-async function stopCamera() {
-  log.debug('Camera', '停止摄像头页面');
+function stopCamera() {
+  return queueCameraOperation(() => stopCameraNow('页面或账号切换'));
+}
+
+async function stopCameraNow(reason = '未知') {
+  const requestId = ++state.cameraStopSequence;
+  log.debug('Camera', `停止摄像头页面：${reason} request=${requestId}`);
   state.cameraGeneration += 1;
   if (state.remoteWatch) { clearInterval(state.remoteWatch); state.remoteWatch = null; }
   for (const timer of state.remoteWatches) clearInterval(timer);
@@ -1874,6 +1974,7 @@ async function stopCamera() {
   state.cameraStreams = [];
   state.activeCamera = null;
   state.remoteActive = false;
+  state.remoteAudio.clear();
   state.cameraControlsRequest += 1;
   for (const cleanup of state.streamCleanups) cleanup();
   state.streamCleanups = new Set();
@@ -1892,7 +1993,7 @@ async function stopCamera() {
   $('#camGrid').replaceChildren();
   $('#camLayout').hidden = false;
   if (invoke) {
-    try { await invoke('camera_stop'); } catch (_) {}
+    try { await invoke('camera_stop', { requestId }); } catch (_) {}
   }
 }
 

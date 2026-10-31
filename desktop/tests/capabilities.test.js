@@ -371,6 +371,15 @@ test('array values hide status codes and localize readable labels', () => {
   assert.equal(formatArrayValue(['normal', 'Ptz Check']), '正常、云台检测');
 });
 
+test('unknown vendor option text never falls back to English or raw values', () => {
+  const { optionLabel, localizedUnitValue } = require('../ui/capabilities.js');
+  assert.equal(optionLabel({ value: 9, description: 'Vendor Private Mode' }), '未知选项');
+  assert.equal(optionLabel({ value: 9, description: '' }), '未知选项');
+  assert.equal(optionLabel({ value: 180, description: '180arcdegrees' }), '180°');
+  assert.equal(optionLabel({ value: 10, description: '10minutes' }), '10分钟');
+  assert.equal(localizedUnitValue('unknown-unit'), '');
+});
+
 test('ignores unnamed vendor properties while retaining known lock state', () => {
   const profile = profileFromSpec({
     services: [{
@@ -451,6 +460,14 @@ test('global UI lock disables selection and copying', () => {
   assert.match(js, /摄像头设置/);
 });
 
+test('styles keep valid selectors and match the compact device card height', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../ui/styles.css'), 'utf8');
+  assert.doesNotMatch(css, /(^|\n)device-glyph\[data-kind="plug"\]/);
+  assert.match(css, /contain-intrinsic-size:auto 97px/);
+  assert.match(css, /\.side\{background:rgba\([^}]+;background:color-mix/);
+  assert.match(css, /\.room-chip\.active small\{color:rgba\([^}]+;color:color-mix/);
+});
+
 test('camera list keeps vendor model identifiers out of the primary label', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
@@ -528,6 +545,7 @@ test('player falls back once when WebRTC is unavailable and keeps MSE low-latenc
     load() {},
     removeAttribute() {},
     addEventListener() {},
+    removeEventListener() {},
   };
   const modes = [];
   const errors = [];
@@ -541,7 +559,7 @@ test('player falls back once when WebRTC is unavailable and keeps MSE low-latenc
   };
   sandbox.window = sandbox;
   vm.runInNewContext(source, sandbox);
-  sandbox.MiCameraPlayer.play(
+  const cleanup = sandbox.MiCameraPlayer.play(
     video,
     { url: 'http://127.0.0.1/hls', webrtc_url: 'ws://127.0.0.1/api/ws' },
     {
@@ -558,19 +576,44 @@ test('player falls back once when WebRTC is unavailable and keeps MSE low-latenc
   assert.match(source, /stream\.prefer_mse/);
   assert.match(source, /\['mse', 'webrtc', 'hls'\]/);
   assert.match(source, /jitterBufferTarget = 0/);
+  assert.match(source, /remoteAudioCodecs/);
   assert.match(source, /webrtc disconnected/);
   assert.match(source, /mse websocket closed/);
   assert.match(source, /advance\(\);\n    return cleanup;/);
+  assert.match(source, /HLS_STARTUP_TIMEOUT/);
+  assert.match(source, /MSE_LIVE_MAX = 2\.5/);
+  assert.match(source, /video\.playbackRate = 1;\n      video\.load\(\)/);
+  cleanup();
 });
 
 test('remote grids render each camera as soon as its stream is ready', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
-  assert.match(source, /const starts = usable\.map\(async \(camera\) =>/);
+  assert.match(source, /const selected = grid \? usable\.slice\(0, MAX_REMOTE_STREAMS\) : usable/);
+  assert.match(source, /const starts = runLimited\(selected, MAX_REMOTE_START_CONCURRENCY, async \(camera\) =>/);
   assert.match(source, /readyCount \+= 1/);
   assert.match(source, /target\.status\.hidden = true/);
-  assert.match(source, /await Promise\.all\(starts\)/);
+  assert.match(source, /await starts/);
   assert.doesNotMatch(source, /const settled = await Promise\.allSettled\(usable\.map/);
+});
+
+test('remote reconnect preserves audio and first-frame stalls trigger recovery', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  assert.match(app, /state\.remoteAudio\.get\(camera\.did\) === true/);
+  assert.match(app, /did: camera\.did, quality: 1, audio,/);
+  assert.match(app, /did: camera\.did, quality: 1, audio: !grid/);
+  assert.match(app, /video\.srcObject\?\.getAudioTracks\?\.\(\)/);
+  assert.match(app, /声音已打开/);
+  assert.match(app, /画面长时间没有首帧/);
+  assert.match(app, /REMOTE_FIRST_FRAME_TIMEOUT = 15000/);
+});
+
+test('WebRTC diagnostics expose negotiated audio codec and playback state', () => {
+  const player = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+  assert.match(player, /remoteAudioCodecs/);
+  assert.match(player, /totalSamplesDuration/);
+  assert.match(player, /play rejected/);
+  assert.match(player, /volumeChangeHandler/);
 });
 
 test('local playback falls back to remote when no first frame arrives', () => {
@@ -727,6 +770,12 @@ test('bundle keeps a strict CSP and ships license notices', () => {
     'THIRD_PARTY_NOTICES.md',
   );
   assert.deepEqual(config.bundle.externalBin, ['../../helpers/go2rtc/go2rtc']);
+  const infoPlist = fs.readFileSync(
+    path.resolve(__dirname, '..', 'src-tauri/Info.plist'),
+    'utf8',
+  );
+  assert.match(infoPlist, /<key>NSLocalNetworkUsageDescription<\/key>/);
+  assert.match(infoPlist, /局域网/);
 });
 
 test('release bundle strips symbols without requiring cargo-binutils', () => {
@@ -737,13 +786,16 @@ test('release bundle strips symbols without requiring cargo-binutils', () => {
     path.join(root, 'src-tauri/tauri.conf.json'),
     'utf8',
   ));
-  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry"\] \}/);
+  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry", "tray-icon"\] \}/);
   assert.match(cargo, /^lto = true$/m);
   assert.match(cargo, /^codegen-units = 1$/m);
   assert.match(cargo, /^strip = false$/m);
   assert.match(cargo, /^panic = "abort"$/m);
   assert.equal(config.build.beforeBundleCommand, 'bash ../scripts/strip-macos-binary.sh');
   assert.match(build, /DMG_FORMAT=\$\{DMG_FORMAT:-ULMO\}/);
+  assert.match(build, /APPLE_SIGNING_IDENTITY="-"/);
+  assert.match(build, /SIGNING_MODE=ad-hoc/);
+  assert.match(build, /codesign --verify --deep --strict --verbose=2 "\$APP_BUNDLE"/);
   assert.equal(
     fs.existsSync(path.resolve(root, '../scripts/strip-macos-binary.sh')),
     true,

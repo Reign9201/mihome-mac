@@ -41,9 +41,7 @@ fn main() -> anyhow::Result<()> {
     thread::sleep(Duration::from_secs(3));
     grab(&url, "/tmp/ptz-baseline.png")?;
     println!("PTZ left");
-    stream.ptz("left", 40)?;
-    thread::sleep(Duration::from_secs(2));
-    stream.ptz("stop", 0)?;
+    stream.ptz("left")?;
     thread::sleep(Duration::from_secs(2));
     grab(&url, "/tmp/ptz-after.png")?;
     println!("FRAMES {}", stream.frames());

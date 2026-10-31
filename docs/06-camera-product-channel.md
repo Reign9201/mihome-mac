@@ -56,7 +56,7 @@ core/src/
 └── media.rs           ffmpeg 路径、端口和进程输出
 ```
 
-`RemoteStream` 对上暴露 `start(session, did, quality)`、`url()`、`webrtc_url()`、`ptz(direction, speed)`、`frames()`。Tauri 只依赖这个类型，不再知道 Java 或 micam。
+`RemoteStream` 对上暴露 `start(session, did, quality, audio)`、`url()`、`webrtc_url()`、`ptz(direction)`、`frames()`。Tauri 只依赖这个类型，不再知道 Java 或 micam。
 
 ### 4.1 关键实现点
 

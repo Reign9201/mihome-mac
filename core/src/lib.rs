@@ -3,6 +3,7 @@ pub mod automation;
 pub mod camera;
 pub mod cloud;
 pub mod logging;
+mod loopback_proxy;
 pub mod media;
 pub mod miss;
 pub mod pppp;

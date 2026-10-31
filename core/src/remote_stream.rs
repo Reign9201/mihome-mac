@@ -23,6 +23,9 @@ use crate::miss::{MediaPacket, CODEC_H264, CODEC_H265, CODEC_OPUS};
 use crate::remote::RemoteCamera;
 
 static REMOTE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const MEDIA_POLL_TIMEOUT: Duration = Duration::from_millis(250);
+const OPUS_PAYLOAD_TYPE: u8 = 96;
+const OPUS_TIMESTAMP_STEP: u32 = 48_000 * 40 / 1000;
 
 pub struct RemoteStream {
     camera: Arc<RemoteCamera>,
@@ -173,8 +176,8 @@ impl RemoteStream {
             .open(&ffmpeg_log)?;
         let ffmpeg_err = ffmpeg_log_file.try_clone()?;
 
-        // 摄像头送来的是裸 Opus 包。给 ffmpeg 一份 SDP，用本地 UDP/RTP 喂给它，
-        // 这样视频仍是低开销 copy，音频能在 HLS 里转成 AAC。
+        // 摄像头送来的是裸 Opus 包。给 ffmpeg 一份 SDP，用本地 UDP/RTP 喂给它。
+        // WebRTC 原生支持 Opus；音频和视频都只做封装，避免转码延迟与兼容问题。
         let audio_target = if audio {
             // ffmpeg 的 SDP 输入要自己 bind 这个端口；这里只保留一个发送 socket，
             // 端口号用空闲探测提前选出来。
@@ -229,10 +232,12 @@ impl RemoteStream {
             .spawn(move || {
                 let mut last_video_seq: Option<u32> = None;
                 let mut last_audio_seq: Option<u32> = None;
-                let mut audio_base_ts: Option<u64> = None;
                 let mut rtp_seq: u16 = 0;
+                let mut audio_rtp_ts: u32 = 0;
                 while thread_running.load(Ordering::Relaxed) {
-                    match thread_camera.next_media(Duration::from_secs(3)) {
+                    // Keep the blocking read short so dropping a stream does not
+                    // freeze camera switching for several seconds.
+                    match thread_camera.next_media(MEDIA_POLL_TIMEOUT) {
                         Ok(Some(packet)) if packet.is_video() => {
                             if last_video_seq.is_some_and(|last| {
                                 let diff = packet.sequence.wrapping_sub(last);
@@ -263,16 +268,14 @@ impl RemoteStream {
                                 continue;
                             }
                             last_audio_seq = Some(packet.sequence);
-                            let base = *audio_base_ts.get_or_insert(packet.timestamp_ms);
-                            let timestamp =
-                                packet.timestamp_ms.saturating_sub(base).min(0xffff_ffff) * 48;
                             let mut rtp = Vec::with_capacity(12 + packet.payload.len());
                             rtp.push(0x80);
-                            rtp.push(96);
+                            rtp.push(OPUS_PAYLOAD_TYPE);
                             rtp.extend_from_slice(&rtp_seq.to_be_bytes());
-                            rtp.extend_from_slice(&(timestamp as u32).to_be_bytes());
+                            rtp.extend_from_slice(&audio_rtp_ts.to_be_bytes());
                             rtp.extend_from_slice(&0x1234_5678u32.to_be_bytes());
                             rtp.extend_from_slice(&packet.payload);
+                            audio_rtp_ts = audio_rtp_ts.wrapping_add(OPUS_TIMESTAMP_STEP);
                             rtp_seq = rtp_seq.wrapping_add(1);
                             if let Err(error) =
                                 socket.send_to(&rtp, format!("127.0.0.1:{audio_port}"))
@@ -376,13 +379,12 @@ impl RemoteStream {
         self.frames.load(Ordering::Relaxed)
     }
 
-    pub fn ptz(&self, direction: &str, _speed: u8) -> Result<()> {
+    pub fn ptz(&self, direction: &str) -> Result<()> {
         let operation = match direction {
             "left" => 1,
             "right" => 2,
             "up" => 3,
             "down" => 4,
-            "stop" => 0,
             other => return Err(anyhow!("不支持的云台方向: {other}")),
         };
         self.camera.motor(operation)
@@ -421,13 +423,7 @@ fn ffmpeg_args(
             "-map".to_string(),
             "1:a".to_string(),
             "-c:a".to_string(),
-            "aac".to_string(),
-            "-b:a".to_string(),
-            "64k".to_string(),
-            "-ar".to_string(),
-            "48000".to_string(),
-            "-ac".to_string(),
-            "1".to_string(),
+            "copy".to_string(),
         ]);
     } else {
         args.push("-an".to_string());
@@ -545,12 +541,16 @@ fn first_video_packet(camera: &RemoteCamera, timeout: Duration) -> Result<MediaP
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if let Some(packet) = camera.next_media(Duration::from_secs(2))? {
-            if packet.is_video() {
+            if can_start_decoder(&packet) {
                 return Ok(packet);
             }
         }
     }
-    Err(anyhow!("摄像头没有返回视频帧"))
+    Err(anyhow!("摄像头没有在超时前返回关键帧"))
+}
+
+fn can_start_decoder(packet: &MediaPacket) -> bool {
+    packet.is_video() && packet.is_keyframe()
 }
 
 #[cfg(test)]
@@ -593,6 +593,9 @@ mod tests {
         assert!(joined.contains("-vsync 0"));
         assert!(joined.contains("-rtsp_transport tcp"));
         assert!(joined.contains("-f rtsp rtsp://127.0.0.1:41002/remote"));
+        assert!(joined.contains("-c:a copy"));
+        assert!(!joined.contains("-c:a aac"));
+        assert!(!joined.contains("-c:a pcm_alaw"));
         assert!(!joined.contains("m3u8"));
         assert!(!joined.contains("hls"));
     }
@@ -605,6 +608,20 @@ mod tests {
         );
         assert_eq!(remote_dir_pid("mihome-remote-not-a-pid"), None);
         assert_eq!(remote_dir_pid("unrelated"), None);
+    }
+
+    #[test]
+    fn waits_for_a_video_keyframe_before_starting_ffmpeg() {
+        let packet = |codec_id, flags| MediaPacket {
+            codec_id,
+            sequence: 1,
+            flags,
+            timestamp_ms: 0,
+            payload: vec![0],
+        };
+        assert!(!can_start_decoder(&packet(CODEC_H264, 0)));
+        assert!(can_start_decoder(&packet(CODEC_H264, 1)));
+        assert!(!can_start_decoder(&packet(CODEC_OPUS, 1)));
     }
 
     #[test]
