@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Datelike, Local, NaiveTime};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// 本地定时自动化：到点执行一个米家手动场景。
@@ -21,6 +22,12 @@ pub struct Automation {
     pub enabled: bool,
     #[serde(default)]
     pub last_run: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DueAutomation {
+    pub automation: Automation,
+    pub scheduled_for: DateTime<Local>,
 }
 
 fn default_enabled() -> bool {
@@ -129,6 +136,18 @@ impl AutomationStore {
 
     /// 只触发上次轮询之后到期的任务。Mac 睡眠数小时后唤醒时，也会补执行一次。
     pub fn due_between(&self, since: DateTime<Local>, now: DateTime<Local>) -> Vec<Automation> {
+        self.due_between_entries(since, now)
+            .into_iter()
+            .map(|entry| entry.automation)
+            .collect()
+    }
+
+    /// 与 [`Self::due_between`] 相同，同时返回实际应执行的日期，供跨午夜补执行时记录。
+    pub fn due_between_entries(
+        &self,
+        since: DateTime<Local>,
+        now: DateTime<Local>,
+    ) -> Vec<DueAutomation> {
         if now <= since {
             return Vec::new();
         }
@@ -136,15 +155,15 @@ impl AutomationStore {
         let last_day = now.date_naive();
         self.items
             .iter()
-            .filter(|item| {
+            .filter_map(|item| {
                 if !item.enabled {
-                    return false;
+                    return None;
                 }
                 let Ok(target) = NaiveTime::parse_from_str(&item.time, "%H:%M") else {
-                    return false;
+                    return None;
                 };
                 let mut day = last_day;
-                let mut scheduled_day = None;
+                let mut scheduled_for = None;
                 for _ in 0..14 {
                     let weekday = day.weekday().number_from_monday() as u8;
                     if item.days.contains(&weekday) {
@@ -155,7 +174,7 @@ impl AutomationStore {
                             .or_else(|| day.and_time(target).and_local_timezone(Local).earliest())
                         {
                             if candidate >= since && candidate <= now {
-                                scheduled_day = Some(day);
+                                scheduled_for = Some(candidate);
                                 break;
                             }
                         }
@@ -168,13 +187,16 @@ impl AutomationStore {
                     };
                     day = previous;
                 }
-                let Some(day) = scheduled_day else {
-                    return false;
-                };
-                let marker = day.format("%Y-%m-%d").to_string();
-                item.last_run.as_deref() != Some(marker.as_str())
+                let scheduled_for = scheduled_for?;
+                let marker = scheduled_for.format("%Y-%m-%d").to_string();
+                if item.last_run.as_deref() == Some(marker.as_str()) {
+                    return None;
+                }
+                Some(DueAutomation {
+                    automation: item.clone(),
+                    scheduled_for,
+                })
             })
-            .cloned()
             .collect()
     }
 
@@ -183,10 +205,14 @@ impl AutomationStore {
     }
 
     pub fn mark_run_at(&mut self, id: &str, now: DateTime<Local>) -> Result<()> {
-        let today = now.format("%Y-%m-%d").to_string();
+        self.mark_run_for(id, now)
+    }
+
+    pub fn mark_run_for(&mut self, id: &str, scheduled_for: DateTime<Local>) -> Result<()> {
+        let scheduled_day = scheduled_for.format("%Y-%m-%d").to_string();
         let mut next = self.items.clone();
         if let Some(item) = next.iter_mut().find(|item| item.id == id) {
-            item.last_run = Some(today);
+            item.last_run = Some(scheduled_day);
             self.commit(next)?;
         }
         Ok(())
@@ -213,7 +239,26 @@ impl AutomationStore {
                 .with_context(|| format!("创建目录失败：{}", parent.display()))?;
         }
         let temp = self.path.with_extension("json.tmp");
-        fs::write(&temp, data).with_context(|| format!("写入失败：{}", temp.display()))?;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temp)
+            .with_context(|| format!("创建临时文件失败：{}", temp.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("设置文件权限失败：{}", temp.display()))?;
+        }
+        file.write_all(&data)
+            .with_context(|| format!("写入失败：{}", temp.display()))?;
+        file.sync_all()
+            .with_context(|| format!("同步失败：{}", temp.display()))?;
         fs::rename(&temp, &self.path)
             .with_context(|| format!("替换失败：{}", self.path.display()))?;
         Ok(())
@@ -335,6 +380,49 @@ mod tests {
             .single()
             .unwrap();
         assert_eq!(store.due_between(since, now).len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cross_midnight_catch_up_does_not_skip_same_day_run() {
+        use chrono::TimeZone;
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-automation-midnight-{}-{}",
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ));
+        let path = dir.join("automations.json");
+        let mut store = AutomationStore::new(&path);
+        let items = store
+            .upsert(Automation::new(
+                "周末晚".into(),
+                "23:00".into(),
+                vec![5, 6],
+                "scene-1".into(),
+                "home-1".into(),
+            ))
+            .unwrap();
+        let since = Local
+            .with_ymd_and_hms(2026, 10, 30, 22, 0, 0)
+            .single()
+            .unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 31, 1, 0, 0)
+            .single()
+            .unwrap();
+        let due = store.due_between_entries(since, now);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].scheduled_for.date_naive().to_string(), "2026-10-30");
+        store
+            .mark_run_for(&items[0].id, due[0].scheduled_for)
+            .unwrap();
+        let same_day = Local
+            .with_ymd_and_hms(2026, 10, 31, 23, 0, 0)
+            .single()
+            .unwrap();
+        assert_eq!(store.due_at(same_day).len(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

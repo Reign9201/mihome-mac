@@ -68,7 +68,7 @@ App 只把 `userID` 和 `passToken` 交给本机 helper，不写配置文件到�
 
 ### 3.2 helper 进程
 
-- 二进制随 App 打包，`Contents/Resources/go2rtc`，启动时校验签名与 SHA-256。
+- 二进制作为 Tauri sidecar 随 App 打包到 `Contents/MacOS/go2rtc`，启动前校验固定版本的 SHA-256；分发签名取决于构建时是否提供 Developer ID 证书。
 - 监听 `127.0.0.1` 的随机端口，不用默认 1984 暴露给局域网。
 - App 启动时拉起，空闲 10 分钟且没有画面时退出；有画面时保持。
 - 退出 App、切换账号、系统睡眠前发送停止信号，超时后强制结束。

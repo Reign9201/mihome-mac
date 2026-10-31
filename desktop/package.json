@@ -6,12 +6,17 @@
   "description": "MiHome Mac desktop shell",
   "scripts": {
     "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build",
-    "check": "node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js",
+    "bridge": "esbuild ui/tauri-bridge.mjs --bundle --format=iife --platform=browser --target=safari15 --outfile=ui/tauri-api.js",
+    "dev": "npm run bridge && tauri dev",
+    "build": "npm run bridge && tauri build",
+    "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js",
     "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.4"
+    "@tauri-apps/cli": "^2.12.4",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4"
   }
 }

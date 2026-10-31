@@ -2,7 +2,7 @@
 
 MiHome Mac is licensed under GPL-3.0-or-later. This file records the upstream
 projects and third-party components that informed or are distributed with the
-application. It was last reviewed on 2026-10-30.
+application. It was last reviewed on 2026-10-31.
 
 ## Protocol and product references
 

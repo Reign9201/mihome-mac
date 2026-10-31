@@ -17,3 +17,8 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 tokio = { version = "1", features = ["sync", "time"] }
 mihome-core = { path = "../../core" }
+
+[profile.release]
+# Newer rustc releases invoke rust-objcopy for debug stripping. Keeping the
+# release profile unstripped avoids an undeclared cargo-binutils dependency.
+strip = false

@@ -1,0 +1,37 @@
+name: macOS DMG
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+      - run: ./scripts/build-macos.sh universal
+      - run: |
+          DMG=$(find dist/macos -maxdepth 1 -name '*-universal.dmg' -print -quit)
+          test -n "$DMG"
+          ./scripts/verify-macos-bundle.sh "$DMG" universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiHome-Mac-unsigned-universal
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -111,7 +111,7 @@ impl RemoteStream {
             "mihome-remote-{}-{sequence}-{timestamp}",
             std::process::id()
         ));
-        fs::create_dir_all(&temp_dir)?;
+        create_private_dir(&temp_dir)?;
         let running = Arc::new(AtomicBool::new(true));
         let mut resources = StartupResources::new(temp_dir.clone(), Arc::clone(&running));
         let playlist = temp_dir.join("index.m3u8");
@@ -347,6 +347,16 @@ impl RemoteStream {
     }
 }
 
+fn create_private_dir(path: &std::path::Path) -> Result<()> {
+    fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 impl Drop for RemoteStream {
     fn drop(&mut self) {
         self.running.store(false, Ordering::Relaxed);
@@ -370,4 +380,31 @@ fn first_video_packet(camera: &RemoteCamera, timeout: Duration) -> Result<MediaP
         }
     }
     Err(anyhow!("摄像头没有返回视频帧"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_temp_directory_is_private() {
+        let path = std::env::temp_dir().join(format!(
+            "mihome-private-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        create_private_dir(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        let _ = fs::remove_dir_all(path);
+    }
 }

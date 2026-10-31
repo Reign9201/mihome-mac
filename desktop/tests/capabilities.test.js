@@ -104,8 +104,27 @@ test('global UI lock disables selection and copying', () => {
   const css = fs.readFileSync(path.join(root, 'ui/styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
   assert.match(css, /user-select:none/);
+  assert.match(css, /-webkit-user-drag:none/);
+  assert.match(css, /::selection\{background:transparent/);
   assert.match(js, /'copy', 'cut', 'dragstart'/);
   assert.match(js, /'selectstart'/);
+});
+
+test('loads a narrow Tauri bridge instead of the global API', () => {
+  const root = path.resolve(__dirname, '..');
+  const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
+  const bridge = fs.readFileSync(path.join(root, 'ui/tauri-bridge.mjs'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'ui/index.html'), 'utf8');
+  assert.equal(app.includes('window.__TAURI__'), false);
+  assert.match(app, /window\.__MIHOME_TAURI__\?\.invoke/);
+  assert.match(bridge, /@tauri-apps\/api\/core/);
+  assert.match(html, /src="tauri-api\.js"/);
+});
+
+test('chunks device-spec requests to the backend limit', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  assert.match(app, /const SPEC_BATCH_SIZE = 128;/);
+  assert.match(app, /missing\.slice\(offset, offset \+ SPEC_BATCH_SIZE\)/);
 });
 
 test('bundle keeps a strict CSP and ships license notices', () => {
@@ -116,9 +135,12 @@ test('bundle keeps a strict CSP and ships license notices', () => {
   assert.match(config.app.security.csp, /default-src 'self'/);
   assert.match(config.app.security.csp, /script-src 'self'/);
   assert.equal(config.app.security.csp.includes("'unsafe-inline'"), false);
+  assert.equal(config.app.withGlobalTauri, false);
+  assert.equal(config.bundle.macOS.minimumSystemVersion, '13.0');
   assert.equal(config.bundle.resources['../../LICENSE'], 'LICENSE');
   assert.equal(
     config.bundle.resources['../../THIRD_PARTY_NOTICES.md'],
     'THIRD_PARTY_NOTICES.md',
   );
+  assert.deepEqual(config.bundle.externalBin, ['../../helpers/go2rtc/go2rtc']);
 });

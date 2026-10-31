@@ -207,7 +207,7 @@ GRDB 负责：
 
 摄像头不放进主工程的 Swift 协议层，单独做一个本机 helper 边界：
 
-- helper 用 go2rtc 1.9.15 的 macOS arm64 二进制，随 App 打包到 `Contents/Resources/go2rtc`。
+- helper 用 go2rtc 1.9.15 的 macOS 单架构或 universal 二进制，作为 Tauri sidecar 随 App 打包到 `Contents/MacOS/go2rtc`。
 - App 启动时拉起，监听 `127.0.0.1` 的随机端口；退出、切换账号、空闲回收时结束进程。
 - 扫码拿到的 `userID` 与 `passToken` 通过临时配置交给 helper，不写用户目录、不写日志。
 - 播放优先 AVPlayer + HLS；低延迟模式用 WKWebView 承载 WebRTC。视频解码走 VideoToolbox。

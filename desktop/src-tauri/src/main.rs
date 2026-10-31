@@ -152,13 +152,9 @@ async fn auth_resume(state: State<'_, Arc<AppState>>) -> Result<Option<String>, 
         }
         return Ok(None);
     };
-    let user_id = cloud.user_id().to_string();
-    match cloud.homes().await {
-        Ok(_) => Ok(Some(user_id)),
-        // 网络抖动或云端临时失败时保留本地会话，避免一次失败就要求重新扫码。
-        // 真正的鉴权失效由后续请求的错误提示和用户主动退出处理。
-        Err(error) => Err(error_text(error)),
-    }
+    // The UI immediately calls list_homes after resume. Avoid a duplicate cloud
+    // request here so startup needs only one family-list round trip.
+    Ok(Some(cloud.user_id().to_string()))
 }
 
 #[tauri::command]
@@ -291,7 +287,11 @@ async fn run_due_automations(state: &Arc<AppState>) {
         let mut tick = state.automation_tick.lock().await;
         let since = *tick;
         *tick = now;
-        let due = state.automations.lock().await.due_between(since, now);
+        let due = state
+            .automations
+            .lock()
+            .await
+            .due_between_entries(since, now);
         (since, due)
     };
     if due.is_empty() {
@@ -306,17 +306,25 @@ async fn run_due_automations(state: &Arc<AppState>) {
     for item in due {
         let cloud = state.cloud.lock().await.clone();
         if let Some(cloud) = cloud {
-            match cloud.run_scene(&item.scene_id, &item.home_id).await {
+            match cloud
+                .run_scene(&item.automation.scene_id, &item.automation.home_id)
+                .await
+            {
                 Ok(_) => {
-                    if let Err(error) = state.automations.lock().await.mark_run(&item.id) {
+                    if let Err(error) = state
+                        .automations
+                        .lock()
+                        .await
+                        .mark_run_for(&item.automation.id, item.scheduled_for)
+                    {
                         eprintln!(
                             "automation {} ran but could not be persisted: {error}",
-                            item.id
+                            item.automation.id
                         );
                     }
                 }
                 Err(error) => {
-                    eprintln!("automation {} failed: {error}", item.id);
+                    eprintln!("automation {} failed: {error}", item.automation.id);
                 }
             }
         }

@@ -20,7 +20,7 @@
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' http://127.0.0.1:*; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     },
-    "withGlobalTauri": true
+    "withGlobalTauri": false
   },
   "bundle": {
     "active": true,
@@ -30,8 +30,13 @@
     "icon": [
       "icons/icon.png"
     ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "externalBin": [
+      "../../helpers/go2rtc/go2rtc"
+    ],
     "resources": {
-      "../../helpers/go2rtc/go2rtc": "go2rtc",
       "../../helpers/go2rtc/LICENSE": "go2rtc-LICENSE",
       "../../LICENSE": "LICENSE",
       "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"

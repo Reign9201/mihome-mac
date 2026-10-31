@@ -377,7 +377,8 @@ device-glyph[data-kind="plug"]{background:#f0e8da;color:#7b6845}
 .tv-extra{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
 .tv-extra .tv-key{height:30px;font-size:10px;color:#4e514f}
 
-html,body,*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body,*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none}
+::selection{background:transparent;color:inherit}
 
 /* 原型视觉对齐：暖纸底色、侧栏层级、场景卡片和自动化时间排印 */
 :root{
@@ -445,7 +446,7 @@ h1{font-size:42px}
 .scene-art{height:96px}
 
 /* Performance and spec-driven control helpers */
-.device-card{content-visibility:auto;contain-intrinsic-size:auto 196px}
+.device-card{content-visibility:auto;contain:layout paint style;contain-intrinsic-size:auto 196px}
 .detail-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .detail-action.secondary{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);box-shadow:none}
 .detail-action.secondary:hover{background:#fff}

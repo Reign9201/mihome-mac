@@ -9,4 +9,5 @@ benchmarks/rust/target/
 
 target/
 helpers/go2rtc/go2rtc
+helpers/go2rtc/go2rtc-*-apple-darwin
 dist/

@@ -62,25 +62,21 @@ python3 -m http.server 8899
 - Xcode Command Line Tools
 - Node.js 20 或更高版本（仅构建安装包时需要）
 - ffmpeg（远程摄像头取流需要）
-- go2rtc（运行和打包时作为 Tauri 资源加载，首次构建前需要准备）
+- go2rtc（运行和打包时作为 Tauri sidecar 加载，首次构建前需要准备）
 
-先准备 go2rtc。Apple Silicon 使用 `arm64`，Intel Mac 把 `ARCH` 改为 `amd64`：
+先准备 go2rtc。脚本会按当前架构下载固定版本并校验 SHA256：
 
 ```bash
 git clone https://github.com/Reign9201/mihome-mac.git
 cd mihome-mac
-ARCH=arm64
-curl -L -o /tmp/go2rtc.zip \
-  "https://github.com/AlexxIT/go2rtc/releases/download/v1.9.15/go2rtc_mac_${ARCH}.zip"
-unzip -o /tmp/go2rtc.zip -d helpers/go2rtc
-chmod +x helpers/go2rtc/go2rtc
+./helpers/go2rtc/fetch.sh
 ```
 
 从源码运行：
 
 ```bash
-cd desktop/src-tauri
-cargo run
+npm --prefix desktop ci
+npm --prefix desktop run dev
 ```
 
 首次启动时，应用会请求二维码，使用米家 App 扫码即可进入设备列表。
@@ -88,11 +84,18 @@ cargo run
 构建 DMG：
 
 ```bash
-npm --prefix desktop ci
-npm --prefix desktop run build
+./scripts/build-macos.sh universal
 ```
 
-构建产物位于 `desktop/src-tauri/target/release/bundle/`。本地构建默认未签名、未公证。
+也可以使用 `arm64` 或 `x64` 构建单架构包。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构和资源：
+
+```bash
+./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-0.1.0-universal.dmg universal
+```
+
+生成 DMG 不要求 Apple 证书；Gatekeeper 放行才要求 Developer ID 签名与公证。与 Electron Builder 项目相同，未签名 DMG 可以生成、挂载和本地测试，但下载到其他 Mac 后会被 Gatekeeper 拒绝。CI 和本地默认构建都不包含签名证书。
+
+仓库还提供 `.github/workflows/macos-dmg.yml`，可在 GitHub Actions 中手动运行，或在推送 `v*` 标签时生成未签名 universal DMG 构建产物。
 
 ## 项目结构
 
@@ -103,6 +106,7 @@ mihome-mac/
 │   ├── ui/                       桌面界面，纯 HTML/CSS/JavaScript
 │   └── src-tauri/                Tauri 2 壳与 IPC 命令
 ├── prototype/                    可离线运行的交互原型
+├── scripts/                      macOS 多架构构建与 DMG 验证脚本
 ├── helpers/go2rtc/               go2rtc 接入说明与 MIT 许可证
 ├── benchmarks/                   协议解析与设备网格性能基准
 ├── docs/                         产品、架构、摄像头与实现文档

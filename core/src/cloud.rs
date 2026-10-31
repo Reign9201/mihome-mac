@@ -1,8 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 use crate::auth::Session;
+
+const HOMES_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Home {
@@ -25,6 +30,7 @@ pub struct Scene {
     pub id: String,
     pub name: String,
     pub home_id: String,
+    #[serde(skip_serializing)]
     pub raw: Value,
 }
 
@@ -39,12 +45,19 @@ pub struct Device {
     pub online: bool,
     pub spec_type: Option<String>,
     pub parent_id: Option<String>,
+    #[serde(skip_serializing)]
     pub raw: Value,
 }
 
 #[derive(Clone)]
 pub struct MiCloud {
     session: Session,
+    homes_cache: Arc<Mutex<Option<CachedHomes>>>,
+}
+
+struct CachedHomes {
+    fetched_at: Instant,
+    homes: Vec<Home>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +71,10 @@ pub struct MissProvision {
 
 impl MiCloud {
     pub fn new(session: Session) -> Self {
-        Self { session }
+        Self {
+            session,
+            homes_cache: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub fn session(&self) -> &Session {
@@ -66,6 +82,11 @@ impl MiCloud {
     }
 
     pub async fn homes(&self) -> Result<Vec<Home>> {
+        if let Some(cached) = self.homes_cache.lock().await.as_ref() {
+            if cached.fetched_at.elapsed() < HOMES_CACHE_TTL {
+                return Ok(cached.homes.clone());
+            }
+        }
         let result = self
             .session
             .request(
@@ -77,7 +98,7 @@ impl MiCloud {
             .get("homelist")
             .and_then(Value::as_array)
             .ok_or_else(|| anyhow!("家庭列表格式异常"))?;
-        Ok(list
+        let homes = list
             .iter()
             .map(|home| Home {
                 id: value_text(&home["id"]),
@@ -101,7 +122,12 @@ impl MiCloud {
                     })
                     .unwrap_or_default(),
             })
-            .collect())
+            .collect::<Vec<_>>();
+        *self.homes_cache.lock().await = Some(CachedHomes {
+            fetched_at: Instant::now(),
+            homes: homes.clone(),
+        });
+        Ok(homes)
     }
 
     pub async fn devices(&self, home_id: Option<&str>) -> Result<Vec<Device>> {
@@ -468,5 +494,29 @@ fn value_text(value: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.to_string(),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_serialization_does_not_leak_raw_cloud_fields() {
+        let device = Device {
+            did: "did-1".into(),
+            name: "Camera".into(),
+            model: "chuangmi.camera.test".into(),
+            home_id: "home-1".into(),
+            room_id: None,
+            room_name: None,
+            online: true,
+            spec_type: None,
+            parent_id: None,
+            raw: json!({"token": "secret-device-token", "localip": "192.168.1.2"}),
+        };
+        let serialized = serde_json::to_value(device).unwrap();
+        assert!(serialized.get("raw").is_none());
+        assert_eq!(serialized["did"], "did-1");
     }
 }

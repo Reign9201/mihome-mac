@@ -1,11 +1,36 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "x86_64")]
+const GO2RTC_AMD64_SHA256: &str =
+    "9eebe5ec870d6762e358a6052796ddb42609429981b359d43c225f5d9cc7b967";
+#[cfg(target_arch = "aarch64")]
+const GO2RTC_ARM64_SHA256: &str =
+    "d69780b0ed222866f2a9a8160537bae9936887ff467626ccba00b8840c609266";
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const GO2RTC_UNIVERSAL_SHA256: &str =
+    "6576ea73b17563e81a77f72c3d692df57208fd1d05c8a9f5b8a7ff6830d54a44";
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+struct VerifiedBinary {
+    path: PathBuf,
+    len: u64,
+    modified_ns: u128,
+    changed_ns: i128,
+    inode: u64,
+    device: u64,
+}
+
+static VERIFIED_BINARIES: OnceLock<Mutex<std::collections::HashSet<VerifiedBinary>>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraDevice {
@@ -176,9 +201,13 @@ impl Drop for Go2Rtc {
 }
 
 pub fn find_binary() -> Result<PathBuf> {
+    let allow_unverified = std::env::var_os("MIHOME_ALLOW_UNVERIFIED_GO2RTC").is_some();
     if let Ok(path) = std::env::var("MIHOME_GO2RTC") {
         let path = PathBuf::from(path);
         if path.exists() {
+            if !allow_unverified {
+                verify_go2rtc(&path)?;
+            }
             return Ok(path);
         }
     }
@@ -207,10 +236,113 @@ pub fn find_binary() -> Result<PathBuf> {
             roots.push(PathBuf::from(dir).join("go2rtc"));
         }
     }
-    roots
-        .into_iter()
-        .find(|path| path.is_file())
-        .ok_or_else(|| anyhow!("找不到 go2rtc。设置 MIHOME_GO2RTC 或放到 helpers/go2rtc/go2rtc"))
+    let mut verification_error = None;
+    for path in roots.into_iter().filter(|path| path.is_file()) {
+        if allow_unverified {
+            return Ok(path);
+        }
+        match verify_go2rtc(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) => verification_error = Some(error),
+        }
+    }
+    if let Some(error) = verification_error {
+        return Err(error.context(
+            "没有找到通过完整性校验的 go2rtc 1.9.15；可用 helpers/go2rtc/fetch.sh 重新准备，\
+             或显式设置 MIHOME_ALLOW_UNVERIFIED_GO2RTC=1 使用自定义版本",
+        ));
+    }
+    Err(anyhow!(
+        "找不到 go2rtc。运行 helpers/go2rtc/fetch.sh 或设置 MIHOME_GO2RTC"
+    ))
+}
+
+pub fn verify_go2rtc(path: &Path) -> Result<()> {
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("读取 go2rtc 文件信息失败：{}", path.display()))?;
+    let fingerprint = binary_fingerprint(path, &metadata);
+    let verified = VERIFIED_BINARIES.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    if verified
+        .lock()
+        .map(|cache| cache.contains(&fingerprint))
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let actual = sha256_file(path)?;
+    let expected = expected_go2rtc_hashes();
+    if !expected.contains(&actual.as_str()) {
+        return Err(anyhow!(
+            "go2rtc SHA256 不匹配：期望固定版本 1.9.15，实际 {actual}（{}）",
+            path.display()
+        ));
+    }
+    if let Ok(mut cache) = verified.lock() {
+        cache.insert(fingerprint);
+    }
+    Ok(())
+}
+
+fn binary_fingerprint(path: &Path, metadata: &fs::Metadata) -> VerifiedBinary {
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        VerifiedBinary {
+            path: path.to_path_buf(),
+            len: metadata.len(),
+            modified_ns,
+            changed_ns: i128::from(metadata.ctime()) * 1_000_000_000
+                + i128::from(metadata.ctime_nsec()),
+            inode: metadata.ino(),
+            device: metadata.dev(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        VerifiedBinary {
+            path: path.to_path_buf(),
+            len: metadata.len(),
+            modified_ns,
+            changed_ns: 0,
+            inode: 0,
+            device: 0,
+        }
+    }
+}
+
+fn expected_go2rtc_hashes() -> &'static [&'static str] {
+    #[cfg(target_arch = "x86_64")]
+    {
+        return &[GO2RTC_AMD64_SHA256, GO2RTC_UNIVERSAL_SHA256];
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        return &[GO2RTC_ARM64_SHA256, GO2RTC_UNIVERSAL_SHA256];
+    }
+    #[allow(unreachable_code)]
+    &[]
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file =
+        fs::File::open(path).with_context(|| format!("打开 go2rtc 失败：{}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn camera_from_raw(
@@ -291,13 +423,23 @@ fn url_component(value: &str) -> String {
 }
 
 fn yaml_string(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        value
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-    )
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                escaped.push_str(&format!("\\u{:04X}", character as u32));
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 fn write_private(path: &Path, content: &str) -> Result<()> {
@@ -352,6 +494,7 @@ mod tests {
     #[test]
     fn yaml_escapes_tokens() {
         assert_eq!(yaml_string("a:b\"c"), "\"a:b\\\"c\"");
+        assert_eq!(yaml_string("a\r\t\u{7f}"), "\"a\\r\\t\\u007F\"");
     }
 
     #[test]
@@ -378,5 +521,43 @@ mod tests {
             &serde_json::json!({"localip": "192.168.1.8"})
         )
         .is_some());
+    }
+
+    #[test]
+    fn hashes_files_and_rejects_unknown_go2rtc() {
+        let path = std::env::temp_dir().join(format!(
+            "mihome-go2rtc-hash-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_file(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(verify_go2rtc(&path).is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn binary_fingerprint_changes_when_file_is_replaced() {
+        let path = std::env::temp_dir().join(format!(
+            "mihome-go2rtc-fingerprint-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::write(&path, b"abc").unwrap();
+        let first = binary_fingerprint(&path, &fs::metadata(&path).unwrap());
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&path, b"abd").unwrap();
+        let second = binary_fingerprint(&path, &fs::metadata(&path).unwrap());
+        assert_ne!(first, second);
+        let _ = fs::remove_file(path);
     }
 }

@@ -1,5 +1,6 @@
-const invoke = window.__TAURI__?.core?.invoke;
+const invoke = window.__MIHOME_TAURI__?.invoke;
 const $ = (selector) => document.querySelector(selector);
+const SPEC_BATCH_SIZE = 128;
 
 for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart']) {
   document.addEventListener(eventName, (event) => event.preventDefault());
@@ -266,20 +267,27 @@ async function loadDeviceSpecs(devices) {
   if (!missing.length) return;
   state.specLoading = true;
   for (const type of missing) state.specPending.add(type);
+  let failedBatches = 0;
   try {
-    const batch = await invoke('get_device_specs', { specTypes: missing });
-    for (const [type, spec] of Object.entries(batch.specs || {})) {
-      state.specs.set(type, spec);
-      state.specErrors.delete(type);
+    for (let offset = 0; offset < missing.length; offset += SPEC_BATCH_SIZE) {
+      const chunk = missing.slice(offset, offset + SPEC_BATCH_SIZE);
+      try {
+        const batch = await invoke('get_device_specs', { specTypes: chunk });
+        for (const [type, spec] of Object.entries(batch.specs || {})) {
+          state.specs.set(type, spec);
+          state.specErrors.delete(type);
+        }
+        for (const error of batch.errors || []) {
+          const type = chunk.find((candidate) => String(error).startsWith(candidate)) || String(error);
+          state.specErrors.set(type, error);
+          console.warn(error);
+        }
+      } catch (error) {
+        failedBatches += 1;
+        for (const type of chunk) state.specErrors.set(type, String(error));
+      }
     }
-    for (const error of batch.errors || []) {
-      const type = missing.find((candidate) => String(error).startsWith(candidate)) || String(error);
-      state.specErrors.set(type, error);
-      console.warn(error);
-    }
-  } catch (error) {
-    for (const type of missing) state.specErrors.set(type, String(error));
-    toast(`读取设备规格失败：${error}`, true);
+    if (failedBatches) toast(`有 ${failedBatches} 批设备规格读取失败`, true);
   } finally {
     for (const type of missing) state.specPending.delete(type);
     state.specLoading = false;
@@ -1833,4 +1841,4 @@ if (invoke) {
   boot();
 }
 
-window.__TAURI__?.core.invoke('ui_ready').catch(() => {});
+invoke?.('ui_ready').catch(() => {});
