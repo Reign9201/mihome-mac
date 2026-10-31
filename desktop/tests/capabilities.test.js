@@ -573,6 +573,14 @@ test('remote grids render each camera as soon as its stream is ready', () => {
   assert.doesNotMatch(source, /const settled = await Promise\.allSettled\(usable\.map/);
 });
 
+test('local playback falls back to remote when no first frame arrives', () => {
+  const root = path.resolve(__dirname, '..');
+  const source = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
+  assert.match(source, /本地画面未出画，已自动切换远程/);
+  assert.match(source, /本地未出画，正在切换远程连接/);
+  assert.match(source, /\}, 15000\);/);
+});
+
 test('local player prefers MSE and receives go2rtc media without ICE', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'ui/camera-player.js'), 'utf8');

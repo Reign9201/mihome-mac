@@ -1743,6 +1743,18 @@ async function startCameraSet(cameras, grid) {
           $('#camHint').textContent = `${usable[0].name} · 本地画面仍在连接，正在等待摄像头响应…`;
         }
       }, 8000);
+      setTimeout(async () => {
+        if (
+          generation !== state.cameraGeneration
+          || state.remoteActive
+          || video.videoWidth
+          || state.activeCamera?.did !== usable[0].did
+        ) return;
+        log.warn('Camera', `本地画面 15 秒无首帧，自动切换远程：${usable[0].name}`);
+        toast('本地画面未出画，已自动切换远程');
+        $('#camHint').textContent = `${usable[0].name} · 本地未出画，正在切换远程连接…`;
+        await startRemoteCamera(usable[0]);
+      }, 15000);
       setTimeout(() => diagnoseLocalTimeout(usable[0], video, generation), 25000);
     }
     $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
