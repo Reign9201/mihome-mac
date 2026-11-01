@@ -56,9 +56,22 @@ pub struct CameraStream {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webrtc_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_webrtc_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_webrtc_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mse_webrtc_url: Option<String>,
     pub host: String,
     #[serde(default)]
     pub prefer_mse: bool,
+    #[serde(default)]
+    pub video_only: bool,
+    /// Primary video encoding exposed by this stream. `h264` means the stream
+    /// is transcoded for WebKit compatibility; `native` means the camera's
+    /// original encoding is used and may be H.264 or HEVC depending on model.
+    #[serde(default)]
+    pub video_codec: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,12 +85,31 @@ const DIAGNOSTIC_LINES: usize = 24;
 
 pub struct Go2Rtc {
     child: Child,
+    transcoders: Vec<LocalTranscoder>,
     config_path: PathBuf,
     diagnostics: Arc<Mutex<VecDeque<String>>>,
     proxy: LoopbackProxy,
     api_authorization: String,
     pub port: u16,
     rtsp_port: u16,
+}
+
+struct LocalTranscoder {
+    id: String,
+    child: Child,
+}
+
+struct LocalWebrtcStreams {
+    primary: String,
+    fallback: Option<String>,
+    audio: String,
+    mse: String,
+}
+
+#[derive(Clone, Copy)]
+enum LocalVideoEncoder {
+    VideoToolbox,
+    X264,
 }
 
 impl Go2Rtc {
@@ -120,8 +152,163 @@ impl Go2Rtc {
                     .join("；")
             ),
         );
-        let yaml = cameras_yaml(cameras, user_id, pass_token)?;
+        let ffmpeg = local_transcode_ffmpeg();
+        if let Some(path) = ffmpeg.as_deref() {
+            let encoder = detect_local_video_encoder(path);
+            app_log::info(
+                "Camera",
+                format!(
+                    "本地视频将转码为 H.264 以避开摄像头 HEVC 解码卡顿：{} encoder={}",
+                    path.display(),
+                    encoder.name()
+                ),
+            );
+            match Self::start_with_transcoders(binary, cameras, user_id, pass_token, path, encoder)
+            {
+                Ok(runtime) => return Ok(runtime),
+                Err(error) => app_log::warn(
+                    "Camera",
+                    format!("本地 H.264 转码通道启动失败，回退到原始编码：{error:#}"),
+                ),
+            }
+        } else if local_transcode_requested() {
+            app_log::warn(
+                "Camera",
+                "未找到可用的本地 H.264 转码器，继续使用摄像头原始编码",
+            );
+        } else {
+            app_log::info(
+                "Camera",
+                "本地视频直接使用摄像头原始编码，优先通过 WebRTC 硬解；如需兼容可设置 MIHOME_LOCAL_CODEC=h264",
+            );
+        }
+        let yaml = cameras_yaml(cameras, user_id, pass_token, false)?;
         Self::start_with_yaml(binary, "cameras", &yaml)
+    }
+
+    fn start_with_transcoders(
+        binary: &Path,
+        cameras: &[CameraDevice],
+        user_id: &str,
+        pass_token: &str,
+        ffmpeg: &Path,
+        encoder: LocalVideoEncoder,
+    ) -> Result<Self> {
+        let yaml = cameras_yaml(cameras, user_id, pass_token, true)?;
+        let startup_started = Instant::now();
+        let mut runtime = Self::start_with_yaml(binary, "cameras", &yaml)?;
+        let rtsp_port = runtime.rtsp_port;
+        let rtsp_url = |id: &str| format!("rtsp://127.0.0.1:{rtsp_port}/{}", url_component(id));
+        wait_for_tcp_listener(rtsp_port, Duration::from_secs(3))
+            .context("等待内置 RTSP 服务就绪失败")?;
+        let diagnostics = Arc::clone(&runtime.diagnostics);
+        for camera in cameras {
+            let id = safe_id(&camera.did);
+            let input = format!("{}?video", runtime.rtsp_url(&format!("{id}-raw")));
+            let output = runtime.rtsp_url(&id);
+            let args = local_transcode_args(&input, &output, encoder);
+            let mut child = spawn_local_transcoder(ffmpeg, &args, &id)?;
+            if let Some(stderr) = child.stderr.take() {
+                spawn_diagnostic_reader(stderr, Arc::clone(&diagnostics), format!("ffmpeg-{id}"));
+            }
+            app_log::info(
+                "ffmpeg",
+                format!(
+                    "本地转码进程已启动：pid={} encoder={} input={} output={}",
+                    child.id(),
+                    encoder.name(),
+                    input,
+                    output
+                ),
+            );
+            runtime.transcoders.push(LocalTranscoder { id, child });
+        }
+        app_log::info(
+            "Camera",
+            if local_prefers_native_transport() {
+                "本地播放优先使用摄像头原生编码，H.264 作为自动回退"
+            } else {
+                "本地播放优先使用低延迟 H.264，绕过 WebKit HEVC 解码停摆"
+            },
+        );
+
+        // go2rtc cannot negotiate a null stream until its RTSP producer has
+        // published at least one packet. Waiting here avoids a predictable
+        // "streams: unknown error" fallback to the camera-native HEVC path.
+        let mut deadline = Instant::now() + Duration::from_secs(6);
+        let mut ready = vec![false; runtime.transcoders.len()];
+        let mut retried = vec![false; runtime.transcoders.len()];
+        while Instant::now() < deadline {
+            for (index, transcoder) in runtime.transcoders.iter_mut().enumerate() {
+                if let Some(status) = transcoder.child.try_wait()? {
+                    if retried[index] {
+                        return Err(anyhow!(
+                            "本地 H.264 转码重试后仍提前退出：id={} status={status}",
+                            transcoder.id
+                        ));
+                    }
+                    retried[index] = true;
+                    ready[index] = false;
+                    app_log::warn(
+                        "ffmpeg",
+                        format!(
+                            "本地 H.264 转码在就绪前退出，将在完整窗口内重试一次：id={} status={status}",
+                            transcoder.id
+                        ),
+                    );
+
+                    let input = format!("{}?video", rtsp_url(&format!("{}-raw", transcoder.id)));
+                    let output = rtsp_url(&transcoder.id);
+                    let args = local_transcode_args(&input, &output, encoder);
+                    let mut child = spawn_local_transcoder(ffmpeg, &args, &transcoder.id)?;
+                    if let Some(stderr) = child.stderr.take() {
+                        spawn_diagnostic_reader(
+                            stderr,
+                            Arc::clone(&diagnostics),
+                            format!("ffmpeg-{}", transcoder.id),
+                        );
+                    }
+                    app_log::info(
+                        "ffmpeg",
+                        format!(
+                            "本地转码进程已重新启动：pid={} encoder={} input={} output={}",
+                            child.id(),
+                            encoder.name(),
+                            input,
+                            output
+                        ),
+                    );
+                    transcoder.child = child;
+                    deadline = deadline.max(Instant::now() + Duration::from_secs(6));
+                }
+            }
+            for (index, transcoder) in runtime.transcoders.iter().enumerate() {
+                if !ready[index] && runtime.producer_ready(&transcoder.id) {
+                    ready[index] = true;
+                }
+            }
+            if ready.iter().all(|ready| *ready) {
+                app_log::info(
+                    "Camera",
+                    format!(
+                        "本地 H.264 转码通道已就绪：count={} elapsed={}ms",
+                        ready.len(),
+                        startup_started.elapsed().as_millis()
+                    ),
+                );
+                return Ok(runtime);
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let pending = runtime
+            .transcoders
+            .iter()
+            .zip(ready)
+            .filter(|(_, ready)| !ready)
+            .map(|(transcoder, _)| transcoder.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        Err(anyhow!("本地 H.264 转码通道在 6 秒内没有产出：{pending}"))
     }
 
     /// 用于本地 HLS 验收。source 是 go2rtc 的源表达式，例如 exec:ffmpeg ...。
@@ -132,7 +319,17 @@ impl Go2Rtc {
 
     /// Starts an empty stream that will be published through go2rtc's RTSP server.
     pub fn start_for_ingest(binary: &Path, id: &str) -> Result<Self> {
-        let yaml = format!("streams:\n  {}: null\n", yaml_string(id));
+        Self::start_for_ingest_streams(binary, &[id])
+    }
+
+    /// Starts multiple empty streams for independently published media tracks.
+    pub fn start_for_ingest_streams(binary: &Path, ids: &[&str]) -> Result<Self> {
+        let streams = ids
+            .iter()
+            .map(|id| format!("  {}: null\n", yaml_string(id)))
+            .collect::<String>();
+        let yaml = format!("streams:\n{streams}");
+        let id = ids.first().ok_or_else(|| anyhow!("没有要启动的取流通道"))?;
         Self::start_with_yaml(binary, id, &yaml)
     }
 
@@ -207,6 +404,7 @@ impl Go2Rtc {
         })?;
         let runtime = Self {
             child,
+            transcoders: Vec::new(),
             config_path: config_path.clone(),
             diagnostics,
             proxy,
@@ -238,6 +436,54 @@ impl Go2Rtc {
 
     pub fn webrtc_url_for_did(&self, did: &str) -> String {
         self.webrtc_url(&safe_id(did))
+    }
+
+    pub fn direct_webrtc_url_for_did(&self, did: &str) -> String {
+        self.local_webrtc_streams(did).primary
+    }
+
+    pub fn fallback_webrtc_url_for_did(&self, did: &str) -> Option<String> {
+        self.local_webrtc_streams(did).fallback
+    }
+
+    pub fn audio_webrtc_url_for_did(&self, did: &str) -> Option<String> {
+        Some(self.local_webrtc_streams(did).audio)
+    }
+
+    pub fn video_codec_for_did(&self, did: &str) -> String {
+        let id = safe_id(did);
+        let has_transcoder = self
+            .transcoders
+            .iter()
+            .any(|transcoder| transcoder.id == id);
+        if has_transcoder && !local_prefers_native_transport() {
+            "h264".to_string()
+        } else {
+            "native".to_string()
+        }
+    }
+
+    pub fn mse_webrtc_url_for_did(&self, did: &str) -> String {
+        self.local_webrtc_streams(did).mse
+    }
+
+    fn local_webrtc_streams(&self, did: &str) -> LocalWebrtcStreams {
+        let id = safe_id(did);
+        let has_transcoder = self
+            .transcoders
+            .iter()
+            .any(|transcoder| transcoder.id == id);
+        let stream_ids =
+            local_webrtc_stream_ids(&id, has_transcoder, local_prefers_native_transport());
+        LocalWebrtcStreams {
+            primary: self.webrtc_url(&stream_ids.primary),
+            fallback: stream_ids
+                .fallback
+                .as_deref()
+                .map(|stream_id| self.webrtc_url(stream_id)),
+            audio: self.webrtc_url(&stream_ids.audio),
+            mse: self.webrtc_url(&stream_ids.mse),
+        }
     }
 
     pub fn webrtc_url(&self, id: &str) -> String {
@@ -341,6 +587,31 @@ impl Go2Rtc {
     }
 }
 
+fn spawn_local_transcoder(ffmpeg: &Path, args: &[String], id: &str) -> Result<Child> {
+    Command::new(ffmpeg)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("启动本地 H.264 转码失败（id={id}）：{}", ffmpeg.display()))
+}
+
+fn wait_for_tcp_listener(port: u16, timeout: Duration) -> Result<()> {
+    let address = format!("127.0.0.1:{port}");
+    let socket = address
+        .parse()
+        .with_context(|| format!("解析本地监听地址失败：{address}"))?;
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if TcpStream::connect_timeout(&socket, Duration::from_millis(100)).is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Err(anyhow!("本地端口在 {timeout:?} 内没有监听：{address}"))
+}
+
 fn go2rtc_config(
     api_port: u16,
     rtsp_port: u16,
@@ -422,7 +693,46 @@ exit 0
     }
 }
 
-fn cameras_yaml(cameras: &[CameraDevice], user_id: &str, pass_token: &str) -> Result<String> {
+fn local_transcode_requested() -> bool {
+    !matches!(
+        std::env::var("MIHOME_LOCAL_CODEC")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "direct" | "copy" | "source" | "0" | "false"
+    )
+}
+
+fn local_transcode_ffmpeg() -> Option<PathBuf> {
+    if !local_transcode_requested() {
+        return None;
+    }
+    let ffmpeg = crate::media::find_ffmpeg().ok()?;
+    let output = Command::new(&ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .ok()?;
+    let encoders = String::from_utf8_lossy(&output.stdout);
+    if encoders.contains("libx264") || encoders.contains("h264_videotoolbox") {
+        Some(ffmpeg)
+    } else {
+        app_log::warn(
+            "ffmpeg",
+            format!(
+                "本地转码器缺少 libx264/h264_videotoolbox，继续使用原始编码：{}",
+                ffmpeg.display()
+            ),
+        );
+        None
+    }
+}
+
+fn cameras_yaml(
+    cameras: &[CameraDevice],
+    user_id: &str,
+    pass_token: &str,
+    transcode: bool,
+) -> Result<String> {
     let mut streams = String::new();
     for camera in cameras {
         let ip = camera
@@ -432,13 +742,32 @@ fn cameras_yaml(cameras: &[CameraDevice], user_id: &str, pass_token: &str) -> Re
             .ok_or_else(|| anyhow!("{} 没有 localip，无法局域网取流", camera.name))?;
         let source = format!(
             "xiaomi://{}:cn@{}?did={}&model={}&subtype={}&channel={}",
-            user_id, ip, camera.did, camera.model, camera.subtype, camera.channel
+            user_id,
+            ip,
+            camera.did,
+            camera.model,
+            local_stream_subtype(),
+            camera.channel
         );
-        streams.push_str(&format!(
-            "  {}: {}\n",
-            yaml_string(&safe_id(&camera.did)),
-            yaml_string(&source)
-        ));
+        let id = safe_id(&camera.did);
+        match transcode {
+            true => {
+                let raw_id = format!("{id}-raw");
+                streams.push_str(&format!(
+                    "  {}: {}\n  {}: null\n",
+                    yaml_string(&raw_id),
+                    yaml_string(&source),
+                    yaml_string(&id)
+                ));
+            }
+            false => {
+                streams.push_str(&format!(
+                    "  {}: {}\n",
+                    yaml_string(&id),
+                    yaml_string(&source)
+                ));
+            }
+        }
     }
     let yaml = format!(
         "xiaomi:\n  {}: {}\nstreams:\n{}",
@@ -447,6 +776,242 @@ fn cameras_yaml(cameras: &[CameraDevice], user_id: &str, pass_token: &str) -> Re
         streams
     );
     Ok(yaml)
+}
+
+fn local_stream_subtype() -> String {
+    let requested = std::env::var("MIHOME_LOCAL_SUBTYPE")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match requested.as_str() {
+        "auto" | "sd" | "hd" => requested,
+        "0" | "1" | "2" | "3" | "4" | "5" => requested,
+        _ => "sd".to_string(),
+    }
+}
+
+pub fn local_prefers_mse() -> bool {
+    matches!(
+        std::env::var("MIHOME_LOCAL_TRANSPORT")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "mse"
+    )
+}
+
+fn local_prefers_native_transport() -> bool {
+    let transport = std::env::var("MIHOME_LOCAL_TRANSPORT")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if matches!(transport.as_str(), "native" | "raw" | "hevc") {
+        return true;
+    }
+    matches!(
+        std::env::var("MIHOME_LOCAL_PREFER_NATIVE")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn local_webrtc_stream_ids(
+    id: &str,
+    has_transcoder: bool,
+    prefer_native: bool,
+) -> LocalWebrtcStreams {
+    if !has_transcoder {
+        return LocalWebrtcStreams {
+            primary: id.to_string(),
+            fallback: None,
+            audio: id.to_string(),
+            mse: id.to_string(),
+        };
+    }
+    let raw = format!("{id}-raw");
+    LocalWebrtcStreams {
+        primary: if prefer_native {
+            raw.clone()
+        } else {
+            id.to_string()
+        },
+        // A WebRTC restart must not silently fall back from H.264 to HEVC.
+        // The default H.264 path therefore falls through to H.264 MSE instead.
+        fallback: prefer_native.then(|| id.to_string()),
+        // Audio always stays on the native source because the H.264 stream is
+        // deliberately video-only.
+        audio: raw,
+        // MSE needs the stable H.264 timeline.
+        mse: id.to_string(),
+    }
+}
+
+impl LocalVideoEncoder {
+    fn name(self) -> &'static str {
+        match self {
+            Self::VideoToolbox => "h264_videotoolbox",
+            Self::X264 => "libx264",
+        }
+    }
+
+    fn args(self) -> Vec<String> {
+        let common = [
+            "-g",
+            "10",
+            "-bf",
+            "0",
+            "-profile:v",
+            "high",
+            "-level:v",
+            "4.2",
+            "-pix_fmt:v",
+            "yuv420p",
+            "-b:v",
+            "2M",
+            "-maxrate",
+            "3M",
+            "-bufsize",
+            "1M",
+        ];
+        let encoder = match self {
+            Self::VideoToolbox => vec![
+                "-c:v",
+                "h264_videotoolbox",
+                "-realtime",
+                "true",
+                "-allow_sw",
+                "0",
+            ],
+            Self::X264 => vec![
+                "-c:v",
+                "libx264",
+                "-preset:v",
+                "superfast",
+                "-tune:v",
+                "zerolatency",
+            ],
+        };
+        encoder
+            .into_iter()
+            .chain(common)
+            .map(str::to_string)
+            .collect()
+    }
+}
+
+fn detect_local_video_encoder(ffmpeg: &Path) -> LocalVideoEncoder {
+    let output = Command::new(ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .output();
+    let encoders = output
+        .as_ref()
+        .map(|output| String::from_utf8_lossy(&output.stdout))
+        .unwrap_or_default();
+    let requested = std::env::var("MIHOME_LOCAL_ENCODER")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let encoder = choose_local_video_encoder(&encoders, &requested);
+    match encoder {
+        LocalVideoEncoder::X264 => {
+            if !encoders.contains("libx264") {
+                app_log::warn("ffmpeg", "本地视频请求 libx264，但当前 ffmpeg 不支持");
+            }
+            app_log::info(
+                "ffmpeg",
+                "本地视频默认使用 libx264 零延迟软件编码，避免硬件转码队列周期性积压",
+            );
+        }
+        LocalVideoEncoder::VideoToolbox => {
+            if !encoders.contains("h264_videotoolbox") {
+                app_log::warn("ffmpeg", "本地视频请求 VideoToolbox，但当前 ffmpeg 不支持");
+            }
+            app_log::info("ffmpeg", "本地视频使用 VideoToolbox 硬件 H.264 编码");
+        }
+    }
+    if let Err(error) = output {
+        app_log::warn(
+            "ffmpeg",
+            format!("无法读取本地编码器列表，按可用编码器回退：{error}"),
+        );
+    }
+    encoder
+}
+
+fn choose_local_video_encoder(encoders: &str, requested: &str) -> LocalVideoEncoder {
+    let has_x264 = encoders.contains("libx264");
+    let has_videotoolbox = encoders.contains("h264_videotoolbox");
+    match requested {
+        "videotoolbox" | "video-toolbox" | "hardware" | "vt" if has_videotoolbox => {
+            LocalVideoEncoder::VideoToolbox
+        }
+        "x264" | "libx264" | "software" if has_x264 => LocalVideoEncoder::X264,
+        _ if has_x264 => LocalVideoEncoder::X264,
+        _ if has_videotoolbox => LocalVideoEncoder::VideoToolbox,
+        _ => LocalVideoEncoder::X264,
+    }
+}
+
+fn local_transcode_args(input: &str, output: &str, encoder: LocalVideoEncoder) -> Vec<String> {
+    let mut args = vec![
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        // The source often delivers a 2960x1666 HEVC frame at ~20 fps. Cap the
+        // WebView-facing stream at 1080p so software HEVC decode does not feed
+        // an unnecessarily expensive H.264 encoder.
+        "-fflags",
+        "+genpts+nobuffer+flush_packets",
+        "-flags",
+        "low_delay",
+        "-analyzeduration",
+        "0",
+        "-probesize",
+        "64k",
+        "-rtsp_transport",
+        "tcp",
+        "-i",
+        input,
+        "-map",
+        "0:v:0",
+        "-an",
+        "-vf",
+        // Xiaomi's RTP clock can jump forward after a decode gap. Rebuilding a
+        // fixed-rate timeline prevents MSE from seeing multi-second holes and
+        // trying to seek/catch up forever.
+        r"scale=min(1920\,iw):-2:flags=fast_bilinear,fps=20",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    args.extend(encoder.args());
+    args.extend(
+        [
+            "-tag:v",
+            "avc1",
+            "-vsync",
+            "cfr",
+            "-r",
+            "20",
+            "-max_delay",
+            "0",
+            "-muxdelay",
+            "0",
+            "-muxpreload",
+            "0",
+            "-flush_packets",
+            "1",
+            "-avioflags",
+            "direct",
+            "-rtsp_transport",
+            "tcp",
+            "-f",
+            "rtsp",
+            output,
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+    args
 }
 
 fn spawn_diagnostic_reader(
@@ -560,6 +1125,11 @@ fn cleanup_stale_configs() {
 impl Drop for Go2Rtc {
     fn drop(&mut self) {
         app_log::info("go2rtc", "正在停止内置取流服务");
+        for transcoder in &mut self.transcoders {
+            let _ = transcoder.child.kill();
+            let _ = transcoder.child.wait();
+        }
+        self.transcoders.clear();
         // Closing the supervisor's stdin asks it to terminate go2rtc and wait
         // for the child. Fall back to a hard kill if cleanup does not finish.
         drop(self.child.stdin.take());
@@ -1019,9 +1589,112 @@ mod tests {
             channel: 0,
             spec_type: None,
         };
-        let yaml = cameras_yaml(&[camera], "20373857", "secret").unwrap();
+        let yaml = cameras_yaml(&[camera], "20373857", "secret", false).unwrap();
         assert!(yaml.contains("channel=0"));
         assert!(!yaml.contains("channel=1"));
+        assert!(yaml.contains("subtype=sd"));
+    }
+
+    #[test]
+    fn camera_config_uses_low_latency_h264_transcode_when_available() {
+        let camera = CameraDevice {
+            did: "1178828157".into(),
+            name: "摄像头".into(),
+            model: "chuangmi.camera.069a01".into(),
+            ip: Some("192.168.31.150".into()),
+            online: true,
+            subtype: "hd".into(),
+            channel: 0,
+            spec_type: None,
+        };
+        let yaml = cameras_yaml(&[camera], "20373857", "secret", true).unwrap();
+        assert!(yaml.contains("\"1178828157-raw\": \"xiaomi://"));
+        assert!(yaml.contains("\"1178828157\": null"));
+        assert!(yaml.contains("subtype=sd"));
+    }
+
+    #[test]
+    fn local_transcode_uses_low_latency_h264() {
+        let args = local_transcode_args(
+            "rtsp://127.0.0.1:41002/camera-raw?video",
+            "rtsp://127.0.0.1:41002/camera",
+            LocalVideoEncoder::VideoToolbox,
+        );
+        let joined = args.join(" ");
+        assert!(joined.contains("-fflags +genpts+nobuffer+flush_packets"));
+        assert!(joined.contains("-flags low_delay"));
+        assert!(joined.contains("-c:v h264_videotoolbox"));
+        assert!(joined.contains("-realtime true"));
+        assert!(joined.contains("-allow_sw 0"));
+        assert!(joined.contains(r"scale=min(1920\,iw):-2:flags=fast_bilinear,fps=20"));
+        assert!(joined.contains("-g 10"));
+        assert!(joined.contains("-b:v 2M -maxrate 3M -bufsize 1M"));
+        assert!(joined.contains("-level:v 4.2"));
+        assert!(joined.contains("-bf 0"));
+        assert!(joined.contains("-vsync cfr -r 20"));
+        assert!(joined.contains("-rtsp_transport tcp -i"));
+        assert!(joined.contains("-f rtsp rtsp://127.0.0.1:41002/camera"));
+    }
+
+    #[test]
+    fn local_transcode_keeps_a_low_latency_software_fallback() {
+        let args = local_transcode_args(
+            "rtsp://127.0.0.1:41002/camera-raw?video",
+            "rtsp://127.0.0.1:41002/camera",
+            LocalVideoEncoder::X264,
+        );
+        let joined = args.join(" ");
+        assert!(joined.contains("-c:v libx264"));
+        assert!(joined.contains("-preset:v superfast"));
+        assert!(joined.contains("-tune:v zerolatency"));
+        assert!(joined.contains("-g 10"));
+        assert!(joined.contains("-b:v 2M -maxrate 3M -bufsize 1M"));
+        assert!(joined.contains("-bf 0"));
+        assert!(joined.contains(r"scale=min(1920\,iw):-2:flags=fast_bilinear,fps=20"));
+        assert!(joined.contains("-vsync cfr -r 20"));
+    }
+
+    #[test]
+    fn prefers_x264_zero_latency_by_default() {
+        assert!(matches!(
+            choose_local_video_encoder("libx264 h264_videotoolbox", ""),
+            LocalVideoEncoder::X264
+        ));
+        assert!(matches!(
+            choose_local_video_encoder("libx264 h264_videotoolbox", "hardware"),
+            LocalVideoEncoder::VideoToolbox
+        ));
+        assert!(matches!(
+            choose_local_video_encoder("h264_videotoolbox", "x264"),
+            LocalVideoEncoder::VideoToolbox
+        ));
+    }
+
+    #[test]
+    fn local_webrtc_defaults_to_h264_and_keeps_native_audio() {
+        let streams = local_webrtc_stream_ids("camera", true, false);
+        assert_eq!(streams.primary, "camera");
+        assert_eq!(streams.fallback, None);
+        assert_eq!(streams.audio, "camera-raw");
+        assert_eq!(streams.mse, "camera");
+    }
+
+    #[test]
+    fn local_webrtc_can_opt_into_native_video_with_h264_fallback() {
+        let streams = local_webrtc_stream_ids("camera", true, true);
+        assert_eq!(streams.primary, "camera-raw");
+        assert_eq!(streams.fallback.as_deref(), Some("camera"));
+        assert_eq!(streams.audio, "camera-raw");
+        assert_eq!(streams.mse, "camera");
+    }
+
+    #[test]
+    fn local_webrtc_without_a_transcoder_uses_one_native_stream() {
+        let streams = local_webrtc_stream_ids("camera", false, false);
+        assert_eq!(streams.primary, "camera");
+        assert_eq!(streams.fallback, None);
+        assert_eq!(streams.audio, "camera");
+        assert_eq!(streams.mse, "camera");
     }
 
     #[test]
@@ -1058,6 +1731,7 @@ mod tests {
         let expected_stream = proxy.http_url("api/stream.m3u8?src=remote&mp4");
         let runtime = Go2Rtc {
             child,
+            transcoders: Vec::new(),
             config_path: std::env::temp_dir().join("mihome-go2rtc-test.yaml"),
             diagnostics: Arc::new(Mutex::new(VecDeque::new())),
             proxy,
@@ -1076,8 +1750,13 @@ mod tests {
             id: "camera-1".to_string(),
             url: "http://127.0.0.1:41001/api/stream.m3u8?src=camera-1&mp4".to_string(),
             webrtc_url: Some("ws://127.0.0.1:41001/api/ws?src=camera-1".to_string()),
+            fallback_webrtc_url: None,
+            audio_webrtc_url: None,
+            mse_webrtc_url: None,
             host: "192.168.1.8".to_string(),
             prefer_mse: true,
+            video_only: true,
+            video_codec: "h264".to_string(),
         };
         let value = serde_json::to_value(stream).unwrap();
         assert_eq!(
@@ -1087,6 +1766,14 @@ mod tests {
         assert_eq!(
             value.get("prefer_mse").and_then(serde_json::Value::as_bool),
             Some(true)
+        );
+        assert_eq!(
+            value.get("video_only").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value.get("video_codec").and_then(serde_json::Value::as_str),
+            Some("h264")
         );
     }
 

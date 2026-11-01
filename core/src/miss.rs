@@ -30,6 +30,8 @@ pub struct MediaPacket {
     pub flags: u32,
     pub timestamp_ms: u64,
     pub payload: Vec<u8>,
+    pub discontinuity: bool,
+    pub queue_delay: Duration,
 }
 
 impl MediaPacket {
@@ -130,7 +132,7 @@ impl MissClient {
     }
 
     pub fn next_media(&self, timeout: Duration) -> Result<Option<MediaPacket>> {
-        let Some(message) = self.conn.next_media(timeout) else {
+        let Some((message, discontinuity, queue_delay)) = self.conn.next_media(timeout) else {
             return Ok(None);
         };
         if message.len() < 32 {
@@ -152,6 +154,8 @@ impl MissClient {
                 message[23],
             ]),
             payload,
+            discontinuity,
+            queue_delay,
         }))
     }
 

@@ -533,7 +533,7 @@ test('player falls back once when WebRTC is unavailable and keeps MSE low-latenc
     getReceivers() { return []; }
     close() {}
     async createOffer() { return { type: 'offer', sdp: 'offer' }; }
-    async setLocalDescription() {}
+    async setLocalDescription(description) { this.localDescription = description; }
   }
 
   const video = {
@@ -581,7 +581,15 @@ test('player falls back once when WebRTC is unavailable and keeps MSE low-latenc
   assert.match(source, /mse websocket closed/);
   assert.match(source, /advance\(\);\n    return cleanup;/);
   assert.match(source, /HLS_STARTUP_TIMEOUT/);
-  assert.match(source, /MSE_LIVE_MAX = 2\.5/);
+  assert.match(source, /MSE_LIVE_TARGET = 0\.35/);
+  assert.match(source, /MSE_LIVE_MAX = 1\.2/);
+  assert.match(source, /MSE_LIVE_CHECK_INTERVAL = 250/);
+  assert.match(source, /MSE_LIVE_TRIM_INTERVAL = 2000/);
+  assert.match(source, /MSE_LIVE_RETAIN_BEHIND = 0\.75/);
+  assert.match(source, /const jumpToLive = \(reason, force = false\)/);
+  assert.match(source, /visibilitychange/);
+  assert.match(source, /sourceBuffer\.remove\(start, keepBefore\)/);
+  assert.doesNotMatch(source, /sourceBuffer\.remove\(start, Math\.max\(start, end - MSE_LIVE_TARGET\)\)/);
   assert.match(source, /video\.playbackRate = 1;\n      video\.load\(\)/);
   cleanup();
 });
@@ -600,12 +608,19 @@ test('remote grids render each camera as soon as its stream is ready', () => {
 test('remote reconnect preserves audio and first-frame stalls trigger recovery', () => {
   const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
   assert.match(app, /state\.remoteAudio\.get\(camera\.did\) === true/);
-  assert.match(app, /did: camera\.did, quality: 1, audio,/);
   assert.match(app, /did: camera\.did, quality: 1, audio: !grid/);
+  assert.match(app, /did: camera\.did, quality: 1, audio: !state\.cameraGrid/);
+  assert.match(app, /toggling sound never rebuilds video/);
   assert.match(app, /video\.srcObject\?\.getAudioTracks\?\.\(\)/);
+  assert.match(app, /function setCameraAudio\(video, enabled, name\)/);
+  assert.match(app, /window\.MiCameraPlayer\?\.setAudio\?\.\(video, true\)/);
+  assert.match(app, /独立低延迟音轨/);
+  assert.match(app, /if \(!video\.paused\) video\.pause\(\);\n  video\.play\(\)/);
+  assert.match(app, /setCameraAudio\(video, true, camera\.name\)/);
   assert.match(app, /声音已打开/);
   assert.match(app, /画面长时间没有首帧/);
   assert.match(app, /REMOTE_FIRST_FRAME_TIMEOUT = 15000/);
+  assert.match(app, /CAMERA_STALL_INTERVALS = 3/);
 });
 
 test('WebRTC diagnostics expose negotiated audio codec and playback state', () => {
@@ -614,6 +629,525 @@ test('WebRTC diagnostics expose negotiated audio codec and playback state', () =
   assert.match(player, /totalSamplesDuration/);
   assert.match(player, /play rejected/);
   assert.match(player, /volumeChangeHandler/);
+  assert.match(player, /audio-track-ready/);
+  assert.match(player, /audio-unmuted/);
+});
+
+test('WebRTC returns to the live edge after suspension or jitter-buffer growth', () => {
+  const player = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+  assert.match(player, /WEBRTC_STATS_INTERVAL = 1000/);
+  assert.match(player, /WEBRTC_STALE_BUFFER_MAX = 0\.35/);
+  assert.match(player, /WEBRTC_STALE_BUFFER_CHECKS = 2/);
+  assert.match(player, /WEBRTC_DECODE_STALL_CHECKS = 3/);
+  assert.match(player, /WEBRTC_PACKET_STALL_CHECKS = 3/);
+  assert.match(player, /WEBRTC_HARD_STALL_WINDOW = 25000/);
+  assert.match(player, /WEBRTC_RESUME_RECONNECT_AFTER = 1000/);
+  assert.match(player, /WEBRTC_LIVE_AFTER_PAUSE_MS = 1200/);
+  assert.match(player, /jitterBufferAverage/);
+  assert.match(player, /packets > lastVideoProgress\.packets/);
+  assert.match(player, /frames <= lastVideoProgress\.frames/);
+  assert.match(player, /restartWebrtc\('decode-stall'\)/);
+  assert.match(player, /restartWebrtc\('jitter-buffer'\)/);
+  assert.match(player, /restartWebrtc\('packet-stall'\)/);
+  assert.match(player, /requestHardStall\('packet-stall'\)/);
+  assert.match(player, /restartWebrtc\('resume-after-pause'\)/);
+  assert.match(player, /!root\.document\?\.hidden && staleVideoBuffer/);
+  assert.match(player, /visibility-resume/);
+  assert.match(player, /focus-resume/);
+  assert.match(player, /resume-live/);
+  assert.match(player, /restartWebrtc\(`\$\{reason\}-stalled`\)/);
+  assert.match(player, /addEventListener\?\.\('blur', onWindowBlur\)/);
+  assert.match(player, /codecsSignature/);
+  assert.match(player, /codecs: includeCodecs \? codecs : undefined/);
+});
+
+test('WebRTC resumes healthy playback without rebuilding and restarts only when stalled', async () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+
+  const runCase = async ({ advances, hidden = false, pauseResume = false, backgroundMs = 1500 }) => {
+    let now = 1_000_000;
+    let nextTimer = 1;
+    const timers = new Map();
+    const setTimeoutFake = (callback, delay = 0) => {
+      const id = nextTimer++;
+      timers.set(id, { at: now + Number(delay || 0), callback });
+      return id;
+    };
+    const clearTimeoutFake = (id) => timers.delete(id);
+    const advance = (duration) => {
+      const target = now + duration;
+      while (true) {
+        let nextId = null;
+        let next = null;
+        for (const [id, timer] of timers) {
+          if (timer.at <= target && (!next || timer.at < next.at)) {
+            nextId = id;
+            next = timer;
+          }
+        }
+        if (!next) break;
+        timers.delete(nextId);
+        now = next.at;
+        next.callback();
+      }
+      now = target;
+    };
+
+    class FakeDate extends Date {
+      static now() { return now; }
+    }
+
+    class FakeWebSocket {
+      static OPEN = 1;
+      static instances = [];
+
+      constructor() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.listeners = new Map();
+        FakeWebSocket.instances.push(this);
+      }
+
+      addEventListener(name, handler) { this.listeners.set(name, handler); }
+      emit(name, event = {}) { this.listeners.get(name)?.(event); }
+      send() {}
+      close() { this.readyState = 3; }
+    }
+
+    class FakeMediaStream {
+      constructor() { this.tracks = []; }
+      addTrack(track) { this.tracks.push(track); }
+      removeTrack(track) { this.tracks = this.tracks.filter((item) => item !== track); }
+      getTracks() { return this.tracks; }
+      getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
+    }
+
+    class FakePeerConnection {
+      static instances = [];
+
+      constructor() {
+        this.connectionState = 'new';
+        this.iceConnectionState = 'new';
+        this.listeners = new Map();
+        FakePeerConnection.instances.push(this);
+      }
+
+      addEventListener(name, handler) { this.listeners.set(name, handler); }
+      emit(name, event = {}) { this.listeners.get(name)?.(event); }
+      addTransceiver() {}
+      getReceivers() { return []; }
+      async getStats() { return new Map(); }
+      close() {}
+      async createOffer() { return { type: 'offer', sdp: 'offer' }; }
+      async setLocalDescription(description) { this.localDescription = description; }
+      async setRemoteDescription() {}
+    }
+
+    const documentListeners = new Map();
+    const windowListeners = new Map();
+    const videoListeners = new Map();
+    const document = {
+      hidden,
+      addEventListener(name, handler) { documentListeners.set(name, handler); },
+      removeEventListener(name) { documentListeners.delete(name); },
+    };
+    const video = {
+      muted: true,
+      volume: 1,
+      paused: true,
+      videoWidth: 1,
+      playbackRate: 1,
+      get currentTime() { return advances ? now / 1000 : 0; },
+      getVideoPlaybackQuality() {
+        return { totalVideoFrames: advances ? Math.floor(now / 33) : 0 };
+      },
+      pause() { this.paused = true; },
+      play() { this.paused = false; return Promise.resolve(); },
+      load() {},
+      removeAttribute() {},
+      addEventListener(name, handler) { videoListeners.set(name, handler); },
+      removeEventListener(name) { videoListeners.delete(name); },
+    };
+    const diagnosticEvents = [];
+    const sandbox = {
+      WebSocket: FakeWebSocket,
+      RTCPeerConnection: FakePeerConnection,
+      MediaStream: FakeMediaStream,
+      Date: FakeDate,
+      document,
+      setTimeout: setTimeoutFake,
+      clearTimeout: clearTimeoutFake,
+      console,
+    };
+    sandbox.window = sandbox;
+    sandbox.addEventListener = (name, handler) => windowListeners.set(name, handler);
+    sandbox.removeEventListener = (name) => windowListeners.delete(name);
+    vm.runInNewContext(source, sandbox);
+
+    const cleanup = sandbox.MiCameraPlayer.play(
+      video,
+      { url: 'http://127.0.0.1/hls', webrtc_url: 'ws://127.0.0.1/api/ws', video_only: true },
+      { onDiagnostics: (mode, detail) => diagnosticEvents.push({ mode, detail }) },
+    );
+    const signaling = FakeWebSocket.instances[0];
+    signaling.emit('open');
+    await Promise.resolve();
+    const peer = FakePeerConnection.instances[0];
+    peer.emit('track', {
+      track: {
+        id: 'video-track',
+        kind: 'video',
+        muted: false,
+        enabled: true,
+        readyState: 'live',
+        addEventListener() {},
+        stop() {},
+      },
+    });
+    peer.connectionState = 'connected';
+    peer.emit('connectionstatechange');
+    videoListeners.get('loadeddata')?.();
+
+    if (pauseResume) {
+      video.paused = true;
+      videoListeners.get('pause')?.();
+      advance(1300);
+      video.paused = false;
+      videoListeners.get('play')?.();
+      advance(50);
+      const peersAfterPlay = FakePeerConnection.instances.length;
+      const reasons = diagnosticEvents
+        .filter((event) => event.mode === 'webrtc')
+        .map((event) => (
+          event.detail?.reason === 'restart'
+            ? `restart:${event.detail.detail}`
+            : event.detail?.reason
+        ));
+      cleanup();
+      return { peersAfterPlay, reasons };
+    }
+
+    if (hidden) {
+      documentListeners.get('visibilitychange')?.();
+    } else {
+      windowListeners.get('blur')?.();
+    }
+    advance(backgroundMs);
+    windowListeners.get('focus')?.();
+    advance(200);
+    const peersAfterResume = FakePeerConnection.instances.length;
+    advance(1400);
+    const peersAfterProbe = FakePeerConnection.instances.length;
+    const reasons = diagnosticEvents
+      .filter((event) => event.mode === 'webrtc')
+      .map((event) => event.detail?.reason);
+    cleanup();
+    return { peersAfterResume, peersAfterProbe, reasons };
+  };
+
+  const healthy = await runCase({ advances: true, backgroundMs: 1000 });
+  assert.equal(healthy.peersAfterResume, 1);
+  assert.equal(healthy.peersAfterProbe, 1);
+  assert.ok(healthy.reasons.includes('resume-live'), JSON.stringify(healthy));
+
+  const stalled = await runCase({ advances: false, backgroundMs: 1000 });
+  assert.equal(stalled.peersAfterResume, 1);
+  assert.equal(stalled.peersAfterProbe, 2);
+  assert.ok(stalled.reasons.includes('resume-stalled'), JSON.stringify(stalled));
+
+  const hidden = await runCase({ advances: false, hidden: true, backgroundMs: 1000 });
+  assert.equal(hidden.peersAfterResume, 1);
+  assert.equal(hidden.peersAfterProbe, 1);
+  assert.equal(hidden.reasons.includes('resume-stalled'), false);
+
+  const rebuilt = await runCase({ advances: true, backgroundMs: 1500 });
+  assert.equal(rebuilt.peersAfterResume, 2);
+  assert.ok(rebuilt.reasons.includes('restart'), JSON.stringify(rebuilt));
+
+  const paused = await runCase({ advances: true, pauseResume: true });
+  assert.equal(paused.peersAfterPlay, 2);
+  assert.ok(paused.reasons.includes('restart:resume-after-pause'));
+});
+
+test('WebRTC restarts playback when an audio track becomes audible', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+
+  class FakeWebSocket {
+    static OPEN = 1;
+    static instances = [];
+
+    constructor() {
+      this.readyState = FakeWebSocket.OPEN;
+      this.listeners = new Map();
+      FakeWebSocket.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    emit(name, event = {}) { this.listeners.get(name)?.(event); }
+    send() {}
+    close() {}
+  }
+
+  class FakeMediaStream {
+    constructor() { this.tracks = []; }
+    addTrack(track) { this.tracks.push(track); }
+    getTracks() { return this.tracks; }
+    getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
+  }
+
+  class FakePeerConnection {
+    static instances = [];
+
+    constructor() {
+      this.connectionState = 'new';
+      this.iceConnectionState = 'new';
+      this.listeners = new Map();
+      FakePeerConnection.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    emit(name, event = {}) { this.listeners.get(name)?.(event); }
+    addTransceiver() {}
+    getReceivers() { return []; }
+    async getStats() { return new Map(); }
+    close() {}
+    async createOffer() { return { type: 'offer', sdp: 'offer' }; }
+    async setLocalDescription() {}
+  }
+
+  const video = {
+    muted: false,
+    volume: 1,
+    paused: true,
+    pauseCalls: 0,
+    playCalls: 0,
+    listeners: new Map(),
+    videoWidth: 1,
+    currentTime: 0,
+    playbackRate: 1,
+    pause() { this.pauseCalls += 1; this.paused = true; },
+    play() { this.playCalls += 1; this.paused = false; return Promise.resolve(); },
+    load() {},
+    removeAttribute() {},
+    addEventListener(name, handler) { this.listeners.set(name, handler); },
+    removeEventListener() {},
+  };
+  const sandbox = {
+    WebSocket: FakeWebSocket,
+    RTCPeerConnection: FakePeerConnection,
+    MediaStream: FakeMediaStream,
+    setTimeout,
+    clearTimeout,
+    console,
+  };
+  sandbox.window = sandbox;
+  vm.runInNewContext(source, sandbox);
+  const cleanup = sandbox.MiCameraPlayer.play(
+    video,
+    { url: 'http://127.0.0.1/hls', webrtc_url: 'ws://127.0.0.1/api/ws' },
+    {},
+  );
+
+  const track = (kind) => {
+    const listeners = new Map();
+    return {
+      id: `${kind}-track`,
+      kind,
+      muted: true,
+      enabled: true,
+      readyState: 'live',
+      addEventListener(name, handler) { listeners.set(name, handler); },
+      emit(name) { listeners.get(name)?.(); },
+      stop() {},
+    };
+  };
+  const peer = FakePeerConnection.instances[0];
+  peer.emit('track', { track: track('video') });
+  const audio = track('audio');
+  peer.emit('track', { track: audio });
+
+  const pauseBeforeAudio = video.pauseCalls;
+  const playBeforeAudio = video.playCalls;
+  audio.muted = false;
+  audio.emit('unmute');
+
+  assert.ok(video.srcObject.getAudioTracks().includes(audio));
+  assert.equal(video.pauseCalls, pauseBeforeAudio + 1);
+  assert.equal(video.playCalls, playBeforeAudio + 1);
+  cleanup();
+});
+
+test('WebRTC removes muted audio from the media element to protect low latency', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+  assert.match(source, /track\.kind === 'audio' && video\.muted/);
+  assert.match(source, /media\.removeTrack\(track\)/);
+  assert.match(source, /audio-muted/);
+});
+
+test('WebRTC reports continuous jitter and freeze diagnostics', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+  assert.match(source, /jitterBufferDelay: report\.jitterBufferDelay/);
+  assert.match(source, /reportMedia\('periodic'\)/);
+  assert.match(source, /scheduleMediaStats\(\);/);
+});
+
+test('remote audio uses a separate PeerConnection and reports RTP health', async () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+
+  class FakeWebSocket {
+    static OPEN = 1;
+    static instances = [];
+
+    constructor(url) {
+      this.url = url;
+      this.readyState = FakeWebSocket.OPEN;
+      this.listeners = new Map();
+      FakeWebSocket.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    emit(name, event = {}) { this.listeners.get(name)?.(event); }
+    send() {}
+    close() { this.readyState = 3; }
+  }
+
+  class FakeMediaStream {
+    constructor(tracks = []) { this.tracks = tracks; }
+    addTrack(track) { this.tracks.push(track); }
+    removeTrack(track) { this.tracks = this.tracks.filter((item) => item !== track); }
+    getTracks() { return this.tracks; }
+    getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
+  }
+
+  class FakeAudio {
+    static instances = [];
+
+    constructor() {
+      this.srcObject = null;
+      this.muted = true;
+      this.volume = 1;
+      this.paused = true;
+      this.readyState = 4;
+      this.pauseCalls = 0;
+      this.playCalls = 0;
+      FakeAudio.instances.push(this);
+    }
+
+    pause() { this.pauseCalls += 1; this.paused = true; }
+    play() { this.playCalls += 1; this.paused = false; return Promise.resolve(); }
+  }
+
+  class FakePeerConnection {
+    static instances = [];
+
+    constructor() {
+      this.connectionState = 'new';
+      this.iceConnectionState = 'new';
+      this.listeners = new Map();
+      FakePeerConnection.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    emit(name, event = {}) { this.listeners.get(name)?.(event); }
+    addTransceiver() {}
+    getReceivers() { return []; }
+    async getStats() {
+      return new Map([[
+        'audio-inbound',
+        {
+          type: 'inbound-rtp',
+          kind: 'audio',
+          bytesReceived: 4096,
+          packetsReceived: 64,
+          packetsLost: 0,
+          audioLevel: 0.25,
+          totalAudioEnergy: 1.5,
+          totalSamplesDuration: 2.5,
+        },
+      ]]);
+    }
+    close() {}
+    async createOffer() { return { type: 'offer', sdp: 'offer' }; }
+    async setLocalDescription(description) { this.localDescription = description; }
+    async setRemoteDescription() {}
+  }
+
+  const video = {
+    muted: true,
+    volume: 1,
+    paused: true,
+    videoWidth: 1,
+    currentTime: 0,
+    playbackRate: 1,
+    pause() { this.paused = true; },
+    play() { this.paused = false; return Promise.resolve(); },
+    load() {},
+    removeAttribute() {},
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const diagnosticEvents = [];
+  const sandbox = {
+    WebSocket: FakeWebSocket,
+    RTCPeerConnection: FakePeerConnection,
+    MediaStream: FakeMediaStream,
+    Audio: FakeAudio,
+    setTimeout,
+    clearTimeout,
+    console,
+  };
+  sandbox.window = sandbox;
+  vm.runInNewContext(source, sandbox);
+  const cleanup = sandbox.MiCameraPlayer.play(
+    video,
+    {
+      url: 'http://127.0.0.1/hls',
+      webrtc_url: 'ws://127.0.0.1/api/ws?src=video',
+      audio_webrtc_url: 'ws://127.0.0.1/api/ws?src=audio',
+    },
+    {
+      onDiagnostics: (mode, detail) => diagnosticEvents.push({ mode, detail }),
+    },
+  );
+
+  assert.equal(sandbox.MiCameraPlayer.setAudio(video, true), true);
+  const audioSocket = FakeWebSocket.instances.find((ws) => ws.url.includes('src=audio'));
+  const audioPeer = FakePeerConnection.instances[1];
+  audioSocket.emit('open');
+  audioPeer.emit('track', {
+    track: {
+      kind: 'audio',
+      muted: false,
+      enabled: true,
+      readyState: 'live',
+      addEventListener() {},
+      stop() {},
+    },
+  });
+  audioPeer.connectionState = 'connected';
+  audioPeer.emit('connectionstatechange');
+  assert.equal(FakeAudio.instances[0].muted, false);
+  assert.equal(FakeAudio.instances[0].paused, false);
+  const pauseCalls = FakeAudio.instances[0].pauseCalls;
+  const playCalls = FakeAudio.instances[0].playCalls;
+  assert.equal(sandbox.MiCameraPlayer.setAudio(video, true), true);
+  assert.equal(FakeAudio.instances[0].pauseCalls, pauseCalls);
+  assert.equal(FakeAudio.instances[0].playCalls, playCalls);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const stats = diagnosticEvents.find((event) => event.mode === 'audio-stats');
+  assert.ok(stats, JSON.stringify(diagnosticEvents));
+  assert.equal(stats.detail.inbound.audio.bytes, 4096);
+  assert.equal(stats.detail.inbound.audio.packets, 64);
+  assert.equal(stats.detail.inbound.audio.audioLevel, 0.25);
+
+  assert.equal(
+    sandbox.MiCameraPlayer.setAudio(video, false),
+    true,
+    JSON.stringify(diagnosticEvents),
+  );
+  assert.equal(FakeAudio.instances[0].muted, true, JSON.stringify(diagnosticEvents));
+  assert.equal(FakeAudio.instances[0].paused, true);
+  cleanup();
 });
 
 test('local playback falls back to remote when no first frame arrives', () => {
@@ -624,7 +1158,7 @@ test('local playback falls back to remote when no first frame arrives', () => {
   assert.match(source, /\}, 15000\);/);
 });
 
-test('local player prefers MSE and receives go2rtc media without ICE', () => {
+test('local player can fall back to MSE without ICE', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'ui/camera-player.js'), 'utf8');
 
@@ -733,6 +1267,99 @@ test('local player prefers MSE and receives go2rtc media without ICE', () => {
   assert.deepEqual(errors, []);
   assert.ok(video.srcObject instanceof FakeMediaSource);
   assert.ok(signaling.sent.some((data) => data.includes('"type":"mse"')));
+  cleanup();
+});
+
+test('local streams stay on stable H.264 unless native video is explicitly preferred', () => {
+  const main = fs.readFileSync(path.resolve(__dirname, '../src-tauri/src/main.rs'), 'utf8');
+  assert.match(main, /fixed-rate H\.264 stream avoids WebKit's periodic HEVC/);
+  assert.match(main, /Native video is used only when no transcoder/);
+  assert.match(main, /MIHOME_LOCAL_PREFER_NATIVE=1/);
+  assert.match(main, /fallback_webrtc_url: runtime\.fallback_webrtc_url_for_did/);
+  assert.match(main, /mse_webrtc_url: Some\(runtime\.mse_webrtc_url_for_did/);
+  assert.match(main, /prefer_mse: camera::local_prefers_mse\(\),\n\s+video_only: true/);
+  assert.match(main, /stream\.quality\(\) == quality[\s\S]{0,120}stream\.has_audio\(\) == audio/);
+  assert.match(main, /stream\.health_reason\(\)\.is_none\(\)/);
+});
+
+test('remote video stays isolated from the independently negotiated audio stream', () => {
+  const main = fs.readFileSync(path.resolve(__dirname, '../src-tauri/src/main.rs'), 'utf8');
+  assert.equal(
+    (main.match(/host: "CS2 relay"\.to_string\(\),\n\s+prefer_mse: false,\n\s+video_only: true/g) || []).length,
+    2,
+  );
+});
+
+test('local video-only WebRTC does not negotiate an audio transceiver', async () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
+
+  class FakeWebSocket {
+    static OPEN = 1;
+    static instances = [];
+
+    constructor() {
+      this.readyState = FakeWebSocket.OPEN;
+      this.listeners = new Map();
+      FakeWebSocket.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    emit(name, event = {}) { this.listeners.get(name)?.(event); }
+    send() {}
+    close() {}
+  }
+
+  class FakePeerConnection {
+    static instances = [];
+
+    constructor() {
+      this.connectionState = 'new';
+      this.listeners = new Map();
+      this.transceivers = [];
+      FakePeerConnection.instances.push(this);
+    }
+
+    addEventListener(name, handler) { this.listeners.set(name, handler); }
+    addTransceiver(kind) { this.transceivers.push(kind); }
+    getReceivers() { return []; }
+    close() {}
+    async createOffer() { return { type: 'offer', sdp: 'offer' }; }
+    async setLocalDescription(description) { this.localDescription = description; }
+  }
+
+  const video = {
+    muted: true,
+    volume: 1,
+    paused: true,
+    videoWidth: 0,
+    currentTime: 0,
+    playbackRate: 1,
+    pause() {},
+    play() { return Promise.resolve(); },
+    load() {},
+    removeAttribute() {},
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const sandbox = {
+    WebSocket: FakeWebSocket,
+    RTCPeerConnection: FakePeerConnection,
+    MediaStream: class {},
+    setTimeout,
+    clearTimeout,
+    console,
+  };
+  sandbox.window = sandbox;
+  vm.runInNewContext(source, sandbox);
+  const cleanup = sandbox.MiCameraPlayer.play(
+    video,
+    { url: 'http://127.0.0.1/hls', webrtc_url: 'ws://127.0.0.1/api/ws', video_only: true },
+    {},
+  );
+
+  FakeWebSocket.instances[0].emit('open');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(FakePeerConnection.instances[0].transceivers, ['video']);
   cleanup();
 });
 

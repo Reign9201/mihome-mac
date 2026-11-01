@@ -584,9 +584,18 @@ async fn camera_start(
             .map(|camera| CameraStream {
                 id: camera.did.clone(),
                 url: runtime.stream_url_for_did(&camera.did),
-                webrtc_url: Some(runtime.webrtc_url_for_did(&camera.did)),
+                webrtc_url: Some(runtime.direct_webrtc_url_for_did(&camera.did)),
+                fallback_webrtc_url: runtime.fallback_webrtc_url_for_did(&camera.did),
+                audio_webrtc_url: runtime.audio_webrtc_url_for_did(&camera.did),
+                mse_webrtc_url: Some(runtime.mse_webrtc_url_for_did(&camera.did)),
                 host: camera.ip.clone().unwrap_or_default(),
-                prefer_mse: true,
+                // The fixed-rate H.264 stream avoids WebKit's periodic HEVC
+                // decoder stalls. Native video is used only when no transcoder
+                // is available or MIHOME_LOCAL_PREFER_NATIVE=1 is set; native
+                // audio remains on its independent stream in both modes.
+                prefer_mse: camera::local_prefers_mse(),
+                video_only: true,
+                video_codec: runtime.video_codec_for_did(&camera.did),
             })
             .collect();
         Ok::<_, anyhow::Error>((runtime, streams))
@@ -685,18 +694,55 @@ async fn camera_remote_start_locked(
         .ok_or_else(|| "未登录".to_string())?
         .session()
         .clone();
-    let existing = {
-        let map = state.remote_cameras.lock().await;
-        map.get(did)
-            .map(|stream| (stream.url(), stream.webrtc_url()))
+    let quality = quality.unwrap_or(2);
+    let audio = audio.unwrap_or(false);
+    let (existing, incompatible) = {
+        let mut map = state.remote_cameras.lock().await;
+        let compatible = map.get(did).is_some_and(|stream| {
+            stream.quality() == quality
+                && stream.has_audio() == audio
+                && stream.health_reason().is_none()
+        });
+        if compatible {
+            let existing = map
+                .get(did)
+                .map(|stream| (stream.url(), stream.webrtc_url(), stream.audio_webrtc_url()));
+            (existing, None)
+        } else {
+            if let Some(reason) = map.get(did).and_then(|stream| stream.health_reason()) {
+                app_log::warn(
+                    "Camera",
+                    format!(
+                        "远程缓存流已失效，重建：did={} reason={reason}",
+                        app_log::mask_id(did)
+                    ),
+                );
+            }
+            (None, map.remove(did))
+        }
     };
-    if let Some((url, webrtc_url)) = existing {
+    if let Some(stream) = incompatible {
+        app_log::info(
+            "Camera",
+            format!(
+                "远程画面参数已变化，重建缓存：did={} quality={quality} audio={audio}",
+                app_log::mask_id(did)
+            ),
+        );
+        drop_off_runtime(stream).await;
+    }
+    if let Some((url, webrtc_url, audio_webrtc_url)) = existing {
         return Ok(CameraStream {
             id: did.to_string(),
             url,
-            webrtc_url: Some(webrtc_url),
+            webrtc_url: Some(webrtc_url.clone()),
+            fallback_webrtc_url: None,
+            audio_webrtc_url,
+            mse_webrtc_url: Some(webrtc_url),
             host: "CS2 relay".to_string(),
             prefer_mse: false,
+            video_only: true,
+            video_codec: "h264".to_string(),
         });
     }
     let (remote_generation, stop_generation, local) = {
@@ -720,8 +766,6 @@ async fn camera_remote_start_locked(
         drop_off_runtime(local).await;
     }
     let did_for_worker = did.to_string();
-    let quality = quality.unwrap_or(2);
-    let audio = audio.unwrap_or(false);
     let stream = tauri::async_runtime::spawn_blocking(move || {
         RemoteStream::start(session, &did_for_worker, quality, audio)
     })
@@ -745,6 +789,7 @@ async fn camera_remote_start_locked(
         .as_ref()
         .map(RemoteStream::webrtc_url)
         .ok_or_else(|| "远程低延迟地址已失效".to_string())?;
+    let audio_webrtc_url = pending.as_ref().and_then(RemoteStream::audio_webrtc_url);
     let stale = {
         let _lifecycle = state.camera_lifecycle.lock().await;
         let current_remote = state.remote_camera_epoch.load(Ordering::SeqCst);
@@ -781,9 +826,14 @@ async fn camera_remote_start_locked(
     Ok(CameraStream {
         id: did.to_string(),
         url,
-        webrtc_url: Some(webrtc_url),
+        webrtc_url: Some(webrtc_url.clone()),
+        fallback_webrtc_url: None,
+        audio_webrtc_url,
+        mse_webrtc_url: Some(webrtc_url),
         host: "CS2 relay".to_string(),
         prefer_mse: false,
+        video_only: true,
+        video_codec: "h264".to_string(),
     })
 }
 

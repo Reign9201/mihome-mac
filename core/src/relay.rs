@@ -5,12 +5,12 @@
 //! as well. Every stage is unacknowledged UDP, so each one is retried.
 
 use anyhow::{anyhow, Context, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -25,7 +25,8 @@ const HELLO_ATTEMPTS: usize = 4;
 const PORT_ATTEMPTS: usize = 4;
 const JOIN_ATTEMPTS: usize = 6;
 const COMMAND_QUEUE: usize = 64;
-const MEDIA_QUEUE: usize = 64;
+const MEDIA_QUEUE_MESSAGES: usize = 32;
+const MEDIA_QUEUE_MAX_AGE: Duration = Duration::from_millis(750);
 
 pub struct RelaySession {
     uid: Uid,
@@ -297,7 +298,135 @@ pub struct PpppConnection {
     running: Arc<AtomicBool>,
     seq: Mutex<u16>,
     commands: Mutex<Receiver<Vec<u8>>>,
-    media: Mutex<Receiver<Vec<u8>>>,
+    media: Arc<MediaQueue>,
+}
+
+struct MediaQueue {
+    inner: Mutex<MediaQueueInner>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct MediaQueueInner {
+    messages: VecDeque<MediaMessage>,
+    discontinuity: bool,
+}
+
+struct MediaMessage {
+    payload: Vec<u8>,
+    video_keyframe: bool,
+    queued_at: Instant,
+}
+
+impl MediaMessage {
+    fn new(payload: Vec<u8>) -> Self {
+        // MISS keeps codec id and frame flags in the clear prefix. The relay
+        // only classifies messages so it can discard audio or stale video
+        // without preventing the media thread from decrypting them later.
+        let kind = payload
+            .get(4..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or_default();
+        let flags = payload
+            .get(12..16)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or_default();
+        Self {
+            payload,
+            video_keyframe: matches!(kind, 4 | 5) && flags & 1 != 0,
+            queued_at: Instant::now(),
+        }
+    }
+
+    fn is_video(&self) -> bool {
+        self.payload
+            .get(4..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .is_some_and(|kind| matches!(kind, 4 | 5))
+    }
+}
+
+impl MediaQueue {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(MediaQueueInner::default()),
+            ready: Condvar::new(),
+        }
+    }
+
+    /// Keep only the newest media. A slow ffmpeg must never make the UDP receive
+    /// loop retain seconds of stale frames or stop acknowledging relay traffic.
+    fn push(&self, message: Vec<u8>) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        let before = inner.messages.len();
+        let now = Instant::now();
+        inner
+            .messages
+            .retain(|message| now.duration_since(message.queued_at) <= MEDIA_QUEUE_MAX_AGE);
+        if inner.messages.len() != before {
+            // The retention point may include the last decodable keyframe. Tell
+            // the writer to wait for a fresh one instead of anchoring playback
+            // to stale video from before the hiccup.
+            inner.discontinuity = true;
+        }
+        if inner.messages.len() >= MEDIA_QUEUE_MESSAGES {
+            // Audio can be discarded independently. Video is retained from the
+            // newest keyframe so a full queue does not force a multi-second wait
+            // for the camera's next I-frame.
+            inner.messages.retain(MediaMessage::is_video);
+        }
+        if inner.messages.len() >= MEDIA_QUEUE_MESSAGES {
+            if let Some(keyframe) = inner
+                .messages
+                .iter()
+                .rposition(|message| message.video_keyframe)
+            {
+                if keyframe == 0 {
+                    inner.messages.clear();
+                    inner.discontinuity = true;
+                } else {
+                    inner.messages.drain(..keyframe);
+                }
+            } else {
+                inner.messages.clear();
+                inner.discontinuity = true;
+            }
+        }
+        inner.messages.push_back(MediaMessage::new(message));
+        self.ready.notify_one();
+    }
+
+    fn pop_timeout(&self, timeout: Duration) -> Option<(Vec<u8>, bool, Duration)> {
+        let deadline = Instant::now() + timeout;
+        let mut inner = self.inner.lock().ok()?;
+        loop {
+            if let Some(message) = inner.messages.pop_front() {
+                // Keep a discontinuity pending until a video packet consumes it.
+                // Audio packets can arrive first; consuming the marker there
+                // would let the video writer resume on a stale non-keyframe.
+                let discontinuity = if message.is_video() {
+                    std::mem::take(&mut inner.discontinuity)
+                } else {
+                    false
+                };
+                return Some((message.payload, discontinuity, message.queued_at.elapsed()));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let (next, result) = self.ready.wait_timeout(inner, remaining).ok()?;
+            inner = next;
+            if result.timed_out() && inner.messages.is_empty() {
+                return None;
+            }
+        }
+    }
 }
 
 impl PpppConnection {
@@ -305,17 +434,18 @@ impl PpppConnection {
         let socket = Arc::new(socket);
         socket.set_read_timeout(Some(Duration::from_millis(500)))?;
         let (command_tx, command_rx) = mpsc::sync_channel(COMMAND_QUEUE);
-        let (media_tx, media_rx) = mpsc::sync_channel(MEDIA_QUEUE);
+        let media = Arc::new(MediaQueue::new());
         let running = Arc::new(AtomicBool::new(true));
         let rx_socket = socket.clone();
         let rx_running = running.clone();
         let rx_local = local;
         let rx_relay = relay;
+        let rx_media = Arc::clone(&media);
         thread::Builder::new()
             .name("pppp-rx".to_string())
             .spawn(move || {
                 receive_loop(
-                    rx_socket, rx_running, rx_relay, rx_local, command_tx, media_tx,
+                    rx_socket, rx_running, rx_relay, rx_local, command_tx, rx_media,
                 )
             })
             .context("启动 PPPP 接收线程失败")?;
@@ -326,7 +456,7 @@ impl PpppConnection {
             running,
             seq: Mutex::new(0),
             commands: Mutex::new(command_rx),
-            media: Mutex::new(media_rx),
+            media,
         })
     }
 
@@ -362,8 +492,8 @@ impl PpppConnection {
         self.commands.lock().ok()?.recv_timeout(timeout).ok()
     }
 
-    pub fn next_media(&self, timeout: Duration) -> Option<Vec<u8>> {
-        self.media.lock().ok()?.recv_timeout(timeout).ok()
+    pub fn next_media(&self, timeout: Duration) -> Option<(Vec<u8>, bool, Duration)> {
+        self.media.pop_timeout(timeout)
     }
 }
 
@@ -382,7 +512,7 @@ fn receive_loop(
     relay: SocketAddr,
     local: SocketAddr,
     commands: SyncSender<Vec<u8>>,
-    media: SyncSender<Vec<u8>>,
+    media: Arc<MediaQueue>,
 ) {
     let mut command_channel = DataChannel::new();
     let mut media_channel = DataChannel::new();
@@ -421,14 +551,17 @@ fn receive_loop(
                     running.store(false, Ordering::SeqCst);
                     break;
                 }
-                let queue = if channel == 0 { &commands } else { &media };
                 while let Some(message) = target.poll() {
-                    match queue.try_send(message) {
-                        Ok(()) | Err(TrySendError::Disconnected(_)) => {}
-                        Err(TrySendError::Full(message)) => {
-                            target.requeue(message);
-                            break;
+                    if channel == 0 {
+                        match commands.try_send(message) {
+                            Ok(()) | Err(TrySendError::Disconnected(_)) => {}
+                            Err(TrySendError::Full(message)) => {
+                                target.requeue(message);
+                                break;
+                            }
                         }
+                    } else {
+                        media.push(message);
                     }
                 }
             }
@@ -443,5 +576,114 @@ fn receive_loop(
             MSG_CLOSE => break,
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn media_message(kind: u32, flags: u32) -> Vec<u8> {
+        let mut message = vec![0_u8; 32];
+        message[4..8].copy_from_slice(&kind.to_le_bytes());
+        message[12..16].copy_from_slice(&flags.to_le_bytes());
+        message
+    }
+
+    #[test]
+    fn slow_media_consumer_keeps_only_the_live_edge() {
+        let queue = MediaQueue::new();
+        for index in 0..=MEDIA_QUEUE_MESSAGES {
+            queue.push(vec![index as u8]);
+        }
+
+        let (message, discontinuity, queue_delay) = queue
+            .pop_timeout(Duration::from_millis(10))
+            .expect("live message");
+        assert_eq!(message, vec![MEDIA_QUEUE_MESSAGES as u8]);
+        assert!(!discontinuity);
+        assert!(queue_delay < Duration::from_secs(1));
+        assert!(queue.pop_timeout(Duration::from_millis(1)).is_none());
+    }
+
+    #[test]
+    fn slow_media_consumer_keeps_the_newest_recoverable_keyframe() {
+        let queue = MediaQueue::new();
+        queue.push(media_message(5, 1));
+        for _ in 0..10 {
+            queue.push(media_message(5, 0));
+        }
+        for _ in 0..(MEDIA_QUEUE_MESSAGES - 11) {
+            queue.push(media_message(1027, 0));
+        }
+        queue.push(media_message(5, 0));
+
+        let (first, discontinuity, _) = queue
+            .pop_timeout(Duration::from_millis(10))
+            .expect("keyframe");
+        assert_eq!(u32::from_le_bytes(first[12..16].try_into().unwrap()), 1);
+        assert!(!discontinuity);
+    }
+
+    #[test]
+    fn video_without_a_recoverable_keyframe_marks_a_discontinuity() {
+        let queue = MediaQueue::new();
+        for _ in 0..=MEDIA_QUEUE_MESSAGES {
+            queue.push(media_message(5, 0));
+        }
+
+        let (_, discontinuity, _) = queue
+            .pop_timeout(Duration::from_millis(10))
+            .expect("latest video");
+        assert!(discontinuity);
+    }
+
+    #[test]
+    fn discontinuity_waits_for_the_next_video_packet() {
+        let queue = MediaQueue::new();
+        queue.push(media_message(1027, 0));
+        {
+            let mut inner = queue.inner.lock().unwrap();
+            inner.discontinuity = true;
+        }
+        queue.push(media_message(5, 1));
+
+        let (audio, discontinuity, _) =
+            queue.pop_timeout(Duration::from_millis(10)).expect("audio");
+        assert_eq!(u32::from_le_bytes(audio[4..8].try_into().unwrap()), 1027);
+        assert!(!discontinuity);
+
+        let (_, discontinuity, _) = queue.pop_timeout(Duration::from_millis(10)).expect("video");
+        assert!(discontinuity);
+    }
+
+    #[test]
+    fn media_timeout_is_not_reported_as_a_stream_gap() {
+        let queue = MediaQueue::new();
+        assert!(queue.pop_timeout(Duration::from_millis(1)).is_none());
+        queue.push(vec![1]);
+        let (message, discontinuity, _) = queue
+            .pop_timeout(Duration::from_millis(10))
+            .expect("message");
+        assert_eq!(message, vec![1]);
+        assert!(!discontinuity);
+    }
+
+    #[test]
+    fn stale_media_is_discarded_instead_of_delaying_the_live_edge() {
+        let queue = MediaQueue::new();
+        queue.push(media_message(5, 1));
+        {
+            let mut inner = queue.inner.lock().unwrap();
+            inner.messages[0].queued_at = Instant::now() - MEDIA_QUEUE_MAX_AGE;
+        }
+        queue.push(media_message(5, 0));
+
+        let (message, discontinuity, queue_delay) = queue
+            .pop_timeout(Duration::from_millis(10))
+            .expect("fresh message");
+        assert_eq!(u32::from_le_bytes(message[12..16].try_into().unwrap()), 0);
+        assert!(discontinuity);
+        assert!(queue_delay < MEDIA_QUEUE_MAX_AGE);
     }
 }
