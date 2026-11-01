@@ -4,7 +4,7 @@ const SPEC_BATCH_SIZE = 128;
 const MAX_REMOTE_STREAMS = 6;
 const MAX_REMOTE_START_CONCURRENCY = 3;
 const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
-const CAMERA_STALL_INTERVALS = 6;
+const CAMERA_STALL_INTERVALS = 3;
 const log = window.MiLog || Object.freeze({
   debug() {}, info() {}, warn() {}, error() {},
 });
@@ -31,7 +31,8 @@ const state = {
   homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
   polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
-  remoteWatch: null, remoteWatches: [], cameraGeneration: 0, cameraControlsRequest: 0,
+  remoteWatch: null, remoteWatches: [], cameraWatches: new Map(),
+  cameraGeneration: 0, cameraControlsRequest: 0,
   cameraStopSequence: 0,
   cameraQueue: Promise.resolve(),
   restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
@@ -75,7 +76,39 @@ function queueCameraOperation(operation) {
   return result;
 }
 
-function attachCameraStream(video, stream, camera, generation) {
+function setCameraAudio(video, enabled, name) {
+  if (!video) return false;
+  if (!enabled) {
+    video.muted = true;
+    window.MiCameraPlayer?.setAudio?.(video, false);
+    return true;
+  }
+
+  if (window.MiCameraPlayer?.setAudio?.(video, true)) {
+    // Remote audio has its own PeerConnection. Keep the video element muted
+    // so audio buffering can never pace the live video pipeline.
+    video.muted = true;
+    video.volume = 1;
+    return true;
+  }
+
+  video.muted = false;
+  video.volume = 1;
+  const audioTracks = video.srcObject?.getAudioTracks?.() || [];
+  if (!audioTracks.length) return false;
+
+  // WKWebView does not reliably reopen audio output when only `muted`
+  // changes. Restarting the media element while the track is present makes
+  // the existing WebRTC audio track audible without renegotiating the stream.
+  if (!video.paused) video.pause();
+  video.play().catch((error) => {
+    log.error('Camera', `恢复声音播放失败：${name} ${error}`);
+    $('#camHint').textContent = `声音已开启，但播放器没有开始播放：${error}`;
+  });
+  return true;
+}
+
+function attachCameraStream(video, stream, camera, generation, onStall) {
   const previous = state.videoPlayers.get(video);
   if (previous) {
     previous();
@@ -95,8 +128,24 @@ function attachCameraStream(video, stream, camera, generation) {
     onError: (mode, error) => {
       log.warn('Camera', `${name} ${mode} 播放失败：${error}`);
     },
+    onStall: (mode, detail) => {
+      log.warn('Camera', `${name} ${mode} 需要重建整条取流通道：${detail}`);
+      onStall?.();
+    },
     onDiagnostics: (mode, detail) => {
-      log.debug('Camera', `${name} ${mode} 媒体诊断：${JSON.stringify(detail)}`);
+      const reason = detail?.reason || '';
+      const importantAudio = mode === 'audio'
+        && ['track', 'connected', 'enabled', 'playing', 'signal', 'play rejected', 'failed'].includes(reason);
+      const importantVideo = mode === 'webrtc'
+        && ['restart', 'resume-stalled', 'jitter-buffer', 'decode-stall', 'packet-stall', 'hard-stall'].includes(reason);
+      const message = `${name} ${mode} 媒体诊断：${JSON.stringify(detail)}`;
+      if (reason === 'failed' || reason === 'play rejected') {
+        log.warn('Camera', message);
+      } else if (importantAudio || importantVideo) {
+        log.info('Camera', message);
+      } else {
+        log.debug('Camera', message);
+      }
     },
   });
   const cleanup = () => {
@@ -1432,8 +1481,8 @@ async function startRemoteCameraSetNow(cameras, grid) {
   const failures = [];
   const starts = runLimited(selected, MAX_REMOTE_START_CONCURRENCY, async (camera) => {
     try {
-      // Keep a silent audio track in single-view mode so the sound toggle is
-      // immediate and does not rebuild the whole camera transport.
+      // Prewarm audio on its own low-latency channel. Playback stays muted
+      // until the user enables it, so toggling sound never rebuilds video.
       const stream = await invoke('camera_remote_start', {
         did: camera.did, quality: 1, audio: !grid,
       });
@@ -1447,7 +1496,6 @@ async function startRemoteCameraSetNow(cameras, grid) {
         const target = tiles.get(camera.did);
         if (!target) return stream;
         const video = document.createElement('video');
-        video.controls = true;
         video.autoplay = true;
         video.muted = true;
         video.playsInline = true;
@@ -1459,22 +1507,34 @@ async function startRemoteCameraSetNow(cameras, grid) {
         target.status.hidden = true;
         target.video = video;
         target.tile.append(video);
-        attachCameraStream(video, stream, camera, generation);
+        attachCameraStream(
+          video,
+          stream,
+          camera,
+          generation,
+          () => restartRemoteCamera(camera, video, generation),
+        );
         watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
       } else {
         renderCameraControls(camera, true).catch((error) => {
           log.error('Camera', `渲染远程控制项失败：${error}`);
         });
-        singleVideo.muted = true;
+        singleVideo.muted = state.remoteAudio.get(camera.did) !== true;
         singleVideo.volume = 1;
-        attachCameraStream(singleVideo, stream, camera, generation);
+        attachCameraStream(
+          singleVideo,
+          stream,
+          camera,
+          generation,
+          () => restartRemoteCamera(camera, singleVideo, generation),
+        );
         $('#camHint').textContent = `${camera.name} · 远程连接`;
         if (state.remoteWatch) clearInterval(state.remoteWatch);
         watchRemote(singleVideo, camera, () => restartRemoteCamera(camera, singleVideo, generation), generation);
         setTimeout(() => {
           if (generation === state.cameraGeneration && !singleVideo.videoWidth) {
             log.warn('Camera', `远程播放器 12 秒无首帧：${camera.name}`);
-            $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${camera.name}。检查 ffmpeg/WebView 的 HEVC 支持。`;
+            $('#camHint').textContent = `远程流已建立，但播放器还没有首帧：${camera.name}。请重试，或导出诊断日志后查看媒体通道状态。`;
           }
         }, 12000);
       }
@@ -1584,7 +1644,7 @@ async function renderCameraControls(camera, remote) {
   box.append(ptz);
 
   const video = $('#camVideo');
-  if (remote) {
+  {
     const sound = el('div', 'cam-settings');
     const soundRow = el('div', 'cam-control');
     soundRow.append(el('span', '', '声音'));
@@ -1597,22 +1657,30 @@ async function renderCameraControls(camera, remote) {
       if (!video || !camera) return;
       if (!soundInput.checked) {
         state.remoteAudio.set(camera.did, false);
-        video.muted = true;
+        setCameraAudio(video, false, camera.name);
         log.info('Camera', `声音已关闭：${camera.name}`);
         $('#camHint').textContent = `${camera.name} · 声音已关闭`;
         return;
       }
       state.remoteAudio.set(camera.did, true);
+      if (setCameraAudio(video, true, camera.name) && window.MiCameraPlayer?.setAudio) {
+        log.info('Camera', `声音已打开（独立低延迟音轨）：${camera.name}`);
+        $('#camHint').textContent = `${camera.name} · 声音已打开`;
+        return;
+      }
       const audioTracks = video.srcObject?.getAudioTracks?.() || [];
       if (audioTracks.length) {
-        video.muted = false;
-        video.volume = 1;
-        video.play().catch((error) => {
-          log.error('Camera', `恢复声音播放失败：${camera.name} ${error}`);
-          $('#camHint').textContent = `声音已开启，但播放器没有开始播放：${error}`;
-        });
+        setCameraAudio(video, true, camera.name);
         log.info('Camera', `声音已打开：${camera.name} tracks=${audioTracks.length}`);
         $('#camHint').textContent = `${camera.name} · 声音已打开`;
+        return;
+      }
+      if (!remote) {
+        state.remoteAudio.set(camera.did, false);
+        soundInput.checked = false;
+        setCameraAudio(video, false, camera.name);
+        $('#camHint').textContent = `${camera.name} · 本地音轨暂不可用，请重新打开摄像头`;
+        log.warn('Camera', `本地音轨不可用：${camera.name}`);
         return;
       }
       soundInput.disabled = true;
@@ -1626,14 +1694,20 @@ async function renderCameraControls(camera, remote) {
         state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
         video.muted = false;
         video.volume = 1;
-        attachCameraStream(video, stream, camera, generation);
+        attachCameraStream(
+          video,
+          stream,
+          camera,
+          generation,
+          () => restartRemoteCamera(camera, video, generation),
+        );
         log.info('Camera', `声音通道已建立：${camera.name}`);
         $('#camHint').textContent = `${camera.name} · 声音已打开`;
       } catch (error) {
         log.error('Camera', `打开声音失败：${camera.name} ${error}`);
         state.remoteAudio.set(camera.did, false);
         soundInput.checked = false;
-        video.muted = true;
+        setCameraAudio(video, false, camera.name);
         $('#camHint').textContent = `打开声音失败：${error}`;
       } finally {
         soundInput.disabled = false;
@@ -1787,7 +1861,6 @@ async function startCameraSetNow(cameras, grid) {
         const tile = el('div', 'cam-tile');
         tile.append(el('span', 'cam-tile-title', camera?.name || stream.id));
         const video = document.createElement('video');
-        video.controls = true;
         video.autoplay = true;
         video.muted = true;
         video.playsInline = true;
@@ -1797,7 +1870,13 @@ async function startCameraSetNow(cameras, grid) {
         };
         tile.append(video);
         $('#camGrid').append(tile);
-        attachCameraStream(video, stream, camera || usable[0], generation);
+        attachCameraStream(
+          video,
+          stream,
+          camera || usable[0],
+          generation,
+          () => restartLocalCamera(camera || usable[0], generation),
+        );
         watchRemote(video, camera || usable[0], () => restartLocalCamera(camera || usable[0], generation), generation);
       }
       $('#camHint').textContent = `${streams.length} 路画面正在建立本地连接`;
@@ -1814,7 +1893,15 @@ async function startCameraSetNow(cameras, grid) {
           $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 本地实时画面`;
         }
       };
-      attachCameraStream(video, stream, usable[0], generation);
+      video.muted = state.remoteAudio.get(usable[0].did) !== true;
+      video.volume = 1;
+      attachCameraStream(
+        video,
+        stream,
+        usable[0],
+        generation,
+        () => restartLocalCamera(usable[0], generation),
+      );
       $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 正在建立本地连接`;
       watchRemote(video, usable[0], () => restartLocalCamera(usable[0], generation), generation);
       setTimeout(() => {
@@ -1847,6 +1934,11 @@ async function startCameraSetNow(cameras, grid) {
 }
 
 function watchRemote(video, camera, onStall, generation) {
+  const previousTimer = state.cameraWatches.get(camera.did);
+  if (previousTimer) {
+    clearInterval(previousTimer);
+    state.remoteWatches = state.remoteWatches.filter((item) => item !== previousTimer);
+  }
   let lastTime = -1;
   let lastFrames = -1;
   let stalled = 0;
@@ -1856,6 +1948,9 @@ function watchRemote(video, camera, onStall, generation) {
   const removeWatch = () => {
     clearInterval(timer);
     state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
+    if (state.cameraWatches.get(camera.did) === timer) {
+      state.cameraWatches.delete(camera.did);
+    }
     if (state.remoteWatch === timer) state.remoteWatch = null;
   };
   const triggerRestart = (reason) => {
@@ -1903,6 +1998,7 @@ function watchRemote(video, camera, onStall, generation) {
       if (useFrames) lastFrames = frames;
     }
   }, 1800);
+  state.cameraWatches.set(camera.did, timer);
   state.remoteWatches.push(timer);
   state.remoteWatch = timer;
   return timer;
@@ -1920,14 +2016,19 @@ async function restartRemoteCamera(camera, video, generation) {
     await invoke('camera_remote_stop', { did: camera.did }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 1200));
     if (generation !== state.cameraGeneration) return;
-    const audio = state.remoteAudio.get(camera.did) === true;
     const stream = await invoke('camera_remote_start', {
-      did: camera.did, quality: 1, audio,
+      did: camera.did, quality: 1, audio: !state.cameraGrid,
     });
     if (generation !== state.cameraGeneration) return;
     state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
-    video.muted = !audio;
-    attachCameraStream(video, stream, camera, generation);
+    video.muted = state.remoteAudio.get(camera.did) !== true;
+    attachCameraStream(
+      video,
+      stream,
+      camera,
+      generation,
+      () => restartRemoteCamera(camera, video, generation),
+    );
     $('#camHint').textContent = `${camera.name} · 已自动重连`;
     watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
   } catch (error) {
@@ -1971,6 +2072,7 @@ async function stopCameraNow(reason = '未知') {
   if (state.remoteWatch) { clearInterval(state.remoteWatch); state.remoteWatch = null; }
   for (const timer of state.remoteWatches) clearInterval(timer);
   state.remoteWatches = [];
+  state.cameraWatches.clear();
   state.cameraStreams = [];
   state.activeCamera = null;
   state.remoteActive = false;
