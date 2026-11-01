@@ -146,7 +146,7 @@ Tauri 命令增加 `list_cameras`、`camera_start(dids)`、`camera_stop`、`came
 - 手机米家 App 能远程看，是因为它内置了小米私有 relay 客户端；Mac 端也能通过 CS2 relay 做到，不需要和摄像头同网。
 - micam 没有 LICENSE，只有 CS2，单路、无音频/PTZ，依赖 JDK 21；它是验证工具，不能直接打包进 MiHome Mac。
 - 产品化路线已选定第二条：把 CS2/MISS 取流按 micam 的协议重写成 Rust；当前已在 App 内出真画面，详见 `docs/06-camera-product-channel.md`。
-- App 已接 Rust 远程通道：摄像头行提供“远程”按钮，后端用 Rust 建 relay、完成 MISS 认证，再把原始视频交给 ffmpeg 封装为 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS。旧版 HLS 路径实测 `chuangmi.camera.039a01` 出画；2026-10-31 在当前源码开发版中实测 039a01、069a01 均建立 WebRTC，两路远程宫格同时出画，稳定播放阶段水印延迟约 1 秒级。
+- App 已接 Rust 远程通道：摄像头行提供“远程”按钮，后端用 Rust 建 relay、完成 MISS 认证，再把视频交给 ffmpeg 转成低延迟 H.264 并发布为 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS；音频使用独立通道并在缺少 libopus 时回退 PCMA。旧版 HLS 路径实测 `chuangmi.camera.039a01` 出画；2026-10-31 在当前源码开发版中实测 039a01、069a01 均建立 WebRTC，两路远程宫格同时出画，稳定播放阶段水印延迟约 1 秒级。
 - 摄像头页新增控制面板：云台方向键（按住连发、松开停止）和 14 项属性控制；属性控制走云端 `/miotspec/prop/set`，云台走 Rust 的 0x112 加密命令，尚未用肉眼确认镜头转动。
 - `~/.micam/credentials.json` 是早期实验文件，产品通道不读取它；Rust 侧已实现 CS2 + MISS，构建产物不依赖 Java。
 

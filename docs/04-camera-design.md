@@ -1,6 +1,6 @@
 # 摄像头实时查看
 
-结论：核心诉求可做，但它和开关控制不是同一条链路。`mijia-api` 与 `MiHome-Windows` 都没有视频能力；第一版需要引入一个本机取流助手，App 负责登录、设备列表、画面窗口和交互。最初的远程方案是家庭 VPN；后续已把 `eugeneRover/micam` 验证过的 CS2 relay / MISS 路径用 Rust 重写进产品，并接通 ffmpeg 无转码封装与内置 go2rtc。micam 没有 LICENSE、依赖 JDK，源码和二进制都没有进入发行包。
+结论：核心诉求可做，但它和开关控制不是同一条链路。`mijia-api` 与 `MiHome-Windows` 都没有视频能力；第一版需要引入一个本机取流助手，App 负责登录、设备列表、画面窗口和交互。最初的远程方案是家庭 VPN；后续已把 `eugeneRover/micam` 验证过的 CS2 relay / MISS 路径用 Rust 重写进产品，并接通 ffmpeg 低延迟 H.264 转码与内置 go2rtc。micam 没有 LICENSE、依赖 JDK，源码和二进制都没有进入发行包。
 
 ## 一、范围
 
@@ -97,7 +97,7 @@ MIoT 的摄像头服务是“控制面”，不是“媒体面”。`start-rtsp-
 
 这两条路径都需要小米没有公开的 SDK 和云服务。`go2rtc` 的小米源只实现本地 CS2/TUTK，文档也写明摄像头必须和运行 go2rtc 的机器在同一局域网；`MiBeeNvr` 同样要求同一局域网。2026-10-30 的 micam 验证说明：CS2 摄像头可以通过小米的 relay 服务在非同网环境取到实时流，手机端能看并不是因为手机有什么特殊权限，而是它内置了这套 relay 客户端。micam 只证明了可行性，代码没有 LICENSE、只支持 CS2、无音频/PTZ、依赖 JDK，因此不能直接作为产品依赖。
 
-早期远程方案是家庭 VPN；当前版本已内置 Rust 远程通道，由小米 relay 跨网传输媒体，再经本机 ffmpeg 与 go2rtc 输出 WebRTC/MSE/HLS。家庭 VPN 仍可作为局域网直连的备用网络方案，但不再是远程查看的前置条件。
+早期远程方案是家庭 VPN；当前版本已内置 Rust 远程通道，由小米 relay 跨网传输媒体，再经本机 ffmpeg 转码并用 go2rtc 输出 WebRTC/MSE/HLS。视频和音频使用独立的 RTSP/WebRTC 通道；远程音频缺少 libopus 时回退 PCMA。家庭 VPN 仍可作为局域网直连的备用网络方案，但不再是远程查看的前置条件。
 
 ## 四、页面
 

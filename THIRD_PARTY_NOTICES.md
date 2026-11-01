@@ -2,7 +2,7 @@
 
 MiHome Mac is licensed under GPL-3.0-or-later. This file records the upstream
 projects and third-party components that informed or are distributed with the
-application. It was last reviewed on 2026-10-31.
+application. It was last reviewed on 2026-11-01.
 
 ## Protocol and product references
 
@@ -64,8 +64,10 @@ code and binaries are not included in this repository or its application bundle.
 - Project: https://ffmpeg.org/
 - License: LGPL-2.1-or-later by default; builds that enable optional GPL
   components are GPL-licensed.
-- Use: Runtime child process for remuxing remote-camera H.264/H.265 into RTSP
-  without re-encoding. MiHome Mac does not bundle an FFmpeg binary.
+- Use: Runtime child process for low-latency H.264 transcoding and RTSP
+  publishing for local and remote camera streams. MiHome Mac does not bundle
+  an FFmpeg binary; systems without a compatible encoder use the camera-native
+  video path.
 
 ## Language and package dependencies
 

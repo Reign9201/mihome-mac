@@ -211,12 +211,12 @@ GRDB 负责：
 - App 启动时拉起，监听 `127.0.0.1` 的随机端口；退出、切换账号、空闲回收时结束进程。
 - 扫码拿到的 `userID` 与 `passToken` 通过临时配置交给 helper，不写用户目录、不写日志。
 - 播放优先 AVPlayer + HLS；低延迟模式用 WKWebView 承载 WebRTC。视频解码走 VideoToolbox。
-- helper 只负责协议与转封装，不参与 UI、不做云存储、不监听局域网网卡。
+- helper 只负责协议与媒体转码/发布，不参与 UI、不做云存储、不监听局域网网卡。
 - 许可证是 MIT，分发时保留版权声明。MiBeeNvr 是 AGPL-3.0，不采用；micam 依赖 Java 运行时，包体过大，不采用。
 
 这条边界的代价是多一个进程和相应安装体积；收益是摄像头崩溃不会拖垮主 App，且不必把 P2P 协议塞进 Swift 代码。App 侧依赖播放地址、WebSocket 地址和启动/停止接口。
 
-远程查看已由 Rust 的 CS2 relay + MISS 通道实现，不依赖家庭 VPN：摄像头媒体先由 ffmpeg 无转码封装到本机 RTSP，再由内置 go2rtc 输出 WebRTC/MSE/HLS。局域网仍直接走 go2rtc 的 `xiaomi://` 源。两类链路都只监听 `127.0.0.1`，不把本地取流服务暴露到局域网；跨网启动时间受小米 relay 发现影响，不能承诺绝对零延迟。
+远程查看已由 Rust 的 CS2 relay + MISS 通道实现，不依赖家庭 VPN：摄像头媒体由 ffmpeg 解码并转为低延迟 H.264，再发布到本机 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS；音频使用独立的 RTSP/WebRTC 通道，缺少 libopus 时回退 PCMA。局域网默认也使用 x264 低延迟 H.264，原生视频只在没有 ffmpeg 或显式配置时使用。两类链路都只监听 `127.0.0.1`，不把本地取流服务暴露到局域网；跨网启动时间受小米 relay 发现影响，不能承诺绝对零延迟。
 
 ## 四、基准与解读
 

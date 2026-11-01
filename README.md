@@ -35,9 +35,25 @@
 
 登录凭据只保存在当前用户目录下的本地会话文件中，目录权限 `0700`、文件权限 `0600`。未提供 Developer ID 的构建使用 ad-hoc 签名；若改用系统 Keychain，每次升级二进制都可能触发钥匙串授权，因此当前默认不调用 Keychain。这个方案能避免启动弹窗，但不能防御同一 macOS 账号下的恶意进程；正式签名的发行版应改用 Keychain 或更严格的系统凭据保护。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
 
-局域网摄像头要求 Mac 与摄像头处于同一网段；远程连接目前只覆盖已适配的小米摄像头，云台控制需要按型号验证。视频会优先选择延迟最低的播放方式，再按兼容性逐级回退。网络传输和摄像头转发无法做到绝对零延迟，项目目标是稳定在约 1 秒级并自动追赶延迟。关闭主窗口后应用会驻留菜单栏，本地定时自动化继续运行；需要完全退出时使用菜单栏的“退出 MiHome Mac”。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
+局域网摄像头要求 Mac 与摄像头处于同一网段；远程连接目前只覆盖已适配的小米摄像头，云台控制需要按型号验证。本地画面默认启动 ffmpeg，将摄像头视频转成低延迟 H.264 WebRTC，避开部分 WebKit/VideoToolbox 组合的 HEVC 解码停滞；摄像头原始编码只在没有可用 ffmpeg，或显式设置 `MIHOME_LOCAL_PREFER_NATIVE=1` / `MIHOME_LOCAL_TRANSPORT=native` 时作为视频源。默认 H.264 播放失败不会自动切回 HEVC，而是走 H.264 MSE，再按 HLS 兼容回退；原始流仍用于独立音频音轨。网络传输和摄像头转发无法做到绝对零延迟，项目目标是稳定在约 1 秒级并自动追赶延迟。关闭主窗口后应用会驻留菜单栏，本地定时自动化继续运行；需要完全退出时使用菜单栏的“退出 MiHome Mac”。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
 
-2026-10-31 已完成真实摄像头验证：本地画面优先使用 MSE，两台摄像头首包分别约 0.39 秒和 0.73 秒；远程画面优先使用 WebRTC，低延迟中继从启动到就绪约 2.6 秒，MSE 回退首包约 62 毫秒。远程音频以 Opus 直接封装，声音开关切换后 WebRTC 会持续收到并解码音频 RTP。远程首次连接受候选节点和 relay 状态影响，常见约 3–16 秒，也出现过约 30 秒的长尾，稳定出画后水印延迟约为 1 秒级。该结果来自当前源码和真实设备，不代表所有网络环境都能达到相同表现。
+2026-11-01 已完成真实摄像头验证：本地 H.264 WebRTC 首帧约 1.3–4 秒（本次单次实测约 3.9 秒），摄像头 3 连续 4.5 分钟、摄像头 2 重新建链后均保持水印延迟 0–1 秒；WebRTC 抖动约 0.02–0.07 秒，无丢包。远程画面继续优先使用 WebRTC，本次单路低延迟中继从启动到就绪约 1.9–2.0 秒，两路宫格较慢一路约 4.0 秒，MSE 回退首包约 62 毫秒。本地和远程声音均使用独立 WebRTC 音轨，避免音频缓冲拖慢视频；远程 ffmpeg 缺少 libopus 时会回退到 PCMA。远程首次连接受候选节点和 relay 状态影响，常见约 2–16 秒，也出现过约 30 秒的长尾，稳定出画后水印延迟约为 1 秒级。该结果来自当前源码和真实设备，不代表所有网络环境都能达到相同表现。
+
+本地视频默认启动 H.264 转码流；原生流保留为显式回退模式和独立音频源。需要排查兼容性时可用以下环境变量：
+
+```bash
+# 只使用摄像头原始编码，不启动 ffmpeg
+MIHOME_LOCAL_CODEC=direct npm --prefix desktop run dev
+
+# 临时切回原生 HEVC 优先，H.264 作为回退
+MIHOME_LOCAL_PREFER_NATIVE=1 npm --prefix desktop run dev
+
+# 临时切回高清子码流
+MIHOME_LOCAL_SUBTYPE=hd npm --prefix desktop run dev
+
+# 临时使用 VideoToolbox 硬件编码器对比性能
+MIHOME_LOCAL_ENCODER=videotoolbox npm --prefix desktop run dev
+```
 
 ## 诊断日志
 
@@ -79,7 +95,7 @@ python3 -m http.server 8899
 - Rust 1.90 或更高版本
 - Xcode Command Line Tools
 - Node.js 20 或更高版本（仅构建安装包时需要）
-- ffmpeg（远程摄像头取流需要）
+- ffmpeg（本地和远程摄像头的低延迟 H.264 转码需要）
 - go2rtc（随应用一起运行和分发，首次构建前需要准备）
 
 先准备 go2rtc。脚本会按当前架构下载固定版本并校验 SHA256：
@@ -149,7 +165,7 @@ mihome-mac/
 | 协议核心 | Rust、tokio、reqwest、serde |
 | 桌面应用 | Tauri 2、WebView |
 | 界面 | 原生 HTML、CSS、JavaScript |
-| 本地摄像头 | go2rtc（独立子进程） |
+| 本地摄像头 | go2rtc（独立子进程）、x264 H.264 WebRTC、原生视频显式回退与独立音频 |
 | 远程摄像头 | Rust 远程连接、ffmpeg、内置 go2rtc |
 | 性能验证 | Rust、Swift、Node.js、Python 基准脚本 |
 
@@ -179,7 +195,7 @@ npm --prefix desktop test
 | [Do1e/mijia-api](https://github.com/Do1e/mijia-api) | 扫码登录、请求签名、云端接口与设备模型 | GPL-3.0-or-later | 协议实现的重要参考，部分逻辑改写为 Rust |
 | [huanyuejue/MiHome-Windows](https://github.com/huanyuejue/MiHome-Windows) | 桌面端功能组织、交互与设备控制流程 | GPL-3.0-or-later | 功能与设计参考，macOS 界面重新实现 |
 | [AlexxIT/go2rtc](https://github.com/AlexxIT/go2rtc) | 局域网摄像头取流 | MIT | 作为独立助手程序使用 |
-| [FFmpeg](https://ffmpeg.org/) | 远程摄像头无转码封装 | LGPL-2.1-or-later 或 GPL（取决于构建选项） | 运行时外部依赖，不随安装包分发 |
+| [FFmpeg](https://ffmpeg.org/) | 本地/远程摄像头低延迟 H.264 转码与 RTSP 发布 | LGPL-2.1-or-later 或 GPL（取决于构建选项） | 运行时外部依赖，不随安装包分发 |
 | [Squachen/micloud](https://github.com/Squachen/micloud) | 小米云登录与 RC4 签名算法的早期实现 | MIT | 通过 mijia-api 间接参考 |
 | [XiaoMi/ha_xiaomi_home](https://github.com/XiaoMi/ha_xiaomi_home) | 局域网与消息协议事实核对 | 小米自定义许可证 | 仅作协议研究，不复制、不打包其代码 |
 | [eugeneRover/micam](https://github.com/eugeneRover/micam) | CS2 远程取流可行性验证 | 仓库未声明许可证 | 仅作独立验证，不复制、不打包其代码 |
