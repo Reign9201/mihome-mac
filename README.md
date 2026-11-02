@@ -3,6 +3,7 @@
 一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建本地核心，以 Tauri 2 提供桌面窗口，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+![Version](https://img.shields.io/badge/version-1.0.0-black)
 ![Platform](https://img.shields.io/badge/platform-macOS-black)
 ![Rust](https://img.shields.io/badge/Rust-1.90%2B-orange)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
@@ -14,6 +15,16 @@
 ![当前桌面应用：设备页](docs/assets/app-devices-demo.png)
 
 <sub>当前桌面应用 · 设备页（离线演示数据）。界面尚未达到设计稿效果，视觉对齐是后续目标。</sub>
+
+## 下载
+
+macOS 1.0.0 提供两个独立安装包：
+
+- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.0.0/MiHome-Mac-1.0.0-arm64.dmg)
+- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.0.0/MiHome-Mac-1.0.0-x64.dmg)
+- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.0.0)
+
+两个安装包都内置对应架构的 go2rtc。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.0.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.0.0)。
 
 ## 功能
 
@@ -153,7 +164,7 @@ npm --prefix desktop run dev
 universal 会同时包含两套主程序和两套 go2rtc，体积约为单架构包的两倍。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构和资源：
 
 ```bash
-./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-0.1.0-universal.dmg universal
+./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.0.0-universal.dmg universal
 ```
 
 当前单架构 DMG 约 10 MB 量级。主程序经过符号裁剪，最大的固定开销是必须随应用分发的 go2rtc；它未压缩约 21 MB，DMG 压缩后占比仍然最高。仅通过更换压缩格式无法把包含 go2rtc 的安装包压到 5 MB。
