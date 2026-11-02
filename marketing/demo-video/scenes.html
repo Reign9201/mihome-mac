@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1080, initial-scale=1">
+  <title>MiHome Mac · 演示视频分镜</title>
+  <style>
+    :root {
+      --ink: #171411;
+      --cream: #f3eadf;
+      --paper: #fbf7f1;
+      --orange: #e75b2b;
+      --orange-soft: #f3a26f;
+      --green: #5dbb84;
+      --muted: #756b61;
+      --line: rgba(23, 20, 17, .14);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      width: 1080px;
+      height: 1920px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .14;
+      background-image:
+        repeating-linear-gradient(0deg, rgba(30, 24, 19, .05) 0 1px, transparent 1px 4px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, .08) 0 1px, transparent 1px 5px);
+      mix-blend-mode: multiply;
+      z-index: 100;
+    }
+
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: hidden;
+      padding: 94px 72px 82px;
+    }
+
+    .scene.active { display: block; }
+
+    .scene::before {
+      content: "";
+      position: absolute;
+      width: 760px;
+      height: 760px;
+      border-radius: 50%;
+      filter: blur(10px);
+      opacity: .85;
+      pointer-events: none;
+    }
+
+    .cream {
+      background:
+        radial-gradient(circle at 88% 7%, rgba(231, 91, 43, .17), transparent 33%),
+        radial-gradient(circle at 4% 89%, rgba(93, 187, 132, .12), transparent 31%),
+        var(--cream);
+    }
+
+    .cream::before {
+      right: -350px;
+      top: 210px;
+      background: rgba(255, 255, 255, .46);
+    }
+
+    .dark {
+      color: var(--paper);
+      background:
+        radial-gradient(circle at 95% 5%, rgba(231, 91, 43, .31), transparent 31%),
+        radial-gradient(circle at 3% 95%, rgba(233, 173, 105, .1), transparent 34%),
+        #151210;
+    }
+
+    .dark::before {
+      left: -430px;
+      top: 850px;
+      background: rgba(231, 91, 43, .07);
+    }
+
+    .kicker {
+      position: relative;
+      z-index: 3;
+      display: inline-flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 20px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #574e45;
+      font-size: 25px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      background: rgba(255, 255, 255, .38);
+    }
+
+    .dark .kicker {
+      color: #f5c7ab;
+      border-color: rgba(247, 203, 174, .24);
+      background: rgba(255, 255, 255, .04);
+    }
+
+    .kicker i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--orange);
+      box-shadow: 0 0 0 7px rgba(231, 91, 43, .13);
+    }
+
+    .proof {
+      position: absolute;
+      top: 108px;
+      right: 72px;
+      z-index: 5;
+      padding: 11px 17px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #675d54;
+      background: rgba(255, 255, 255, .48);
+      font-size: 20px;
+      font-weight: 650;
+      letter-spacing: .03em;
+    }
+
+    .dark .proof {
+      border-color: rgba(255, 255, 255, .16);
+      color: #cbbcb0;
+      background: rgba(255, 255, 255, .055);
+    }
+
+    h1 {
+      position: relative;
+      z-index: 3;
+      margin: 38px 0 24px;
+      font-family: "Songti SC", "STSong", serif;
+      font-size: 122px;
+      line-height: 1.03;
+      font-weight: 700;
+      letter-spacing: -.055em;
+    }
+
+    h1 em {
+      color: var(--orange);
+      font-style: normal;
+    }
+
+    .lead {
+      position: relative;
+      z-index: 3;
+      max-width: 820px;
+      margin: 0;
+      color: #675e55;
+      font-size: 37px;
+      line-height: 1.55;
+      font-weight: 500;
+    }
+
+    .dark .lead { color: #cabbb0; }
+
+    .shot {
+      position: absolute;
+      z-index: 2;
+      display: block;
+      width: 1010px;
+      border: 1px solid rgba(27, 21, 17, .16);
+      border-radius: 25px;
+      background: #fff;
+      box-shadow:
+        0 55px 100px rgba(48, 28, 17, .19),
+        0 12px 28px rgba(48, 28, 17, .12);
+    }
+
+    .dark .shot {
+      border-color: rgba(255, 255, 255, .16);
+      box-shadow:
+        0 55px 110px rgba(0, 0, 0, .55),
+        0 14px 32px rgba(0, 0, 0, .35);
+    }
+
+    .shot-label {
+      position: absolute;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 15px 22px;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 999px;
+      background: rgba(21, 18, 16, .88);
+      color: #fff9f2;
+      font-size: 25px;
+      font-weight: 650;
+      letter-spacing: .02em;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, .22);
+      backdrop-filter: blur(12px);
+    }
+
+    .shot-label i {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(93, 187, 132, .16);
+    }
+
+    .chips {
+      position: absolute;
+      z-index: 4;
+      left: 72px;
+      right: 72px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .chip {
+      padding: 14px 21px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .52);
+      color: #544b43;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .dark .chip {
+      border-color: rgba(255, 255, 255, .16);
+      background: rgba(255, 255, 255, .055);
+      color: #e9dbd0;
+    }
+
+    .footnote {
+      position: absolute;
+      z-index: 4;
+      left: 72px;
+      right: 72px;
+      bottom: 58px;
+      color: #786e64;
+      font-size: 21px;
+      line-height: 1.45;
+    }
+
+    .dark .footnote { color: #998b80; }
+
+    .hook-word {
+      position: absolute;
+      right: 45px;
+      bottom: -65px;
+      z-index: 1;
+      color: rgba(255, 255, 255, .035);
+      font-family: "Songti SC", serif;
+      font-size: 430px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: -.12em;
+      white-space: nowrap;
+    }
+
+    .hook-shot {
+      left: 96px;
+      bottom: -142px;
+      width: 890px;
+      transform: rotate(-2.1deg);
+      opacity: .9;
+    }
+
+    .scene-1 h1 {
+      margin-top: 56px;
+      font-size: 151px;
+      line-height: .96;
+    }
+
+    .scene-1 .lead {
+      margin-top: 34px;
+      max-width: 760px;
+      color: #d4c3b7;
+      font-size: 34px;
+    }
+
+    .scene-2 .shot {
+      left: 34px;
+      bottom: 145px;
+      transform: rotate(-1.2deg);
+    }
+
+    .scene-2 .chips { bottom: 72px; }
+
+    .scene-3 h1 {
+      margin-bottom: 34px;
+      font-size: 108px;
+    }
+
+    .scene-3 .shot {
+      left: 35px;
+      bottom: 118px;
+    }
+
+    .scene-3 .shot-label {
+      right: 30px;
+      bottom: 626px;
+    }
+
+    .scene-4 .shot {
+      left: 35px;
+      bottom: 262px;
+    }
+
+    .scene-4 h1 {
+      font-size: 104px;
+    }
+
+    .scene-4 .chips { bottom: 112px; }
+
+    .scene-4 .footnote { bottom: 62px; }
+
+    .scene-5 .shot {
+      left: 35px;
+      bottom: 115px;
+    }
+
+    .scene-5 h1 {
+      font-size: 91px;
+    }
+
+    .scene-5 .shot.secondary {
+      left: 665px;
+      bottom: 520px;
+      width: 360px;
+      transform: rotate(4deg);
+      opacity: .92;
+    }
+
+    .scene-5 .shot-label {
+      left: 58px;
+      bottom: 235px;
+    }
+
+    .scene-6 .shot {
+      left: 35px;
+      bottom: 260px;
+    }
+
+    .scene-6 .login-crop {
+      left: 35px;
+      bottom: 305px;
+      width: 1010px;
+      height: 415px;
+      overflow: hidden;
+    }
+
+    .scene-6 .login-crop img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .scene-6 .chips { bottom: 98px; }
+
+    .scene-7 {
+      padding-top: 128px;
+      text-align: center;
+    }
+
+    .scene-7 .kicker { margin: 0 auto; }
+
+    .scene-7 .mark {
+      display: block;
+      width: 208px;
+      height: 208px;
+      margin: 80px auto 40px;
+      border-radius: 48px;
+      box-shadow: 0 35px 80px rgba(0, 0, 0, .44);
+    }
+
+    .scene-7 h1 {
+      margin: 0 0 22px;
+      font-size: 140px;
+      letter-spacing: -.06em;
+    }
+
+    .scene-7 .lead {
+      margin: 0 auto;
+      max-width: 900px;
+      color: #d4c3b7;
+      font-size: 35px;
+    }
+
+    .repo {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 58px;
+      padding: 22px 34px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .06);
+      color: #f6e8dc;
+      font-family: "SFMono-Regular", Menlo, monospace;
+      font-size: 29px;
+      letter-spacing: -.02em;
+    }
+
+    .legal {
+      position: absolute;
+      left: 72px;
+      right: 72px;
+      bottom: 82px;
+      color: #897a6f;
+      font-size: 21px;
+      line-height: 1.65;
+    }
+
+    .legal strong { color: #cbb9ab; }
+
+    .cover-xhs h1,
+    .cover-douyin h1 {
+      font-size: 148px;
+    }
+
+    .cover-xhs h1 {
+      font-size: 92px;
+    }
+
+    .cover-douyin {
+      padding-top: 145px;
+    }
+
+    .cover-xhs {
+      width: 1080px;
+      height: 1440px;
+    }
+
+    .cover-xhs .shot {
+      width: 1000px;
+      left: 40px;
+      bottom: -105px;
+      transform: rotate(-1.7deg);
+    }
+
+    .cover-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 44px;
+      padding: 16px 24px;
+      border-radius: 999px;
+      background: var(--orange);
+      color: #fff;
+      font-size: 28px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <section class="scene scene-1 dark active" data-scene="1">
+    <span class="kicker"><i></i> 开源 · 非官方 · macOS</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>米家，<br><em>上 Mac。</em></h1>
+    <p class="lead">不是手机投屏，<br>是真正放在桌面上的家庭控制台。</p>
+    <div class="hook-word">HOME</div>
+    <img class="shot hook-shot" src="assets/actual-inspector.png" alt="MiHome Mac 实际设备页">
+  </section>
+
+  <section class="scene scene-2 cream" data-scene="2">
+    <span class="kicker"><i></i> 全屋状态，一屏读完</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>一整屋，<br>放进<em>一屏。</em></h1>
+    <p class="lead">设备、房间、环境与耗电数据，<br>不用再在 App 里来回翻。</p>
+    <img class="shot" src="assets/actual-inspector.png" alt="实际设备页">
+    <div class="chips">
+      <span class="chip">扫码登录</span>
+      <span class="chip">设备控制</span>
+      <span class="chip">本地直连优先</span>
+    </div>
+  </section>
+
+  <section class="scene scene-3 dark" data-scene="3">
+    <span class="kicker"><i></i> 本地 P2P / 远程回连</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>监控，<br>不必再掏手机。</h1>
+    <p class="lead">本地直连优先，远程回连兜底；<br>播放中可独立开关声音。</p>
+    <img class="shot" src="assets/actual-cameras.png" alt="实际摄像头页面">
+    <span class="shot-label"><i></i> 本地 / 远程双通道</span>
+  </section>
+
+  <section class="scene scene-4 cream" data-scene="4">
+    <span class="kicker"><i></i> 常用场景，一键执行</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>回家、离家，<br>观影、晚安，<br><em>一键执行。</em></h1>
+    <p class="lead">直接运行米家 App 里已有的手动场景，<br>执行时按设备逐台下发。</p>
+    <img class="shot" src="assets/actual-scenes.png" alt="实际场景页面">
+    <div class="chips">
+      <span class="chip">米家手动场景</span>
+      <span class="chip">本地直连优先</span>
+      <span class="chip">一键执行</span>
+    </div>
+    <p class="footnote">* 新场景仍需在米家 App 中创建。</p>
+  </section>
+
+  <section class="scene scene-5 dark" data-scene="5">
+    <span class="kicker"><i></i> 本机定时任务</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>到点执行，<br><em>留在本机。</em></h1>
+    <p class="lead">定时任务保存在本机，到点自动执行；<br>关闭主窗口后，仍可从菜单栏继续运行。</p>
+    <img class="shot" src="assets/actual-automations.png" alt="实际自动化页面">
+    <span class="shot-label"><i></i> 应用运行时持续执行</span>
+  </section>
+
+  <section class="scene scene-6 cream" data-scene="6">
+    <span class="kicker"><i></i> 开源，可查，可自建</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>扫码即用，<br><em>代码可查。</em></h1>
+    <p class="lead">Rust 核心、Tauri 桌面壳、内置 go2rtc，<br>还有可导出的脱敏诊断日志。</p>
+    <div class="shot login-crop">
+      <img src="assets/actual-login.png" alt="实际扫码登录页">
+    </div>
+    <div class="chips">
+      <span class="chip">GPL-3.0-or-later</span>
+      <span class="chip">内置 go2rtc</span>
+      <span class="chip">诊断日志</span>
+    </div>
+  </section>
+
+  <section class="scene scene-7 dark" data-scene="7">
+    <span class="kicker"><i></i> MiHome Mac</span>
+    <img class="mark" src="../../desktop/src-tauri/icons/icon.png" alt="MiHome Mac 图标">
+    <h1>把家，<br>放回桌面。</h1>
+    <p class="lead">一个面向 macOS 的开源米家桌面客户端。</p>
+    <div class="repo">github.com/Reign9201/mihome-mac</div>
+    <p class="legal">
+      <strong>GPL-3.0-or-later</strong> · go2rtc MIT<br>
+      非官方项目，与小米公司无隶属或官方关联。功能与兼容性以项目文档为准。
+    </p>
+  </section>
+
+  <section class="scene scene-1 cover-douyin dark" data-scene="cover-douyin">
+    <span class="kicker"><i></i> 开源 · 非官方 · macOS</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>米家，<br><em>上 Mac。</em></h1>
+    <p class="lead">全屋控制、低延迟监控、<br>场景与自动化，一屏接管。</p>
+    <span class="cover-badge">真正放在桌面上的米家</span>
+    <img class="shot hook-shot" src="assets/actual-inspector.png" alt="MiHome Mac 实际界面">
+  </section>
+
+  <section class="scene scene-1 cover-xhs dark" data-scene="cover-xhs">
+    <span class="kicker"><i></i> 开源 · 非官方 · macOS</span>
+    <span class="proof">实际界面 · 演示数据</span>
+    <h1>受够了手机看米家？<br><em>我做了个 Mac 版。</em></h1>
+    <p class="lead">全屋控制 · 监控宫格 · 场景自动化</p>
+    <span class="cover-badge">Rust + Tauri · 完全开源</span>
+    <img class="shot" src="assets/actual-inspector.png" alt="MiHome Mac 实际界面">
+  </section>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const scene = params.get("scene") || "1";
+    document.querySelectorAll(".scene").forEach((node) => {
+      node.classList.toggle("active", node.dataset.scene === scene);
+    });
+    if (params.get("format") === "xhs") {
+      document.documentElement.style.width = "1080px";
+      document.documentElement.style.height = "1440px";
+      document.body.style.width = "1080px";
+      document.body.style.height = "1440px";
+    }
+    document.fonts.ready.then(() => document.body.classList.add("fonts-ready"));
+  </script>
+</body>
+</html>

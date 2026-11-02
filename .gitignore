@@ -4,6 +4,8 @@ build/
 DerivedData/
 *.xcuserstate
 *.log
+__pycache__/
+*.pyc
 benchmarks/bench_swift
 benchmarks/rust/target/
 
