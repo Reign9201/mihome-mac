@@ -25,7 +25,7 @@
 
 项目使用 GPL-3.0-or-later 开源，非小米官方项目。视觉上仍在向设计稿对齐。摄像头延迟和首帧会受网络、固件及 relay 状态影响，不承诺绝对零延迟。
 
-GitHub：Reign9201/mihome-mac
+GitHub 搜索：Reign9201/mihome-mac
 
 ### 标签
 

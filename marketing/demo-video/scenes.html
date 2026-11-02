@@ -569,6 +569,11 @@
     document.querySelectorAll(".scene").forEach((node) => {
       node.classList.toggle("active", node.dataset.scene === scene);
     });
+    if (params.get("safe") === "1") {
+      document.querySelectorAll(".repo").forEach((node) => {
+        node.textContent = "开源项目 · MiHome Mac";
+      });
+    }
     if (params.get("format") === "xhs") {
       document.documentElement.style.width = "1080px";
       document.documentElement.style.height = "1440px";
