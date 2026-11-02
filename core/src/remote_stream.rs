@@ -43,8 +43,8 @@ enum VideoEncoder {
 pub struct RemoteStream {
     camera: Arc<RemoteCamera>,
     quality: u8,
-    ffmpeg: Child,
-    audio_ffmpeg: Option<Child>,
+    ffmpeg: Mutex<Child>,
+    audio_ffmpeg: Mutex<Option<Child>>,
     relay: Go2Rtc,
     temp_dir: PathBuf,
     reader: Option<JoinHandle<()>>,
@@ -573,8 +573,8 @@ impl RemoteStream {
         Ok(Self {
             camera,
             quality,
-            ffmpeg,
-            audio_ffmpeg,
+            ffmpeg: Mutex::new(ffmpeg),
+            audio_ffmpeg: Mutex::new(audio_ffmpeg),
             relay,
             temp_dir: resources.temp_dir.clone(),
             reader,
@@ -594,7 +594,9 @@ impl RemoteStream {
 
     pub fn audio_webrtc_url(&self) -> Option<String> {
         self.audio_ffmpeg
-            .as_ref()
+            .lock()
+            .ok()
+            .filter(|child| child.is_some())
             .map(|_| self.relay.webrtc_url("remote-audio"))
     }
 
@@ -603,7 +605,10 @@ impl RemoteStream {
     }
 
     pub fn has_audio(&self) -> bool {
-        self.audio_ffmpeg.is_some()
+        self.audio_ffmpeg
+            .lock()
+            .map(|child| child.is_some())
+            .unwrap_or(false)
     }
 
     pub fn frames(&self) -> usize {
@@ -613,6 +618,16 @@ impl RemoteStream {
     pub fn health_reason(&self) -> Option<String> {
         if let Some(reason) = self.health.reason() {
             return Some(reason);
+        }
+        if let Some(reason) = child_exit_reason(&self.ffmpeg, "视频 ffmpeg") {
+            return Some(reason);
+        }
+        if let Ok(mut audio) = self.audio_ffmpeg.lock() {
+            if let Some(child) = audio.as_mut() {
+                if let Some(reason) = exited_child_reason(child, "音频 ffmpeg") {
+                    return Some(reason);
+                }
+            }
         }
         if self.running.load(Ordering::Acquire)
             && self.reader.as_ref().is_some_and(JoinHandle::is_finished)
@@ -631,6 +646,21 @@ impl RemoteStream {
             other => return Err(anyhow!("不支持的云台方向: {other}")),
         };
         self.camera.motor(operation)
+    }
+}
+
+fn child_exit_reason(child: &Mutex<Child>, label: &str) -> Option<String> {
+    match child.lock() {
+        Ok(mut child) => exited_child_reason(&mut child, label),
+        Err(_) => Some(format!("{label} 状态不可用")),
+    }
+}
+
+fn exited_child_reason(child: &mut Child, label: &str) -> Option<String> {
+    match child.try_wait() {
+        Ok(Some(status)) => Some(format!("{label} 进程已退出（{status}）")),
+        Ok(None) => None,
+        Err(error) => Some(format!("无法读取 {label} 进程状态：{error}")),
     }
 }
 
@@ -989,11 +1019,15 @@ impl Drop for RemoteStream {
             ),
         );
         self.running.store(false, Ordering::Relaxed);
-        let _ = self.ffmpeg.kill();
-        let _ = self.ffmpeg.wait();
-        if let Some(audio_ffmpeg) = self.audio_ffmpeg.as_mut() {
-            let _ = audio_ffmpeg.kill();
-            let _ = audio_ffmpeg.wait();
+        if let Ok(mut ffmpeg) = self.ffmpeg.lock() {
+            let _ = ffmpeg.kill();
+            let _ = ffmpeg.wait();
+        }
+        if let Ok(mut audio_ffmpeg) = self.audio_ffmpeg.lock() {
+            if let Some(audio_ffmpeg) = audio_ffmpeg.as_mut() {
+                let _ = audio_ffmpeg.kill();
+                let _ = audio_ffmpeg.wait();
+            }
         }
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
@@ -1131,6 +1165,26 @@ mod tests {
         let joined = args.join(" ");
         assert!(joined.contains("-c:a pcm_alaw"));
         assert!(!joined.contains("-c:a copy"));
+    }
+
+    #[test]
+    fn maps_ffmpeg_process_exit_to_stream_health() {
+        let mut running = Command::new("sh").args(["-c", "sleep 5"]).spawn().unwrap();
+        assert_eq!(exited_child_reason(&mut running, "视频 ffmpeg"), None);
+        let _ = running.kill();
+        let _ = running.wait();
+
+        let mut exited = Command::new("sh").args(["-c", "exit 7"]).spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let reason = loop {
+            if let Some(reason) = exited_child_reason(&mut exited, "视频 ffmpeg") {
+                break reason;
+            }
+            assert!(Instant::now() < deadline, "子进程没有按时退出");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(reason.contains("视频 ffmpeg 进程已退出"));
+        assert!(reason.contains('7'));
     }
 
     #[test]
