@@ -5,10 +5,14 @@ use mihome_core::automation::{Automation, AutomationStore};
 use mihome_core::camera::{self, CameraDevice, CameraDiagnostics, CameraStream, Go2Rtc};
 use mihome_core::logging::{self as app_log, Level};
 use mihome_core::remote_stream::RemoteStream;
-use mihome_core::{auth, AuthStart, MiCloud, PendingLogin, SpecBatch, SpecRegistry};
+use mihome_core::{
+    account_storage_key, auth, AccountBook, AccountSummary, AuthStart, MiCloud, PendingLogin,
+    SpecBatch, SpecRegistry,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,6 +27,10 @@ const CAMERA_CACHE_TTL: Duration = Duration::from_secs(15);
 
 struct AppState {
     pending: Mutex<Option<PendingLogin>>,
+    accounts: Mutex<AccountBook>,
+    account_lifecycle: Mutex<()>,
+    account_epoch: AtomicU64,
+    login_epoch: AtomicU64,
     cloud: Mutex<Option<MiCloud>>,
     session_error: Mutex<Option<String>>,
     camera: Mutex<Option<Go2Rtc>>,
@@ -47,27 +55,65 @@ fn automation_path() -> PathBuf {
         .join("Library/Application Support/MiHome/automations.json")
 }
 
+fn automation_path_for(user_id: &str) -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Library/Application Support/MiHome/automations")
+        .join(format!("{}.json", account_storage_key(user_id)))
+}
+
+fn automation_store_for(user_id: Option<&str>) -> AutomationStore {
+    let Some(user_id) = user_id else {
+        return AutomationStore::new(automation_path());
+    };
+    let path = automation_path_for(user_id);
+    let legacy = automation_path();
+    if !path.exists() && legacy.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        match fs::rename(&legacy, &path) {
+            Ok(()) => app_log::info(
+                "Automation",
+                format!("旧自动化数据已迁移到账号 {}", app_log::mask_id(user_id)),
+            ),
+            Err(error) => app_log::warn("Automation", format!("旧自动化数据迁移失败：{error}")),
+        }
+    }
+    AutomationStore::new(path)
+}
+
 impl Default for AppState {
     fn default() -> Self {
-        let (cloud, session_error) = match auth::Session::restore() {
-            Ok(Some(session)) => {
+        let (accounts, session_error) = match AccountBook::load() {
+            Ok(accounts) => (accounts, None),
+            Err(error) => {
+                app_log::error("Auth", format!("恢复账号列表失败：{error:#}"));
+                (AccountBook::empty(), Some(error.to_string()))
+            }
+        };
+        let active_user_id = accounts.active_user_id().map(str::to_string);
+        let cloud = match accounts.active_session() {
+            Some(session) => {
                 app_log::info(
                     "Auth",
                     format!(
-                        "已恢复登录凭据：user={}",
-                        app_log::mask_id(&session.user_id)
+                        "已恢复登录凭据：user={} accounts={}",
+                        app_log::mask_id(&session.user_id),
+                        accounts.summaries().len()
                     ),
                 );
-                (Some(MiCloud::new(session)), None)
+                Some(MiCloud::new(session))
             }
-            Ok(None) => (None, None),
-            Err(error) => {
-                app_log::error("Auth", format!("恢复登录凭据失败：{error:#}"));
-                (None, Some(error.to_string()))
-            }
+            None => None,
         };
         Self {
             pending: Mutex::new(None),
+            accounts: Mutex::new(accounts),
+            account_lifecycle: Mutex::new(()),
+            account_epoch: AtomicU64::new(0),
+            login_epoch: AtomicU64::new(0),
             cloud: Mutex::new(cloud),
             session_error: Mutex::new(session_error),
             camera: Mutex::new(None),
@@ -79,7 +125,7 @@ impl Default for AppState {
             remote_camera_epoch: AtomicU64::new(0),
             camera_stop_request: AtomicU64::new(0),
             remote_camera_stops: Mutex::new(HashMap::new()),
-            automations: Mutex::new(AutomationStore::new(automation_path())),
+            automations: Mutex::new(automation_store_for(active_user_id.as_deref())),
             automation_tick: Mutex::new(Local::now() - chrono::Duration::minutes(2)),
             specs: SpecRegistry::default(),
             started: Instant::now(),
@@ -100,8 +146,47 @@ struct AuthPoll {
     message: Option<String>,
 }
 
+#[derive(Serialize)]
+struct AuthLogout {
+    active_user_id: Option<String>,
+    accounts: Vec<AccountSummary>,
+}
+
 fn error_text(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+async fn install_active_session(
+    state: &Arc<AppState>,
+    session: auth::Session,
+) -> Result<(), String> {
+    let user_id = session.user_id.clone();
+    stop_all_cameras(state).await;
+    *state.cloud.lock().await = Some(MiCloud::new(session));
+    *state.camera_cache.lock().await = None;
+    let mut pending = state.pending.lock().await;
+    state.login_epoch.fetch_add(1, Ordering::SeqCst);
+    *pending = None;
+    drop(pending);
+    *state.session_error.lock().await = None;
+    *state.automations.lock().await = automation_store_for(Some(&user_id));
+    *state.automation_tick.lock().await = Local::now() - chrono::Duration::minutes(2);
+    state.account_epoch.fetch_add(1, Ordering::SeqCst);
+    Ok(())
+}
+
+async fn clear_active_session(state: &Arc<AppState>) {
+    stop_all_cameras(state).await;
+    *state.cloud.lock().await = None;
+    *state.camera_cache.lock().await = None;
+    let mut pending = state.pending.lock().await;
+    state.login_epoch.fetch_add(1, Ordering::SeqCst);
+    *pending = None;
+    drop(pending);
+    *state.session_error.lock().await = None;
+    *state.automations.lock().await = automation_store_for(None);
+    *state.automation_tick.lock().await = Local::now() - chrono::Duration::minutes(2);
+    state.account_epoch.fetch_add(1, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -115,42 +200,64 @@ fn app_meta() -> AppMeta {
 #[tauri::command]
 async fn auth_start(state: State<'_, Arc<AppState>>) -> Result<AuthStart, String> {
     app_log::info("Auth", "开始二维码登录");
+    let login_epoch = state.login_epoch.fetch_add(1, Ordering::SeqCst) + 1;
     let (pending, start) = auth::start_login().await.map_err(|error| {
         app_log::error("Auth", format!("申请登录二维码失败：{error:#}"));
         error_text(error)
     })?;
-    *state.pending.lock().await = Some(pending);
+    let mut pending_slot = state.pending.lock().await;
+    if state.login_epoch.load(Ordering::SeqCst) != login_epoch {
+        return Err("二维码请求已被新的登录请求替换".to_string());
+    }
+    *pending_slot = Some(pending);
+    drop(pending_slot);
     app_log::info("Auth", "登录二维码已生成");
     Ok(start)
 }
 
 #[tauri::command]
 async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> {
-    let pending = state
-        .pending
-        .lock()
-        .await
-        .clone()
-        .ok_or_else(|| "没有进行中的登录".to_string())?;
+    let (pending, login_epoch) = {
+        let pending = state.pending.lock().await.clone();
+        let login_epoch = state.login_epoch.load(Ordering::SeqCst);
+        (pending, login_epoch)
+    };
+    let pending = pending.ok_or_else(|| "没有进行中的登录".to_string())?;
     match auth::poll_login(&pending).await {
         Ok(Some(session)) => {
+            if state.login_epoch.load(Ordering::SeqCst) != login_epoch {
+                app_log::info("Auth", "忽略已取消的登录轮询结果");
+                return Ok(AuthPoll {
+                    status: "error",
+                    user_id: None,
+                    message: Some("登录已取消，请重新生成二维码".to_string()),
+                });
+            }
             let user_id = session.user_id.clone();
-            let save_warning = session.save().err().map(|error| {
-                app_log::error("Auth", format!("登录成功，但保存凭据失败：{error:#}"));
-                format!("登录成功，但保存凭据失败：{error}")
-            });
+            let _account_lifecycle = state.account_lifecycle.lock().await;
+            if state.login_epoch.load(Ordering::SeqCst) != login_epoch {
+                app_log::info("Auth", "账号切换期间忽略过期登录结果");
+                return Ok(AuthPoll {
+                    status: "error",
+                    user_id: None,
+                    message: Some("登录已取消，请重新生成二维码".to_string()),
+                });
+            }
+            let mut next_book = state.accounts.lock().await.clone();
+            next_book.upsert(session.clone(), None).map_err(|error| {
+                app_log::error("Auth", format!("登录成功，但保存账号失败：{error:#}"));
+                format!("登录成功，但保存账号失败：{error}")
+            })?;
+            *state.accounts.lock().await = next_book;
+            install_active_session(&state, session).await?;
             app_log::info(
                 "Auth",
                 format!("扫码登录成功：user={}", app_log::mask_id(&user_id)),
             );
-            *state.cloud.lock().await = Some(MiCloud::new(session));
-            *state.session_error.lock().await = None;
-            *state.camera_cache.lock().await = None;
-            *state.pending.lock().await = None;
             Ok(AuthPoll {
                 status: "success",
                 user_id: Some(user_id),
-                message: save_warning,
+                message: None,
             })
         }
         Ok(None) => Ok(AuthPoll {
@@ -170,14 +277,41 @@ async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> 
 }
 
 #[tauri::command]
-async fn auth_logout(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    app_log::info("Auth", "用户退出登录");
-    *state.pending.lock().await = None;
-    *state.cloud.lock().await = None;
-    *state.session_error.lock().await = None;
-    *state.camera_cache.lock().await = None;
-    stop_all_cameras(&state).await;
-    auth::Session::clear_saved().map_err(error_text)
+async fn auth_logout(state: State<'_, Arc<AppState>>) -> Result<AuthLogout, String> {
+    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let current_user_id = state
+        .cloud
+        .lock()
+        .await
+        .as_ref()
+        .map(|cloud| cloud.user_id().to_string());
+    let Some(current_user_id) = current_user_id else {
+        let book = state.accounts.lock().await;
+        return Ok(AuthLogout {
+            active_user_id: book.active_user_id().map(str::to_string),
+            accounts: book.summaries(),
+        });
+    };
+    app_log::info(
+        "Auth",
+        format!(
+            "移除当前登录账号：user={}",
+            app_log::mask_id(&current_user_id)
+        ),
+    );
+    let mut next_book = state.accounts.lock().await.clone();
+    let next_session = next_book.remove(&current_user_id).map_err(error_text)?;
+    *state.accounts.lock().await = next_book;
+    if let Some(session) = next_session {
+        install_active_session(&state, session).await?;
+    } else {
+        clear_active_session(&state).await;
+    }
+    let book = state.accounts.lock().await;
+    Ok(AuthLogout {
+        active_user_id: book.active_user_id().map(str::to_string),
+        accounts: book.summaries(),
+    })
 }
 
 #[tauri::command]
@@ -198,6 +332,56 @@ async fn auth_resume(state: State<'_, Arc<AppState>>) -> Result<Option<String>, 
     // The UI immediately calls list_homes after resume. Avoid a duplicate cloud
     // request here so startup needs only one family-list round trip.
     Ok(Some(cloud.user_id().to_string()))
+}
+
+#[tauri::command]
+async fn auth_accounts(state: State<'_, Arc<AppState>>) -> Result<Vec<AccountSummary>, String> {
+    Ok(state.accounts.lock().await.summaries())
+}
+
+#[tauri::command]
+async fn auth_switch_account(
+    state: State<'_, Arc<AppState>>,
+    user_id: String,
+) -> Result<String, String> {
+    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let mut next_book = state.accounts.lock().await.clone();
+    let session = next_book.switch_to(&user_id).map_err(error_text)?;
+    *state.accounts.lock().await = next_book;
+    install_active_session(&state, session).await?;
+    app_log::info(
+        "Auth",
+        format!("已切换账号：user={}", app_log::mask_id(&user_id)),
+    );
+    Ok(user_id)
+}
+
+#[tauri::command]
+async fn auth_set_account_label(
+    state: State<'_, Arc<AppState>>,
+    label: String,
+) -> Result<(), String> {
+    let user_id = state
+        .cloud
+        .lock()
+        .await
+        .as_ref()
+        .map(|cloud| cloud.user_id().to_string())
+        .ok_or_else(|| "未登录".to_string())?;
+    let mut next_book = state.accounts.lock().await.clone();
+    next_book
+        .set_display_name(&user_id, &label)
+        .map_err(error_text)?;
+    *state.accounts.lock().await = next_book;
+    Ok(())
+}
+
+#[tauri::command]
+async fn auth_cancel(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    let mut pending = state.pending.lock().await;
+    state.login_epoch.fetch_add(1, Ordering::SeqCst);
+    *pending = None;
+    Ok(())
 }
 
 #[tauri::command]
@@ -335,8 +519,10 @@ async fn toggle_automation(
 }
 
 async fn run_due_automations(state: &Arc<AppState>) {
+    let _account_lifecycle = state.account_lifecycle.lock().await;
     let now = Local::now();
-    let (since, due) = {
+    let (since, due, account_epoch) = {
+        let account_epoch = state.account_epoch.load(Ordering::SeqCst);
         let mut tick = state.automation_tick.lock().await;
         let since = *tick;
         *tick = now;
@@ -345,7 +531,7 @@ async fn run_due_automations(state: &Arc<AppState>) {
             .lock()
             .await
             .due_between_entries(since, now);
-        (since, due)
+        (since, due, account_epoch)
     };
     if due.is_empty() {
         return;
@@ -360,6 +546,10 @@ async fn run_due_automations(state: &Arc<AppState>) {
         ),
     );
     for item in due {
+        if state.account_epoch.load(Ordering::SeqCst) != account_epoch {
+            app_log::warn("Automation", "账号已切换，本轮剩余定时任务已取消");
+            break;
+        }
         let cloud = state.cloud.lock().await.clone();
         if let Some(cloud) = cloud {
             match cloud
@@ -536,6 +726,7 @@ async fn camera_start(
     state: State<'_, Arc<AppState>>,
     dids: Vec<String>,
 ) -> Result<Vec<CameraStream>, String> {
+    let _account_lifecycle = state.account_lifecycle.lock().await;
     app_log::info(
         "Camera",
         format!(
@@ -662,6 +853,7 @@ async fn camera_remote_start(
     audio: Option<bool>,
 ) -> Result<CameraStream, String> {
     let state = state.inner().clone();
+    let _account_lifecycle = state.account_lifecycle.lock().await;
     let start_lock = remote_lock(&state, &did).await;
     let start_guard = start_lock.lock().await;
     let result = camera_remote_start_locked(&state, &did, quality, audio).await;
@@ -1156,6 +1348,10 @@ fn main() {
             auth_poll,
             auth_logout,
             auth_resume,
+            auth_accounts,
+            auth_switch_account,
+            auth_set_account_label,
+            auth_cancel,
             list_homes,
             list_devices,
             get_device_specs,
