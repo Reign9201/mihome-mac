@@ -122,6 +122,11 @@ build_opus() {
   work="$BUILD_ROOT/opus"
   mkdir -p "$work"
   cp -R "$CACHE_ROOT/src/opus/." "$work/"
+  # The release tarball contains configure and aclocal.m4 with timestamps that
+  # can make the maintainer rules rerun autoconf/automake after a plain copy.
+  # Ensure generated files are newest so CI does not need those tools.
+  sleep 1
+  touch "$work/aclocal.m4" "$work/Makefile.in" "$work/configure" "$work/config.h.in"
   (
     cd "$work"
     CC=clang CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" \
