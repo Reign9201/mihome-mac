@@ -14,7 +14,9 @@ pub mod remote_stream;
 pub mod sign;
 pub mod spec;
 
-pub use auth::{AuthStart, PendingLogin, Session, UserInfo};
+pub use auth::{
+    account_storage_key, AccountBook, AccountSummary, AuthStart, PendingLogin, Session, UserInfo,
+};
 pub use automation::{Automation, AutomationStore};
 pub use camera::{CameraDevice, CameraStream};
 pub use cloud::{Device, Home, MiCloud, Scene};

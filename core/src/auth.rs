@@ -424,7 +424,7 @@ pub async fn poll_login(pending: &PendingLogin) -> Result<Option<Session>> {
     }))
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct StoredSession {
     user_id: String,
     c_user_id: String,
@@ -443,12 +443,297 @@ fn session_path() -> std::path::PathBuf {
         .join("Library/Application Support/MiHome/session.json")
 }
 
-fn remove_session_file() -> Result<()> {
-    match fs::remove_file(session_path()) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).context("删除本地会话失败"),
+fn accounts_path() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Library/Application Support/MiHome/accounts.json")
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct StoredAccount {
+    session: StoredSession,
+    #[serde(default)]
+    display_name: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct StoredAccounts {
+    #[serde(default = "stored_accounts_version")]
+    version: u32,
+    #[serde(default)]
+    active_user_id: Option<String>,
+    #[serde(default)]
+    accounts: Vec<StoredAccount>,
+}
+
+fn stored_accounts_version() -> u32 {
+    1
+}
+
+impl Default for StoredAccounts {
+    fn default() -> Self {
+        Self {
+            version: stored_accounts_version(),
+            active_user_id: None,
+            accounts: Vec::new(),
+        }
     }
+}
+
+#[derive(Clone)]
+struct AccountRecord {
+    session: Session,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AccountSummary {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub active: bool,
+}
+
+/// Persisted account switcher state. Tokens remain in the private account file;
+/// callers only receive non-secret summaries.
+#[derive(Clone)]
+pub struct AccountBook {
+    path: std::path::PathBuf,
+    legacy_path: std::path::PathBuf,
+    active_user_id: Option<String>,
+    accounts: Vec<AccountRecord>,
+}
+
+impl AccountBook {
+    pub fn empty() -> Self {
+        Self {
+            path: accounts_path(),
+            legacy_path: session_path(),
+            active_user_id: None,
+            accounts: Vec::new(),
+        }
+    }
+
+    pub fn load() -> Result<Self> {
+        Self::load_from(accounts_path(), session_path())
+    }
+
+    fn load_from(path: std::path::PathBuf, legacy_path: std::path::PathBuf) -> Result<Self> {
+        if path.exists() {
+            let bytes =
+                fs::read(&path).with_context(|| format!("读取账号列表失败：{}", path.display()))?;
+            let stored: StoredAccounts =
+                serde_json::from_slice(&bytes).context("账号列表格式错误")?;
+            if stored.version != stored_accounts_version() {
+                return Err(anyhow!("不支持的账号列表版本：{}", stored.version));
+            }
+            let mut accounts = Vec::new();
+            for account in stored.accounts {
+                accounts.push(AccountRecord {
+                    session: Session::from_stored(account.session)?,
+                    display_name: clean_display_name(account.display_name),
+                });
+            }
+            let active_user_id = stored
+                .active_user_id
+                .filter(|id| {
+                    accounts
+                        .iter()
+                        .any(|account| account.session.user_id == *id)
+                })
+                .or_else(|| {
+                    accounts
+                        .first()
+                        .map(|account| account.session.user_id.clone())
+                });
+            return Ok(Self {
+                path,
+                legacy_path,
+                active_user_id,
+                accounts,
+            });
+        }
+
+        if legacy_path.exists() {
+            let bytes = fs::read(&legacy_path)
+                .with_context(|| format!("读取旧登录凭据失败：{}", legacy_path.display()))?;
+            let stored: StoredSession =
+                serde_json::from_slice(&bytes).context("旧登录凭据格式错误")?;
+            let session = Session::from_stored(stored)?;
+            let active_user_id = Some(session.user_id.clone());
+            let book = Self {
+                path,
+                legacy_path: legacy_path.clone(),
+                active_user_id,
+                accounts: vec![AccountRecord {
+                    session,
+                    display_name: None,
+                }],
+            };
+            book.save()?;
+            return Ok(book);
+        }
+
+        Ok(Self {
+            path,
+            legacy_path,
+            active_user_id: None,
+            accounts: Vec::new(),
+        })
+    }
+
+    pub fn summaries(&self) -> Vec<AccountSummary> {
+        self.accounts
+            .iter()
+            .map(|account| AccountSummary {
+                user_id: account.session.user_id.clone(),
+                display_name: account.display_name.clone(),
+                active: self.active_user_id.as_deref() == Some(account.session.user_id.as_str()),
+            })
+            .collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.accounts.is_empty()
+    }
+
+    pub fn active_user_id(&self) -> Option<&str> {
+        self.active_user_id.as_deref()
+    }
+
+    pub fn active_session(&self) -> Option<Session> {
+        let active = self.active_user_id.as_deref()?;
+        self.session(active)
+    }
+
+    pub fn session(&self, user_id: &str) -> Option<Session> {
+        self.accounts
+            .iter()
+            .find(|account| account.session.user_id == user_id)
+            .map(|account| account.session.clone())
+    }
+
+    pub fn upsert(&mut self, session: Session, display_name: Option<String>) -> Result<()> {
+        let previous = self.clone();
+        let display_name = clean_display_name(display_name);
+        if let Some(account) = self
+            .accounts
+            .iter_mut()
+            .find(|account| account.session.user_id == session.user_id)
+        {
+            account.session = session.clone();
+            if display_name.is_some() {
+                account.display_name = display_name;
+            }
+        } else {
+            self.accounts.insert(
+                0,
+                AccountRecord {
+                    session: session.clone(),
+                    display_name,
+                },
+            );
+        }
+        self.active_user_id = Some(session.user_id);
+        self.save().inspect_err(|_| {
+            *self = previous;
+        })
+    }
+
+    pub fn switch_to(&mut self, user_id: &str) -> Result<Session> {
+        let session = self
+            .session(user_id)
+            .ok_or_else(|| anyhow!("没有找到要切换的账号"))?;
+        let previous = self.active_user_id.clone();
+        self.active_user_id = Some(user_id.to_string());
+        if let Err(error) = self.save() {
+            self.active_user_id = previous;
+            return Err(error);
+        }
+        Ok(session)
+    }
+
+    pub fn remove(&mut self, user_id: &str) -> Result<Option<Session>> {
+        let previous = self.clone();
+        self.accounts
+            .retain(|account| account.session.user_id != user_id);
+        if self.active_user_id.as_deref() == Some(user_id) {
+            self.active_user_id = self
+                .accounts
+                .first()
+                .map(|account| account.session.user_id.clone());
+        }
+        self.save().inspect_err(|_| {
+            *self = previous;
+        })?;
+        Ok(self.active_session())
+    }
+
+    pub fn set_display_name(&mut self, user_id: &str, display_name: &str) -> Result<()> {
+        let Some(name) = clean_display_name(Some(display_name.to_string())) else {
+            return Ok(());
+        };
+        let previous = self.clone();
+        let Some(account) = self
+            .accounts
+            .iter_mut()
+            .find(|account| account.session.user_id == user_id)
+        else {
+            return Err(anyhow!("没有找到要更新的账号"));
+        };
+        if account.display_name.as_deref() == Some(name.as_str()) {
+            return Ok(());
+        }
+        account.display_name = Some(name);
+        self.save().inspect_err(|_| {
+            *self = previous;
+        })
+    }
+
+    pub fn clear(&mut self) -> Result<()> {
+        let previous = self.clone();
+        self.accounts.clear();
+        self.active_user_id = None;
+        self.save().inspect_err(|_| {
+            *self = previous;
+        })
+    }
+
+    fn save(&self) -> Result<()> {
+        let stored = StoredAccounts {
+            version: stored_accounts_version(),
+            active_user_id: self.active_user_id.clone(),
+            accounts: self
+                .accounts
+                .iter()
+                .map(|account| StoredAccount {
+                    session: account.session.to_stored(),
+                    display_name: account.display_name.clone(),
+                })
+                .collect(),
+        };
+        let bytes = serde_json::to_vec_pretty(&stored).context("序列化账号列表失败")?;
+        write_private_file(&self.path, &bytes)
+            .with_context(|| format!("保存账号列表失败：{}", self.path.display()))?;
+        if self.legacy_path.exists() {
+            let _ = fs::remove_file(&self.legacy_path);
+        }
+        Ok(())
+    }
+}
+
+fn clean_display_name(value: Option<String>) -> Option<String> {
+    let value = value?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(value.chars().take(80).collect())
+}
+
+pub fn account_storage_key(user_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(user_id.as_bytes()))
 }
 
 fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
@@ -474,24 +759,6 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn save_secret(bytes: &[u8]) -> Result<()> {
-    let path = session_path();
-    write_private_file(&path, bytes)
-        .with_context(|| format!("保存本地会话失败：{}", path.display()))
-}
-
-fn load_secret() -> Result<Option<Vec<u8>>> {
-    match fs::read(session_path()) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).context("读取本地会话失败"),
-    }
-}
-
-fn delete_secret() -> Result<()> {
-    remove_session_file()
-}
-
 impl Session {
     pub fn user_info(&self) -> UserInfo {
         UserInfo {
@@ -501,7 +768,12 @@ impl Session {
     }
 
     pub fn save(&self) -> Result<()> {
-        let stored = StoredSession {
+        let mut book = AccountBook::load()?;
+        book.upsert(self.clone(), None)
+    }
+
+    fn to_stored(&self) -> StoredSession {
+        StoredSession {
             user_id: self.user_id.clone(),
             c_user_id: self.c_user_id.clone(),
             service_token: self.service_token.clone(),
@@ -510,18 +782,16 @@ impl Session {
             device_id: self.device_id.clone(),
             pass_o: self.pass_o.clone(),
             ua: self.ua.clone(),
-        };
-        let bytes = serde_json::to_vec(&stored).context("序列化会话失败")?;
-        save_secret(&bytes)
+        }
     }
 
     pub fn restore() -> Result<Option<Self>> {
-        let Some(bytes) = load_secret()? else {
-            return Ok(None);
-        };
-        let stored: StoredSession = serde_json::from_slice(&bytes).context("登录凭据格式错误")?;
+        Ok(AccountBook::load()?.active_session())
+    }
+
+    fn from_stored(stored: StoredSession) -> Result<Self> {
         let (client, _) = make_client()?;
-        Ok(Some(Self {
+        Ok(Self {
             user_id: stored.user_id,
             c_user_id: stored.c_user_id,
             service_token: stored.service_token,
@@ -532,11 +802,11 @@ impl Session {
             ua: stored.ua,
             client,
             gate: Arc::new(RequestGate::default()),
-        }))
+        })
     }
 
     pub fn clear_saved() -> Result<()> {
-        delete_secret()
+        AccountBook::load()?.clear()
     }
 
     pub fn cookie(&self) -> String {
@@ -617,12 +887,32 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use super::{can_retry_request, cookie_value, poll_retry_delay, write_private_file};
+    use super::{
+        can_retry_request, cookie_value, make_client, poll_retry_delay, write_private_file,
+        AccountBook, RequestGate, Session,
+    };
     use reqwest::cookie::Jar;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
     use url::Url;
+
+    fn test_session(user_id: &str, token: &str) -> Session {
+        let (client, _) = make_client().expect("test client");
+        Session {
+            user_id: user_id.to_string(),
+            c_user_id: format!("c-{user_id}"),
+            service_token: token.to_string(),
+            ssecurity: format!("security-{token}"),
+            pass_token: format!("pass-{token}"),
+            device_id: format!("device-{user_id}"),
+            pass_o: format!("pass-o-{user_id}"),
+            ua: "test-ua".to_string(),
+            client,
+            gate: Arc::new(RequestGate::default()),
+        }
+    }
 
     #[test]
     fn retries_only_idempotent_cloud_reads() {
@@ -686,5 +976,108 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).expect("cleanup session test");
+    }
+
+    #[test]
+    fn account_book_switches_accounts_without_leaking_sessions() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-account-book-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = dir.join("accounts.json");
+        let legacy = dir.join("session.json");
+        let mut book = AccountBook::load_from(path.clone(), legacy.clone()).expect("empty book");
+
+        book.upsert(
+            test_session("user-a", "token-a"),
+            Some("账号 A".to_string()),
+        )
+        .expect("save first account");
+        book.upsert(
+            test_session("user-b", "token-b"),
+            Some("账号 B".to_string()),
+        )
+        .expect("save second account");
+
+        assert_eq!(book.active_user_id(), Some("user-b"));
+        assert_eq!(book.summaries().len(), 2);
+        assert_eq!(
+            book.session("user-a").expect("first session").service_token,
+            "token-a"
+        );
+        assert_eq!(
+            book.session("user-b")
+                .expect("second session")
+                .service_token,
+            "token-b"
+        );
+
+        book.switch_to("user-a").expect("switch account");
+        assert_eq!(book.active_user_id(), Some("user-a"));
+
+        let reloaded = AccountBook::load_from(path.clone(), legacy.clone()).expect("reload book");
+        assert_eq!(reloaded.active_user_id(), Some("user-a"));
+        assert_eq!(reloaded.summaries().len(), 2);
+        assert_eq!(
+            reloaded
+                .session("user-b")
+                .expect("second session after reload")
+                .service_token,
+            "token-b"
+        );
+
+        let mut reloaded = reloaded;
+        let next = reloaded.remove("user-a").expect("remove active account");
+        assert_eq!(
+            next.expect("fallback account").user_id,
+            "user-b",
+            "removing the active account must switch to another isolated session"
+        );
+        assert_eq!(reloaded.active_user_id(), Some("user-b"));
+
+        let mode = fs::metadata(&path)
+            .expect("account file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+
+        reloaded.clear().expect("clear account book");
+        assert!(reloaded.is_empty());
+        assert!(reloaded.active_session().is_none());
+
+        fs::remove_dir_all(dir).expect("cleanup account book test");
+    }
+
+    #[test]
+    fn legacy_session_is_migrated_to_the_account_book() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "mihome-account-migration-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let accounts = dir.join("accounts.json");
+        let legacy = dir.join("session.json");
+        let session = test_session("legacy-user", "legacy-token");
+        let stored = serde_json::to_vec(&session.to_stored()).expect("serialize legacy session");
+        write_private_file(&legacy, &stored).expect("write legacy session");
+
+        let book = AccountBook::load_from(accounts.clone(), legacy.clone()).expect("migrate");
+        assert_eq!(book.active_user_id(), Some("legacy-user"));
+        assert_eq!(
+            book.active_session().expect("migrated session").pass_token,
+            "pass-legacy-token"
+        );
+        assert!(accounts.exists());
+        assert!(!legacy.exists());
+
+        fs::remove_dir_all(dir).expect("cleanup migration test");
     }
 }
