@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1080, initial-scale=1">
+  <title>MiHome Mac 1.1.0</title>
+  <style>
+    :root {
+      --paper: #e7e2d7;
+      --paper-deep: #d8d0c1;
+      --ink: #1b1a17;
+      --muted: #6d685f;
+      --accent: #c44f2b;
+      --accent-soft: #f1c7b7;
+      --line: rgba(27, 26, 23, 0.14);
+      --white: #faf7f0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 1080px;
+      height: 1440px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      content: "";
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 92% 3%, rgba(196, 79, 43, 0.16), transparent 30%),
+        radial-gradient(circle at 4% 92%, rgba(255, 255, 255, 0.58), transparent 34%),
+        repeating-linear-gradient(90deg, transparent 0 39px, rgba(27, 26, 23, 0.018) 40px);
+    }
+
+    .slide {
+      position: relative;
+      display: none;
+      width: 1080px;
+      height: 1440px;
+      padding: 64px 72px 56px;
+      overflow: hidden;
+    }
+
+    .slide.active { display: flex; flex-direction: column; }
+
+    .orb {
+      position: absolute;
+      z-index: -1;
+      border-radius: 999px;
+      background: var(--accent);
+      opacity: 0.12;
+    }
+
+    .orb-a {
+      top: 370px;
+      right: -230px;
+      width: 600px;
+      height: 600px;
+    }
+
+    .orb-b {
+      bottom: -210px;
+      left: -270px;
+      width: 520px;
+      height: 520px;
+      background: #11110f;
+      opacity: 0.045;
+    }
+
+    .kicker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 34px;
+      color: var(--muted);
+      font-size: 18px;
+      font-weight: 650;
+      letter-spacing: 0.16em;
+    }
+
+    .kicker strong {
+      color: var(--accent);
+      font-size: 19px;
+      letter-spacing: 0.08em;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-bottom: 20px;
+      padding: 9px 14px;
+      border: 1px solid rgba(196, 79, 43, 0.3);
+      border-radius: 999px;
+      background: rgba(250, 247, 240, 0.56);
+      color: var(--accent);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      font-family: "Songti SC", "STSong", serif;
+      font-weight: 800;
+      letter-spacing: -0.055em;
+    }
+
+    h1 {
+      max-width: 880px;
+      font-size: 88px;
+      line-height: 1.02;
+    }
+
+    h1 em {
+      color: var(--accent);
+      font-style: normal;
+    }
+
+    .lead {
+      max-width: 790px;
+      margin: 22px 0 34px;
+      color: #4f4b44;
+      font-size: 27px;
+      font-weight: 500;
+      line-height: 1.55;
+      letter-spacing: -0.01em;
+    }
+
+    .screenshot {
+      position: relative;
+      width: 936px;
+      height: 585px;
+      margin-top: auto;
+      overflow: hidden;
+      border: 1px solid rgba(27, 26, 23, 0.22);
+      border-radius: 24px;
+      background: #111;
+      box-shadow:
+        0 34px 68px rgba(48, 36, 25, 0.2),
+        0 2px 0 rgba(255, 255, 255, 0.72) inset;
+    }
+
+    .screenshot img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .screenshot::after {
+      position: absolute;
+      inset: 0;
+      content: "";
+      pointer-events: none;
+      border-radius: inherit;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset;
+    }
+
+    .caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 550;
+      letter-spacing: 0.025em;
+    }
+
+    .caption strong { color: var(--ink); font-weight: 650; }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .chip {
+      padding: 11px 16px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(250, 247, 240, 0.7);
+      font-size: 18px;
+      font-weight: 650;
+    }
+
+    .chip.accent {
+      border-color: transparent;
+      background: var(--ink);
+      color: var(--white);
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 30px;
+    }
+
+    .feature {
+      min-height: 126px;
+      padding: 18px 18px 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(250, 247, 240, 0.68);
+    }
+
+    .feature .num {
+      display: block;
+      margin-bottom: 13px;
+      color: var(--accent);
+      font-family: "Songti SC", serif;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .feature strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 19px;
+      line-height: 1.28;
+    }
+
+    .feature span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .release-card {
+      display: grid;
+      grid-template-columns: 1.18fr 0.82fr;
+      gap: 24px;
+      margin-top: 28px;
+    }
+
+    .release-shot {
+      position: relative;
+      height: 478px;
+      overflow: hidden;
+      border: 1px solid rgba(27, 26, 23, 0.22);
+      border-radius: 22px;
+      background: #111;
+      box-shadow: 0 28px 58px rgba(48, 36, 25, 0.18);
+    }
+
+    .release-shot img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: 62% top;
+    }
+
+    .release-notes {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .note {
+      position: relative;
+      flex: 1;
+      padding: 20px 20px 18px 50px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(250, 247, 240, 0.72);
+    }
+
+    .note::before {
+      position: absolute;
+      top: 23px;
+      left: 19px;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--accent);
+      content: "";
+      box-shadow: 0 0 0 6px rgba(196, 79, 43, 0.12);
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .note span {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .release-meta {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      margin-top: auto;
+      padding-top: 26px;
+      border-top: 1px solid var(--line);
+    }
+
+    .repo {
+      color: var(--muted);
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .version-lockup {
+      color: var(--accent);
+      font-family: "Songti SC", serif;
+      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    .slide-2 h1 { font-size: 82px; }
+    .slide-3 h1 { font-size: 82px; }
+    .slide-4 h1 { font-size: 74px; }
+  </style>
+</head>
+<body>
+  <section class="slide slide-1 active" data-slide="1">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="kicker"><span>MIHOME MAC</span><strong>RELEASE 1.1.0</strong></div>
+    <div class="badge">开源 · 非官方 · macOS</div>
+    <h1>把米家<br>搬进 <em>Mac</em></h1>
+    <p class="lead">不是手机投屏。一个真正运行在 macOS 的米家桌面控制台，把设备、场景、自动化和摄像头放进同一块屏幕。</p>
+    <div class="screenshot">
+      <img src="./assets/overview.png" alt="MiHome Mac 总览页">
+    </div>
+    <div class="caption"><span><strong>实际界面</strong> · 离线演示数据</span><span>总览 / Overview</span></div>
+    <div class="chips">
+      <span class="chip accent">多账号隔离</span>
+      <span class="chip">本地 / 远程摄像头</span>
+      <span class="chip">内置 go2rtc</span>
+    </div>
+  </section>
+
+  <section class="slide slide-2" data-slide="2">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="kicker"><span>MIHOME MAC</span><strong>WHAT'S NEW</strong></div>
+    <div class="badge">1.1.0 核心更新</div>
+    <h1>多账号<br><em>互不串数据</em></h1>
+    <p class="lead">账号、家庭、设备、摄像头、场景和自动化按账号隔离。切换时先清空旧状态，旧请求也不能回写新账号。</p>
+    <div class="screenshot" style="height: 510px;">
+      <img src="./assets/accounts.png" alt="MiHome Mac 多账号切换">
+    </div>
+    <div class="caption"><span><strong>实际界面</strong> · 离线演示数据</span><span>多账号切换</span></div>
+    <div class="feature-grid">
+      <div class="feature"><span class="num">01</span><strong>私有账号库</strong><span>会话独立保存，目录与文件权限收紧。</span></div>
+      <div class="feature"><span class="num">02</span><strong>请求代次防护</strong><span>旧账号的延迟响应不会写进新界面。</span></div>
+      <div class="feature"><span class="num">03</span><strong>安全回退</strong><span>退出当前账号后自动切到剩余账号。</span></div>
+    </div>
+  </section>
+
+  <section class="slide slide-3" data-slide="3">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="kicker"><span>MIHOME MAC</span><strong>ALL IN ONE</strong></div>
+    <div class="badge">全屋控制 · 摄像头 · 自动化</div>
+    <h1>一台 Mac<br><em>看住全屋</em></h1>
+    <p class="lead">本地优先直连，远程自动回退。声音、云台、暂停、截图和多路监控都在同一个界面完成。</p>
+    <div class="screenshot" style="height: 510px;">
+      <img src="./assets/camera.png" alt="MiHome Mac 摄像头监控页">
+    </div>
+    <div class="caption"><span><strong>实际界面</strong> · 离线演示数据</span><span>监控 / Camera</span></div>
+    <div class="feature-grid">
+      <div class="feature"><span class="num">01</span><strong>双通道播放</strong><span>局域网优先，远程通道兜底。</span></div>
+      <div class="feature"><span class="num">02</span><strong>独立声音</strong><span>开关声音不重建视频通道。</span></div>
+      <div class="feature"><span class="num">03</span><strong>云台和宫格</strong><span>单路控制与多路监控同屏。</span></div>
+    </div>
+  </section>
+
+  <section class="slide slide-4" data-slide="4">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="kicker"><span>MIHOME MAC</span><strong>RELEASE NOTES</strong></div>
+    <div class="badge">GitHub Release · 2026.11</div>
+    <h1>1.1.0<br><em>更新了什么</em></h1>
+    <p class="lead">多账号、整套新界面、在线状态同步、路由器状态修复，以及更完整的交互回归。</p>
+    <div class="release-card">
+      <div class="release-shot">
+        <img src="./assets/settings.png" alt="MiHome Mac 设置页">
+      </div>
+      <div class="release-notes">
+        <div class="note"><strong>多账号隔离</strong><span>添加、切换、退出与旧请求防串。</span></div>
+        <div class="note"><strong>界面重构</strong><span>顶部导航、总览、设备、监控与设置。</span></div>
+        <div class="note"><strong>状态更准</strong><span>离线恢复即时刷新，路由器不再误判。</span></div>
+        <div class="note"><strong>10 轮回归</strong><span>3952 项检查，620 张界面截图。</span></div>
+      </div>
+    </div>
+    <div class="release-meta">
+      <span class="repo">GitHub · Reign9201/mihome-mac</span>
+      <span class="version-lockup">v1.1.0</span>
+    </div>
+    <div class="footer"><span>实际界面 · 离线演示数据</span><span>GPL-3.0-or-later · 非小米官方项目</span></div>
+  </section>
+
+  <script>
+    const slide = new URLSearchParams(location.search).get("slide") || "1";
+    document.querySelectorAll(".slide").forEach((node) => {
+      node.classList.toggle("active", node.dataset.slide === slide);
+    });
+  </script>
+</body>
+</html>
