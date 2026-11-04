@@ -464,23 +464,21 @@ try {
     );
     expect(overview.rows === 9, `round ${round}: expected 9 overview rows, got ${overview.rows}`);
     expect(overview.overflow === false, `round ${round}: horizontal overflow on overview`);
-    if (round <= 3) {
-      await waitFor(() => pageEval(
-        cdp,
-        `document.querySelector('#overviewView .device-row[data-did="router1"] .device-meta')?.textContent.includes('连接设备数')`,
-      ));
-      const routerCard = await pageEval(cdp, `({
-        meta: document.querySelector('#overviewView .device-row[data-did="router1"] .device-meta')?.textContent,
-        switch: Boolean(document.querySelector('#overviewView .device-row[data-did="router1"] .inline-switch')),
-        offline: document.querySelector('#overviewView .device-row[data-did="router1"]')?.classList.contains('off'),
-      })`);
-      expect(!routerCard.offline, `round ${round}: online router is rendered offline`);
-      expect(!routerCard.switch, `round ${round}: router indicator light is exposed as router power`);
-      expect(
-        !/已关闭|离线/.test(routerCard.meta || ''),
-        `round ${round}: router card shows the wrong state: ${routerCard.meta}`,
-      );
-    }
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#overviewView .device-row[data-did="router1"] .device-meta')?.textContent.includes('连接设备数')`,
+    ));
+    const routerCard = await pageEval(cdp, `({
+      meta: document.querySelector('#overviewView .device-row[data-did="router1"] .device-meta')?.textContent,
+      switch: Boolean(document.querySelector('#overviewView .device-row[data-did="router1"] .inline-switch')),
+      offline: document.querySelector('#overviewView .device-row[data-did="router1"]')?.classList.contains('off'),
+    })`);
+    expect(!routerCard.offline, `round ${round}: online router is rendered offline`);
+    expect(!routerCard.switch, `round ${round}: router indicator light is exposed as router power`);
+    expect(
+      !/已关闭|离线/.test(routerCard.meta || ''),
+      `round ${round}: router card shows the wrong state: ${routerCard.meta}`,
+    );
     await screenshot(`r${round}-01-overview`);
 
     await click('#btnMenuBar');
@@ -519,23 +517,21 @@ try {
     await screenshot(`r${round}-03-performance-hud`);
     await click('#hudClose');
 
-    if (round <= 3) {
-      await pageEval(cdp, `window.__SET_DEVICE_ONLINE__('fan1', false); window.dispatchEvent(new Event('focus')); true`);
-      await waitFor(() => pageEval(
-        cdp,
-        `document.querySelector('.device-row[data-did="fan1"]')?.classList.contains('off') === true`,
-      ));
-      await pageEval(cdp, `window.__SET_DEVICE_ONLINE__('fan1', true); window.dispatchEvent(new Event('focus')); true`);
-      await waitFor(() => pageEval(
-        cdp,
-        `document.querySelector('.device-row[data-did="fan1"]')?.classList.contains('off') === false`,
-      ));
-      expect(
-        await pageEval(cdp, `document.querySelector('.device-row[data-did="fan1"] .device-meta')?.textContent !== '设备离线'`),
-        `round ${round}: online device still shows offline metadata`,
-      );
-      await screenshot(`r${round}-04-device-online-recovered`);
-    }
+    await pageEval(cdp, `window.__SET_DEVICE_ONLINE__('fan1', false); window.dispatchEvent(new Event('focus')); true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('.device-row[data-did="fan1"]')?.classList.contains('off') === true`,
+    ));
+    await pageEval(cdp, `window.__SET_DEVICE_ONLINE__('fan1', true); window.dispatchEvent(new Event('focus')); true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('.device-row[data-did="fan1"]')?.classList.contains('off') === false`,
+    ));
+    expect(
+      await pageEval(cdp, `document.querySelector('.device-row[data-did="fan1"] .device-meta')?.textContent !== '设备离线'`),
+      `round ${round}: online device still shows offline metadata`,
+    );
+    await screenshot(`r${round}-04-device-online-recovered`);
 
     await actionTime(`document.querySelector('[data-room="living"]')?.click()`);
     const room = await pageEval(cdp, `({
@@ -713,189 +709,181 @@ try {
     await screenshot(`r${round}-16-command-palette`);
     await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
 
-    if (round <= 3) {
-      const pageSelectors = [
-        ['overview', '#overviewView'],
-        ['camera', '#cameraView'],
-        ['scenes', '#sceneView'],
-        ['automations', '#automationView'],
-        ['devices', '#devicesView'],
-        ['settings', '#settingsView'],
-      ];
-      for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
-        await cdp.send('Emulation.setDeviceMetricsOverride', {
-          width,
-          height,
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
-        viewportWidth = width;
-        viewportHeight = height;
-        for (const [name, selector] of pageSelectors) {
-          await pageEval(cdp, `(() => {
-            const nav = ${JSON.stringify(selector)} === '#overviewView' ? '#overviewNav'
-              : ${JSON.stringify(selector)} === '#cameraView' ? '#cameraNav'
-              : ${JSON.stringify(selector)} === '#sceneView' ? '#sceneNav'
-              : ${JSON.stringify(selector)} === '#automationView' ? '#automationNav'
-              : ${JSON.stringify(selector)} === '#devicesView' ? '#devicesNav' : '#settingsNav';
-            document.querySelector(nav).click();
-            return true;
-          })()`);
-          await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
-          const metrics = await pageEval(cdp, `(() => {
-            const page = document.querySelector(${JSON.stringify(selector)});
-            const visibleNodes = [...page.querySelectorAll('button, input, select, article, .device-row, .table-row, .scene-card, .auto-row')]
-              .filter((node) => {
-                const style = getComputedStyle(node);
-                const rect = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-              });
-            const clipped = [...page.querySelectorAll('button, input, select')]
-              .filter((node) => {
-                const style = getComputedStyle(node);
-                const rect = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden'
-                  && rect.width > 0 && rect.height > 0
-                  && (rect.left < -1 || rect.right > innerWidth + 1);
-              })
-              .map((node) => node.id || node.className || node.tagName);
-            const shellClipped = [...document.querySelectorAll(
-              '.titlebar button, .topnav button, .topnav select, .sidebar button, .statusbar button',
-            )]
-              .filter((node) => {
-                const style = getComputedStyle(node);
-                const rect = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden'
-                  && rect.width > 0 && rect.height > 0
-                  && (rect.left < -1 || rect.right > innerWidth + 1);
-              })
-              .map((node) => node.id || node.className || node.tagName);
-            return {
-              title: page.querySelector('.page-title')?.textContent || '',
-              visibleNodes: visibleNodes.length,
-              overflow: page.scrollWidth > page.clientWidth + 1
-                || document.documentElement.scrollWidth > innerWidth + 1,
-              clipped,
-              shellClipped,
-            };
-          })()`);
-          expect(Boolean(metrics.title), `ui ${width}px: ${name} has no title`);
-          expect(metrics.visibleNodes > 0, `ui ${width}px: ${name} has no visible interactive content`);
-          expect(metrics.overflow === false, `ui ${width}px: ${name} overflows horizontally`);
-          expect(metrics.clipped.length === 0, `ui ${width}px: ${name} clips ${metrics.clipped.join(', ')}`);
-          expect(
-            metrics.shellClipped.length === 0,
-            `ui ${width}px: shell clips ${metrics.shellClipped.join(', ')}`,
-          );
-          if (round === 1) await screenshot(`round1-${name}-${width}`);
-        }
-      }
+    const pageSelectors = [
+      ['overview', '#overviewView'],
+      ['camera', '#cameraView'],
+      ['scenes', '#sceneView'],
+      ['automations', '#automationView'],
+      ['devices', '#devicesView'],
+      ['settings', '#settingsView'],
+    ];
+    for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: 1440,
-        height: 900,
+        width,
+        height,
         deviceScaleFactor: 1,
         mobile: false,
       });
-      viewportWidth = 1440;
-      viewportHeight = 900;
+      viewportWidth = width;
+      viewportHeight = height;
+      for (const [name, selector] of pageSelectors) {
+        await pageEval(cdp, `(() => {
+          const nav = ${JSON.stringify(selector)} === '#overviewView' ? '#overviewNav'
+            : ${JSON.stringify(selector)} === '#cameraView' ? '#cameraNav'
+            : ${JSON.stringify(selector)} === '#sceneView' ? '#sceneNav'
+            : ${JSON.stringify(selector)} === '#automationView' ? '#automationNav'
+            : ${JSON.stringify(selector)} === '#devicesView' ? '#devicesNav' : '#settingsNav';
+          document.querySelector(nav).click();
+          return true;
+        })()`);
+        await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+        const metrics = await pageEval(cdp, `(() => {
+          const page = document.querySelector(${JSON.stringify(selector)});
+          const visibleNodes = [...page.querySelectorAll('button, input, select, article, .device-row, .table-row, .scene-card, .auto-row')]
+            .filter((node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+            });
+          const clipped = [...page.querySelectorAll('button, input, select')]
+            .filter((node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden'
+                && rect.width > 0 && rect.height > 0
+                && (rect.left < -1 || rect.right > innerWidth + 1);
+            })
+            .map((node) => node.id || node.className || node.tagName);
+          const shellClipped = [...document.querySelectorAll(
+            '.titlebar button, .topnav button, .topnav select, .sidebar button, .statusbar button',
+          )]
+            .filter((node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden'
+                && rect.width > 0 && rect.height > 0
+                && (rect.left < -1 || rect.right > innerWidth + 1);
+            })
+            .map((node) => node.id || node.className || node.tagName);
+          return {
+            title: page.querySelector('.page-title')?.textContent || '',
+            visibleNodes: visibleNodes.length,
+            overflow: page.scrollWidth > page.clientWidth + 1
+              || document.documentElement.scrollWidth > innerWidth + 1,
+            clipped,
+            shellClipped,
+          };
+        })()`);
+        expect(Boolean(metrics.title), `round ${round}, ui ${width}px: ${name} has no title`);
+        expect(metrics.visibleNodes > 0, `round ${round}, ui ${width}px: ${name} has no visible interactive content`);
+        expect(metrics.overflow === false, `round ${round}, ui ${width}px: ${name} overflows horizontally`);
+        expect(metrics.clipped.length === 0, `round ${round}, ui ${width}px: ${name} clips ${metrics.clipped.join(', ')}`);
+        expect(
+          metrics.shellClipped.length === 0,
+          `round ${round}, ui ${width}px: shell clips ${metrics.shellClipped.join(', ')}`,
+        );
+        await screenshot(`r${round}-${name}-${width}`);
+      }
     }
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    viewportWidth = 1440;
+    viewportHeight = 900;
 
-    if (round <= 3) {
-      await click('#cameraNav');
-      const localBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_start').length`);
-      await click('#camLocalButton');
-      await waitFor(() => pageEval(
-        cdp,
-        `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_start').length > ${localBefore}`,
-      ));
-      expect(
-        await pageEval(cdp, `document.querySelector('#camLocalButton').classList.contains('active')`),
-        `round ${round}: local camera mode did not activate`,
-      );
-      await screenshot(`r${round}-17-camera-local`);
+    await click('#cameraNav');
+    const localBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_start').length`);
+    await click('#camLocalButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_start').length > ${localBefore}`,
+    ));
+    expect(
+      await pageEval(cdp, `document.querySelector('#camLocalButton').classList.contains('active')`),
+      `round ${round}: local camera mode did not activate`,
+    );
+    await screenshot(`r${round}-17-camera-local`);
 
-      const remoteBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length`);
-      await click('#camRemoteButton');
-      await waitFor(() => pageEval(
-        cdp,
-        `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length > ${remoteBefore}`,
-      ));
-      await waitFor(() => pageEval(cdp, `document.querySelector('#camPtzOverlay').hidden === false`));
-      expect(
-        await pageEval(cdp, `Boolean(document.querySelector('#camTimeline .timeline-session'))`),
-        `round ${round}: active camera timeline is missing`,
-      );
-      await screenshot(`r${round}-18-camera-remote`);
+    const remoteBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length`);
+    await click('#camRemoteButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length > ${remoteBefore}`,
+    ));
+    await waitFor(() => pageEval(cdp, `document.querySelector('#camPtzOverlay').hidden === false`));
+    expect(
+      await pageEval(cdp, `Boolean(document.querySelector('#camTimeline .timeline-session'))`),
+      `round ${round}: active camera timeline is missing`,
+    );
+    await screenshot(`r${round}-18-camera-remote`);
 
-      const ptzBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_ptz').length`);
-      await pageEval(cdp, `document.querySelector('#camPtzOverlay [data-ptz-dir=\"left\"]').click(); true`);
-      await waitFor(() => pageEval(
-        cdp,
-        `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_ptz').length > ${ptzBefore}`,
-      ));
+    const ptzBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_ptz').length`);
+    await pageEval(cdp, `document.querySelector('#camPtzOverlay [data-ptz-dir=\"left\"]').click(); true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_ptz').length > ${ptzBefore}`,
+    ));
 
-      await click('#camPause');
-      expect(
-        await pageEval(cdp, `document.querySelector('#camPause').textContent.includes('继续')`),
-        `round ${round}: camera pause did not update its control`,
-      );
-      await screenshot(`r${round}-19-camera-paused`);
-      await click('#camPause');
-      expect(
-        await pageEval(cdp, `document.querySelector('#camPause').textContent.includes('暂停')`),
-        `round ${round}: camera resume did not update its control`,
-      );
-      await screenshot(`r${round}-20-camera-resumed`);
-    }
-  }
+    await click('#camPause');
+    expect(
+      await pageEval(cdp, `document.querySelector('#camPause').textContent.includes('继续')`),
+      `round ${round}: camera pause did not update its control`,
+    );
+    await screenshot(`r${round}-19-camera-paused`);
+    await click('#camPause');
+    expect(
+      await pageEval(cdp, `document.querySelector('#camPause').textContent.includes('暂停')`),
+      `round ${round}: camera resume did not update its control`,
+    );
+    await screenshot(`r${round}-20-camera-resumed`);
 
-  for (let cycle = 1; cycle <= 3; cycle += 1) {
     await click('#logout');
     await waitFor(() => pageEval(cdp, `!document.querySelector('#loginLayer').classList.contains('hide')`));
     await new Promise((resolve) => setTimeout(resolve, 520));
-    await screenshot(`login-cycle-${cycle}`);
-    if (cycle === 1) {
-      for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
-        await cdp.send('Emulation.setDeviceMetricsOverride', {
-          width,
-          height,
-          deviceScaleFactor: 1,
-          mobile: false,
-        });
-        viewportWidth = width;
-        viewportHeight = height;
-        await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
-        const loginMetrics = await pageEval(cdp, `(() => {
-          const layer = document.querySelector('#loginLayer');
-          const card = layer.querySelector('.login-card');
-          const overflow = document.documentElement.scrollWidth > innerWidth + 1
-            || layer.scrollWidth > layer.clientWidth + 1;
-          const cardRect = card.getBoundingClientRect();
-          return {
-            visible: getComputedStyle(layer).visibility !== 'hidden',
-            overflow,
-            cardInside: cardRect.left >= -1 && cardRect.right <= innerWidth + 1,
-          };
-        })()`);
-        expect(loginMetrics.visible, `login ${width}px: layer is hidden`);
-        expect(!loginMetrics.overflow, `login ${width}px: horizontal overflow`);
-        expect(loginMetrics.cardInside, `login ${width}px: login card is clipped`);
-        await screenshot(`round1-login-${width}`);
-      }
+    await screenshot(`r${round}-21-login`);
+    for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: 1440,
-        height: 900,
+        width,
+        height,
         deviceScaleFactor: 1,
         mobile: false,
       });
-      viewportWidth = 1440;
-      viewportHeight = 900;
+      viewportWidth = width;
+      viewportHeight = height;
+      await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+      const loginMetrics = await pageEval(cdp, `(() => {
+        const layer = document.querySelector('#loginLayer');
+        const card = layer.querySelector('.login-card');
+        const overflow = document.documentElement.scrollWidth > innerWidth + 1
+          || layer.scrollWidth > layer.clientWidth + 1;
+        const cardRect = card.getBoundingClientRect();
+        return {
+          visible: getComputedStyle(layer).visibility !== 'hidden',
+          overflow,
+          cardInside: cardRect.left >= -1 && cardRect.right <= innerWidth + 1,
+        };
+      })()`);
+      expect(loginMetrics.visible, `round ${round}, login ${width}px: layer is hidden`);
+      expect(!loginMetrics.overflow, `round ${round}, login ${width}px: horizontal overflow`);
+      expect(loginMetrics.cardInside, `round ${round}, login ${width}px: login card is clipped`);
+      await screenshot(`r${round}-login-${width}`);
     }
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    viewportWidth = 1440;
+    viewportHeight = 900;
     await click('#startAuth');
     await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`));
     expect(
       await pageEval(cdp, `document.querySelector('#accountName').textContent === '云栖公寓'`),
-      `login cycle ${cycle}: account did not reload`,
+      `round ${round}: account did not reload after login`,
     );
     await pageEval(cdp, `(() => {
       const select = document.querySelector('#homeSelect');

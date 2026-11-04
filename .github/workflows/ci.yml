@@ -42,6 +42,18 @@ jobs:
         working-directory: desktop
       - run: npm test
         working-directory: desktop
+      - name: Run 10-round UI screenshot regression
+        run: npm run test:ui
+        working-directory: desktop
+        env:
+          UI_REGRESSION_ROUNDS: 10
+      - name: Upload UI regression screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-regression-screenshots
+          path: desktop/tests/artifacts
+          if-no-files-found: ignore
       - run: npm audit --audit-level=high
         working-directory: desktop
       - name: Download go2rtc
