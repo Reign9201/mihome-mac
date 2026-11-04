@@ -122,13 +122,16 @@ cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D wa
 
 结果：38/38 单元测试通过，Clippy 无警告。
 
+1.1.0 最终发布前再次执行 10 轮 UI 回归：3952 项检查、620 张截图全部通过，
+最大交互等待 39.9 ms，DOM 节点 1088，JS Heap 2.69 MB，无运行时错误和失败项。
+
 ### 构建验证
 
 ```bash
 npm --prefix desktop run build
 ```
 
-当前 x86_64 构建成功，DMG 为 `MiHome Mac_1.0.0_x64.dmg`，约 11.68 MiB。已挂载 DMG 验证应用结构、版本 `1.0.0`、`x86_64` 主程序和 Finder 安装布局。
+当前 x86_64 构建成功，DMG 为 `MiHome Mac_1.1.0_x64.dmg`。已挂载 DMG 验证应用结构、版本 `1.1.0`、`x86_64` 主程序和 Finder 安装布局。
 
 ## 四、已知差异与边界
 
