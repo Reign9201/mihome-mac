@@ -315,6 +315,93 @@ test('distinguishes camera and indicator switches and localizes baby alarms', ()
   assert.deepEqual(labels, ['摄像头开关', '指示灯', '宝宝起床提醒', '宝宝哭声提醒']);
 });
 
+test('does not treat a router indicator light as the router power state', () => {
+  const profile = profileFromSpec({
+    services: [{
+      iid: 2,
+      type: 'urn:miot-spec-v2:service:router:00007864:xiaomi-rn02:1',
+      description: 'Router',
+      properties: [{
+        iid: 3,
+        type: 'urn:miot-spec-v2:property:connected-device-number:000000A0:xiaomi-rn02:1',
+        description: 'Connected Device Number',
+        format: 'uint16',
+        access: ['read', 'notify'],
+      }],
+    }, {
+      iid: 5,
+      type: 'urn:miot-spec-v2:service:indicator-light:00007803:xiaomi-rn02:1',
+      description: 'Indicator Light',
+      properties: [{
+        iid: 1,
+        type: 'urn:miot-spec-v2:property:on:00000006:xiaomi-rn02:1',
+        description: 'Switch Status',
+        format: 'bool',
+        access: ['read', 'write', 'notify'],
+      }],
+    }],
+  });
+  const indicator = profile.controls.find((item) => item.label === '指示灯');
+  assert.equal(indicator.primary, false);
+  const summary = summarizeCardMetrics(
+    profile,
+    (def) => def.suffix === 'connected-device-number' ? 22 : false,
+  );
+  assert.equal(summary, '连接设备数 22 台');
+});
+
+test('localizes known modes and omits untranslatable enum buttons', () => {
+  const profile = profileFromSpec({
+    services: [{
+      iid: 2,
+      type: 'urn:miot-spec-v2:service:light:00007802:xiaomi-cfan01:1',
+      description: 'Light',
+      properties: [{
+        iid: 7,
+        type: 'urn:miot-spec-v2:property:mode:00000008:xiaomi-cfan01:1',
+        description: 'Mode',
+        format: 'uint8',
+        access: ['read', 'write'],
+        value_list: [
+          { value: 0, description: 'None' },
+          { value: 1, description: 'Reading' },
+          { value: 2, description: 'Lighting' },
+          { value: 3, description: 'Tv' },
+          { value: 4, description: 'Warmth' },
+          { value: 5, description: 'Night Light' },
+          { value: 6, description: 'Vendor Private Mode' },
+        ],
+      }],
+    }],
+  });
+  assert.deepEqual(profile.controls[0].options, [
+    [0, '无'],
+    [1, '阅读'],
+    [2, '照明'],
+    [3, '电视'],
+    [4, '暖光'],
+    [5, '夜灯'],
+  ]);
+  assert.ok(!profile.controls[0].options.some(([, label]) => label === '未知选项'));
+
+  const opaque = profileFromSpec({
+    services: [{
+      iid: 2,
+      type: 'urn:miot-spec-v2:service:vendor:1',
+      description: 'Vendor',
+      properties: [{
+        iid: 1,
+        type: 'urn:miot-spec-v2:property:mode:1',
+        description: 'Mode',
+        format: 'uint8',
+        access: ['read', 'write'],
+        value_list: [{ value: 9, description: 'Vendor Private Mode' }],
+      }],
+    }],
+  });
+  assert.equal(opaque.controls.length, 0);
+});
+
 test('device cards show only concise localized metrics', () => {
   const profile = {
     metrics: [
@@ -448,24 +535,25 @@ test('global UI lock disables selection and copying', () => {
   const root = path.resolve(__dirname, '..');
   const css = fs.readFileSync(path.join(root, 'ui/styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
-  assert.match(css, /user-select:none/);
-  assert.match(css, /-webkit-user-drag:none/);
+  assert.match(css, /-webkit-user-select:\s*none/);
+  assert.match(css, /(^|[^-])user-select:\s*none/);
+  assert.match(css, /-webkit-user-drag:\s*none/);
   assert.match(css, /::selection\{background:transparent/);
   assert.match(js, /'copy', 'cut', 'dragstart'/);
   assert.match(js, /'selectstart'/);
   assert.match(js, /'contextmenu'/);
   assert.match(js, /camera_diagnostics/);
   assert.match(js, /MiCameraPlayer/);
-  assert.match(js, /云台控制/);
+  assert.match(js, /camera_remote_ptz/);
   assert.match(js, /摄像头设置/);
 });
 
-test('styles keep valid selectors and match the compact device card height', () => {
+test('styles keep valid selectors and set intrinsic device row heights', () => {
   const css = fs.readFileSync(path.resolve(__dirname, '../ui/styles.css'), 'utf8');
   assert.doesNotMatch(css, /(^|\n)device-glyph\[data-kind="plug"\]/);
-  assert.match(css, /contain-intrinsic-size:auto 97px/);
-  assert.match(css, /\.side\{background:rgba\([^}]+;background:color-mix/);
-  assert.match(css, /\.room-chip\.active small\{color:rgba\([^}]+;color:color-mix/);
+  assert.match(css, /contain-intrinsic-size:\s*auto 64px/);
+  assert.match(css, /\.sidebar\s*\{[\s\S]*?background:\s*color-mix/);
+  assert.match(css, /\.room-chip\.active small\s*\{\s*color:\s*color-mix/);
 });
 
 test('camera list keeps vendor model identifiers out of the primary label', () => {

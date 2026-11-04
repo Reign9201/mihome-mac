@@ -10,7 +10,8 @@
     "dev": "npm run bridge && tauri dev",
     "build": "npm run bridge && tauri build",
     "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/diagnostics.js && node --check ui/camera-player.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:ui": "node tests/ui-regression.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
