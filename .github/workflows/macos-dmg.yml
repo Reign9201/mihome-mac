@@ -24,6 +24,9 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+      - name: Install x64 assembler
+        if: matrix.arch == 'x64'
+        run: brew install nasm
       - run: npm ci
         working-directory: desktop
       - run: ./scripts/build-macos.sh ${{ matrix.arch }}
