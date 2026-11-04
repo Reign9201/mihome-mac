@@ -2,7 +2,7 @@
 
 本文写 MiHome Mac 的产品结构、交互规则、视觉系统、应用架构与性能预算。原型在 `prototype/`，截图在 `docs/assets/`。
 
-> **状态说明：** `prototype/index.html` 与 `docs/assets/shot-*.jpg` 是终极设计目标和交互原型，不是当前桌面应用的实现截图。当前实际界面、设计对齐顺序和发布素材规则见 [UI 设计对齐路线](08-ui-design-parity.md)。对外展示必须区分两者，避免把目标效果误认为已经交付。
+> **状态说明：** `prototype/index.html` 仍是交互与视觉源规范；桌面端已完成主要页面 1:1 对齐，实际界面截图见 `docs/assets/app-*-demo.png`。验证范围、已知接口边界和发布素材规则见 [UI 设计对齐与回归](08-ui-design-parity.md)。
 
 “MiHome Mac”是内部代号。正式发布前要改名并做商标检索，详见 `01-repo-analysis.md` 的许可证与合规一节。
 
