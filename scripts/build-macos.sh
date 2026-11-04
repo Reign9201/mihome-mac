@@ -43,10 +43,13 @@ done
 
 if [[ "$ARCH" == "x64" ]]; then
   GO2RTC_ARCH=amd64
+  FFMPEG_ARCH=x64
 else
   GO2RTC_ARCH="$ARCH"
+  FFMPEG_ARCH="$ARCH"
 fi
 "$ROOT/helpers/go2rtc/fetch.sh" "$GO2RTC_ARCH"
+"$ROOT/helpers/ffmpeg/fetch.sh" "$FFMPEG_ARCH"
 
 if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   identity=$(security find-identity -v -p codesigning 2>/dev/null \

@@ -200,6 +200,9 @@ GRDB 负责：
 | swift-format | 格式化 | Apache-2.0 |
 | SwiftLint | 静态检查 | MIT |
 | go2rtc | 摄像头取流 helper，随 App 打包，不单独安装 | MIT |
+| FFmpeg 8.1.3（最小静态构建） | H.264 转码与 RTSP 发布 sidecar，随 App 打包，不单独安装 | GPL-3.0-or-later |
+| x264 | FFmpeg 内静态链接的 H.264 软件编码器 | GPL-2.0-or-later |
+| Opus 1.5.2 | FFmpeg 内静态链接的 Opus 编码器 | BSD-3-Clause |
 
 其他能力用系统框架。每增加一个依赖，要在 PR 里写用途、许可证、维护状态和替代方案。
 
@@ -208,6 +211,7 @@ GRDB 负责：
 摄像头不放进主工程的 Swift 协议层，单独做一个本机 helper 边界：
 
 - helper 用 go2rtc 1.9.15 的 macOS 单架构或 universal 二进制，随 App 打包到 `Contents/MacOS/go2rtc`。
+- 转码器从 FFmpeg 8.1.3、x264 固定 commit、Opus 1.5.2 源码构建最小静态 GPL 版本，随 App 打包到 `Contents/MacOS/ffmpeg`；只启用 H.264/HEVC/Opus、x264/VideoToolbox、RTSP/SDP 和 scale/fps/aresample 等产品实际使用的组件。构建输入和产物固定 SHA256，许可证和源码地址随包分发。
 - App 启动时拉起，监听 `127.0.0.1` 的随机端口；退出、切换账号、空闲回收时结束进程。
 - 扫码拿到的 `userID` 与 `passToken` 通过临时配置交给 helper，不写用户目录、不写日志。
 - 播放优先 AVPlayer + HLS；低延迟模式用 WKWebView 承载 WebRTC。视频解码走 VideoToolbox。
@@ -216,7 +220,7 @@ GRDB 负责：
 
 这条边界的代价是多一个进程和相应安装体积；收益是摄像头崩溃不会拖垮主 App，且不必把 P2P 协议塞进 Swift 代码。App 侧依赖播放地址、WebSocket 地址和启动/停止接口。
 
-远程查看已由 Rust 的 CS2 relay + MISS 通道实现，不依赖家庭 VPN：摄像头媒体由 ffmpeg 解码并转为低延迟 H.264，再发布到本机 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS；音频使用独立的 RTSP/WebRTC 通道，缺少 libopus 时回退 PCMA。局域网默认也使用 x264 低延迟 H.264，原生视频只在没有 ffmpeg 或显式配置时使用。两类链路都只监听 `127.0.0.1`，不把本地取流服务暴露到局域网；跨网启动时间受小米 relay 发现影响，不能承诺绝对零延迟。
+远程查看已由 Rust 的 CS2 relay + MISS 通道实现，不依赖家庭 VPN：摄像头媒体由内置 ffmpeg 解码并转为低延迟 H.264，再发布到本机 RTSP，由内置 go2rtc 输出 WebRTC/MSE/HLS；音频使用独立的 RTSP/WebRTC 通道，缺少 libopus 时回退 PCMA。局域网默认也使用 x264 低延迟 H.264，原生视频只在显式配置时使用。两类链路都只监听 `127.0.0.1`，不把本地取流服务暴露到局域网；跨网启动时间受小米 relay 发现影响，不能承诺绝对零延迟。
 
 ## 四、基准与解读
 

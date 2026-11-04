@@ -36,10 +36,12 @@ hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" "$DMG" >/dev/null
 APP="$MOUNT/$APP_NAME.app"
 EXEC="$APP/Contents/MacOS/mihome-mac"
 SIDECAR="$APP/Contents/MacOS/go2rtc"
+FFMPEG="$APP/Contents/MacOS/ffmpeg"
 
 [[ -d "$APP" ]] || { echo "应用不存在：$APP" >&2; exit 1; }
 [[ -x "$EXEC" ]] || { echo "主程序不存在或不可执行：$EXEC" >&2; exit 1; }
 [[ -x "$SIDECAR" ]] || { echo "go2rtc sidecar 不存在：$SIDECAR" >&2; exit 1; }
+[[ -x "$FFMPEG" ]] || { echo "ffmpeg sidecar 不存在：$FFMPEG" >&2; exit 1; }
 [[ -f "$APP/Contents/Resources/LICENSE" ]] || { echo "缺少 LICENSE" >&2; exit 1; }
 [[ -f "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md" ]] || {
   echo "缺少 THIRD_PARTY_NOTICES.md" >&2
@@ -47,6 +49,22 @@ SIDECAR="$APP/Contents/MacOS/go2rtc"
 }
 [[ -f "$APP/Contents/Resources/go2rtc-LICENSE" ]] || {
   echo "缺少 go2rtc-LICENSE" >&2
+  exit 1
+}
+[[ -f "$APP/Contents/Resources/ffmpeg-LICENSE" ]] || {
+  echo "缺少 ffmpeg-LICENSE" >&2
+  exit 1
+}
+[[ -f "$APP/Contents/Resources/ffmpeg-COPYING.GPLv3" ]] || {
+  echo "缺少 ffmpeg-COPYING.GPLv3" >&2
+  exit 1
+}
+[[ -f "$APP/Contents/Resources/ffmpeg-x264-COPYING" ]] || {
+  echo "缺少 ffmpeg-x264-COPYING" >&2
+  exit 1
+}
+[[ -f "$APP/Contents/Resources/ffmpeg-opus-COPYING" ]] || {
+  echo "缺少 ffmpeg-opus-COPYING" >&2
   exit 1
 }
 LOCAL_NETWORK_USAGE=$(plutil -extract NSLocalNetworkUsageDescription raw \
@@ -58,6 +76,7 @@ LOCAL_NETWORK_USAGE=$(plutil -extract NSLocalNetworkUsageDescription raw \
 
 ARCHS=$(lipo -archs "$EXEC")
 SIDECAR_ARCHS=$(lipo -archs "$SIDECAR")
+FFMPEG_ARCHS=$(lipo -archs "$FFMPEG")
 case "$EXPECTED_ARCH" in
   universal)
     [[ "$ARCHS" == *x86_64* && "$ARCHS" == *arm64* ]] || {
@@ -68,11 +87,19 @@ case "$EXPECTED_ARCH" in
       echo "go2rtc 期望 universal，实际架构：$SIDECAR_ARCHS" >&2
       exit 1
     }
+    [[ "$FFMPEG_ARCHS" == *x86_64* && "$FFMPEG_ARCHS" == *arm64* ]] || {
+      echo "ffmpeg 期望 universal，实际架构：$FFMPEG_ARCHS" >&2
+      exit 1
+    }
     ;;
   arm64)
     [[ "$ARCHS" == *arm64* ]] || { echo "期望 arm64，实际架构：$ARCHS" >&2; exit 1; }
     [[ "$SIDECAR_ARCHS" == "arm64" ]] || {
       echo "go2rtc 期望 arm64，实际架构：$SIDECAR_ARCHS" >&2
+      exit 1
+    }
+    [[ "$FFMPEG_ARCHS" == "arm64" ]] || {
+      echo "ffmpeg 期望 arm64，实际架构：$FFMPEG_ARCHS" >&2
       exit 1
     }
     ;;
@@ -82,20 +109,54 @@ case "$EXPECTED_ARCH" in
       echo "go2rtc 期望 x86_64，实际架构：$SIDECAR_ARCHS" >&2
       exit 1
     }
+    [[ "$FFMPEG_ARCHS" == "x86_64" ]] || {
+      echo "ffmpeg 期望 x86_64，实际架构：$FFMPEG_ARCHS" >&2
+      exit 1
+    }
     ;;
 esac
 
 SIDECAR_HASH=$(shasum -a 256 "$SIDECAR" | awk '{ print $1 }')
+FFMPEG_HASH=$(shasum -a 256 "$FFMPEG" | awk '{ print $1 }')
 SIDECAR_HASH_KNOWN=0
 if awk -v hash="$SIDECAR_HASH" '$1 == "binary" && $3 == hash { found = 1 } END { exit !found }' \
   "$ROOT/helpers/go2rtc/checksums.txt"; then
   SIDECAR_HASH_KNOWN=1
+fi
+FFMPEG_HASH_KNOWN=0
+if awk -v hash="$FFMPEG_HASH" '$1 == "binary" && $3 == hash { found = 1 } END { exit !found }' \
+  "$ROOT/helpers/ffmpeg/checksums.txt"; then
+  FFMPEG_HASH_KNOWN=1
+fi
+
+HOST_ARCH=$(uname -m)
+if [[ " $FFMPEG_ARCHS " == *" $HOST_ARCH "* ]]; then
+  FFMPEG_VERSION=$("$FFMPEG" -hide_banner -version 2>&1 | head -n 1)
+  FFMPEG_ENCODERS=$("$FFMPEG" -hide_banner -encoders 2>/dev/null)
+  FFMPEG_MUXERS=$("$FFMPEG" -hide_banner -muxers 2>/dev/null)
+  for encoder in libx264 h264_videotoolbox libopus pcm_alaw; do
+    printf '%s\n' "$FFMPEG_ENCODERS" |
+      grep -Eq "^[[:space:]]*[VAS][A-Z.]{5}[[:space:]]+${encoder}([[:space:]]|$)" || {
+        echo "ffmpeg 缺少编码器：$encoder" >&2
+        exit 1
+      }
+  done
+  printf '%s\n' "$FFMPEG_MUXERS" |
+    grep -Eq '^[[:space:]]*E[[:space:]]+rtsp([[:space:]]|$)' || {
+      echo "ffmpeg 缺少 RTSP muxer" >&2
+      exit 1
+    }
+else
+  FFMPEG_VERSION="跳过执行检查（产物 ${FFMPEG_ARCHS}，宿主 ${HOST_ARCH}）"
 fi
 
 echo "DMG: $DMG"
 echo "主程序架构: $ARCHS"
 echo "go2rtc 架构: $SIDECAR_ARCHS"
 echo "go2rtc SHA256: $SIDECAR_HASH"
+echo "ffmpeg 架构: $FFMPEG_ARCHS"
+echo "ffmpeg SHA256: $FFMPEG_HASH"
+echo "ffmpeg 版本: $FFMPEG_VERSION"
 if [[ -f "$SHA_FILE" ]]; then
   echo "DMG SHA256: $ACTUAL_SHA"
 fi
@@ -105,6 +166,7 @@ if codesign --verify --deep --strict "$APP" >/dev/null 2>&1; then
   SIGNED_OK=1
   codesign --verify --deep --strict --verbose=2 "$APP"
   codesign --verify --strict --verbose=2 "$SIDECAR"
+  codesign --verify --strict --verbose=2 "$FFMPEG"
   SIGNATURE_DETAILS=$(codesign -dv --verbose=4 "$APP" 2>&1 || true)
   if printf '%s\n' "$SIGNATURE_DETAILS" | grep -q "Authority=Developer ID Application"; then
     spctl --assess --type execute --verbose=4 "$APP"
@@ -127,6 +189,15 @@ if [[ "$SIDECAR_HASH_KNOWN" != "1" ]]; then
     echo "go2rtc 经应用包代码签名封装；上游 SHA256 因签名写回而变化。"
   else
     echo "go2rtc 哈希不在固定版本清单中：$SIDECAR_HASH" >&2
+    exit 1
+  fi
+fi
+
+if [[ "$FFMPEG_HASH_KNOWN" != "1" ]]; then
+  if [[ "$SIGNED_OK" == "1" ]]; then
+    echo "ffmpeg 经应用包代码签名封装；上游 SHA256 因签名写回而变化。"
+  else
+    echo "ffmpeg 哈希不在固定版本清单中：$FFMPEG_HASH" >&2
     exit 1
   fi
 fi
