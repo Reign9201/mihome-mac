@@ -349,7 +349,7 @@ const mockSource = String.raw`
         setActiveAccount(userId);
         return { status: 'success', user_id: userId, message: '' };
       }
-      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.1.0' };
+      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.1.1' };
       if (command === 'ui_ready' || command === 'camera_stop' || command === 'log_export') return null;
       if (command === 'list_homes') return clone(accountHomes[activeUserId] || []);
       if (command === 'list_devices') return clone(accountDevices[activeUserId] || []);

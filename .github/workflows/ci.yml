@@ -56,9 +56,11 @@ jobs:
           if-no-files-found: ignore
       - run: npm audit --audit-level=high
         working-directory: desktop
-      - name: Download go2rtc
-        run: helpers/go2rtc/fetch.sh
-      - run: bash -n helpers/go2rtc/fetch.sh scripts/build-macos.sh scripts/strip-macos-binary.sh scripts/verify-macos-bundle.sh
+      - name: Download sidecars
+        run: |
+          helpers/go2rtc/fetch.sh
+          helpers/ffmpeg/fetch.sh
+      - run: bash -n helpers/go2rtc/fetch.sh helpers/ffmpeg/fetch.sh helpers/ffmpeg/build-minimal.sh scripts/build-macos.sh scripts/strip-macos-binary.sh scripts/verify-macos-bundle.sh
       - run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
       - run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: npm run build -- --no-bundle

@@ -2647,7 +2647,7 @@ async function startRemoteCameraSetNow(cameras, grid) {
       : `远程取流失败：${text}`;
     $('#camHint').textContent = busy
       ? '同一台摄像头通常只允许一台设备查看实时画面。'
-      : '远程通道初始化失败。确认本机已安装 ffmpeg。';
+      : '远程通道初始化失败。应用内置转码组件未就绪，请重启应用并查看诊断日志。';
   }
 }
 

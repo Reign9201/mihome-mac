@@ -1,0 +1,9 @@
+# Inputs for the minimal static FFmpeg build.
+source ffmpeg 8.1.3 09f990289327d3ebfedf4fc15cae3f884a65dab7a5aac7bbb5b01ff83900efd9
+source x264 31e19f92f00c7003fa115047ce50978bc98c3a0d d053c9d86988d6bc78237ca5205865c5ddf99c98ef4cd9927eec8f6d388f6dd9
+source opus 1.5.2 65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
+
+# Minimal binaries produced by build-minimal.sh.
+binary arm64 ba889d06991846bf7f1942f936a393dfd8bdfb3b0c60baba3c9f1788271f1e75
+binary x64 abf0314b84cc9c2460c13a564ad8516207b69afc8f85b9d2b19846b18832440a
+binary universal 00ee84fcb7d3b160ce0f6cf4abfb9a44d41aac45a963c673cb99455bfde0eae4

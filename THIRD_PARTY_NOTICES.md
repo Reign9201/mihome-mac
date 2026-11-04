@@ -2,7 +2,7 @@
 
 MiHome Mac is licensed under GPL-3.0-or-later. This file records the upstream
 projects and third-party components that informed or are distributed with the
-application. It was last reviewed on 2026-11-01.
+application. It was last reviewed on 2026-11-04.
 
 ## Protocol and product references
 
@@ -57,17 +57,44 @@ code and binaries are not included in this repository or its application bundle.
   is not committed to the repository. Its license is preserved at
   `helpers/go2rtc/LICENSE` and `go2rtc-LICENSE` in the application bundle.
 
-## Runtime prerequisites not distributed
-
 ### FFmpeg
 
 - Project: https://ffmpeg.org/
-- License: LGPL-2.1-or-later by default; builds that enable optional GPL
-  components are GPL-licensed.
+- Version: 8.1.3
+- Corresponding source: https://github.com/FFmpeg/FFmpeg/tree/n8.1.3
+- Build recipe: `helpers/ffmpeg/build-minimal.sh`
+- Build configuration: `--enable-gpl --enable-version3 --disable-shared
+  --enable-static --disable-everything`, with only the camera codecs,
+  demuxers, muxers, protocols, and filters enabled
+- License: GPL-3.0-or-later
 - Use: Runtime child process for low-latency H.264 transcoding and RTSP
-  publishing for local and remote camera streams. MiHome Mac does not bundle
-  an FFmpeg binary; systems without a compatible encoder use the camera-native
-  video path.
+  publishing for local and remote camera streams.
+- Distribution: The binary is built from fixed source versions, verified by
+  SHA256 before bundling, and installed as `Contents/MacOS/ffmpeg`; users do not
+  need Homebrew or a separate FFmpeg installation. Binaries are not committed
+  to the repository.
+- License files: `ffmpeg-LICENSE` and `ffmpeg-COPYING.GPLv3` in the application
+  bundle.
+
+### x264
+
+- Project: https://www.videolan.org/developers/x264.html
+- Version: commit `31e19f92f00c7003fa115047ce50978bc98c3a0d`
+- Corresponding source:
+  https://code.videolan.org/videolan/x264/-/tree/31e19f92f00c7003fa115047ce50978bc98c3a0d
+- License: GPL-2.0-or-later
+- Use: Statically linked H.264 software encoder in the bundled FFmpeg.
+- License file: `ffmpeg-x264-COPYING` in the application bundle.
+
+### Xiph.Org Opus
+
+- Project: https://opus-codec.org/
+- Version: 1.5.2
+- Corresponding source:
+  https://github.com/xiph/opus/releases/tag/v1.5.2
+- License: BSD-3-Clause
+- Use: Statically linked Opus encoder in the bundled FFmpeg.
+- License file: `ffmpeg-opus-COPYING` in the application bundle.
 
 ## Language and package dependencies
 

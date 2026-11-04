@@ -1484,7 +1484,26 @@ test('bundle keeps a strict CSP and ships license notices', () => {
     config.bundle.resources['../../THIRD_PARTY_NOTICES.md'],
     'THIRD_PARTY_NOTICES.md',
   );
-  assert.deepEqual(config.bundle.externalBin, ['../../helpers/go2rtc/go2rtc']);
+  assert.equal(
+    config.bundle.resources['../../helpers/ffmpeg/LICENSE'],
+    'ffmpeg-LICENSE',
+  );
+  assert.equal(
+    config.bundle.resources['../../helpers/ffmpeg/COPYING.GPLv3'],
+    'ffmpeg-COPYING.GPLv3',
+  );
+  assert.equal(
+    config.bundle.resources['../../helpers/ffmpeg/x264-COPYING'],
+    'ffmpeg-x264-COPYING',
+  );
+  assert.equal(
+    config.bundle.resources['../../helpers/ffmpeg/opus-COPYING'],
+    'ffmpeg-opus-COPYING',
+  );
+  assert.deepEqual(config.bundle.externalBin, [
+    '../../helpers/go2rtc/go2rtc',
+    '../../helpers/ffmpeg/ffmpeg',
+  ]);
   const infoPlist = fs.readFileSync(
     path.resolve(__dirname, '..', 'src-tauri/Info.plist'),
     'utf8',
@@ -1510,6 +1529,7 @@ test('release bundle strips symbols without requiring cargo-binutils', () => {
   assert.match(build, /DMG_FORMAT=\$\{DMG_FORMAT:-ULMO\}/);
   assert.match(build, /APPLE_SIGNING_IDENTITY="-"/);
   assert.match(build, /SIGNING_MODE=ad-hoc/);
+  assert.match(build, /helpers\/ffmpeg\/fetch\.sh/);
   assert.match(build, /codesign --verify --deep --strict --verbose=2 "\$APP_BUNDLE"/);
   assert.equal(
     fs.existsSync(path.resolve(root, '../scripts/strip-macos-binary.sh')),
