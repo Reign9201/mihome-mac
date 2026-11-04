@@ -84,6 +84,8 @@ const state = {
   hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
   cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
   devicesRequest: 0, inspectorRequest: 0, scenesRequest: 0, camerasRequest: 0,
+  automationsRequest: 0, accountGeneration: 0, accountTransition: false,
+  accounts: [], loginMode: 'initial', loginRequest: 0,
   presenceRefreshing: false, lastPresenceSyncAt: 0, presenceSyncFailed: false,
 };
 
@@ -97,7 +99,11 @@ function setStatus(text, kind = '') {
   dot.className = `dot ${kind === 'error' ? 'err' : state.loggedIn ? 'online' : ''}`;
   $('#connText').textContent = state.loggedIn ? '已连接' : kind === 'error' ? '连接失败' : '未登录';
   const accountState = $('#accountState');
-  if (accountState) accountState.textContent = state.loggedIn ? '米家账号 · 已连接' : kind === 'error' ? '连接失败' : '等待登录';
+  if (accountState) {
+    accountState.textContent = state.loggedIn
+      ? `${Math.max(1, state.accounts.length)} 个账号 · 已连接`
+      : kind === 'error' ? '连接失败' : '等待登录';
+  }
   const settingsState = $('#settingsAccountState');
   if (settingsState) settingsState.textContent = state.loggedIn ? '已连接' : kind === 'error' ? '连接失败' : '未登录';
 }
@@ -212,32 +218,38 @@ async function startAuth() {
     setStatus('请从 MiHome Mac 桌面应用打开这个页面', 'error');
     return;
   }
+  state.loginRequest += 1;
+  const request = state.loginRequest;
+  state.polling = false;
   $('#startAuth').disabled = true;
-  setStatus('正在向小米申请二维码…');
+  setStatus(state.loginMode === 'add' ? '正在为新增账号申请二维码…' : '正在向小米申请二维码…');
   log.info('Auth', '开始申请登录二维码');
   try {
     const result = await invoke('auth_start');
+    if (request !== state.loginRequest) return;
     $('#qrBox').innerHTML = result.qr_svg;
     setStatus('等待扫码，二维码 5 分钟内有效');
     state.polling = true;
-    pollAuth();
+    pollAuth(request);
   } catch (error) {
+    if (request !== state.loginRequest) return;
     log.error('Auth', `申请二维码失败：${error}`);
     setStatus(`申请二维码失败：${error}`, 'error');
     $('#startAuth').disabled = false;
   }
 }
 
-async function pollAuth() {
+async function pollAuth(request) {
   while (state.polling) {
     try {
       const result = await invoke('auth_poll');
+      if (request !== state.loginRequest || !state.polling) return;
       if (result.status === 'success') {
         state.polling = false;
         state.loggedIn = true;
         setStatus(`登录成功，用户 ${result.user_id}`);
         if (result.message) toast(result.message, true);
-        await loadHomes();
+        await finishLogin(result.user_id);
         log.info('Auth', '扫码登录成功');
         return;
       }
@@ -265,32 +277,255 @@ async function pollAuth() {
   }
 }
 
+function accountLabel(account) {
+  if (account?.display_name) return account.display_name;
+  const userId = String(account?.user_id || '');
+  if (!userId) return '米家账号';
+  const visible = userId.length > 10
+    ? `${userId.slice(0, 4)}…${userId.slice(-4)}`
+    : userId;
+  return `米家账号 ${visible}`;
+}
+
+function activeAccount() {
+  return state.accounts.find((account) => account.active) || null;
+}
+
+async function loadAccounts() {
+  try {
+    state.accounts = await invoke('auth_accounts');
+    renderAccounts();
+    updateAccount();
+    return state.accounts;
+  } catch (error) {
+    log.warn('Auth', `读取账号列表失败：${error}`);
+    return state.accounts;
+  }
+}
+
+function renderAccounts() {
+  const list = $('#accountList');
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.accounts.length) {
+    list.append(el('div', 'account-pop-empty', '还没有保存的米家账号'));
+    return;
+  }
+  for (const account of state.accounts) {
+    const label = accountLabel(account);
+    const card = el('button', `account-card${account.active ? ' active' : ''}`);
+    card.type = 'button';
+    card.dataset.account = account.user_id;
+    card.setAttribute('aria-current', account.active ? 'true' : 'false');
+    card.title = account.active ? '当前账号' : `切换到 ${label}`;
+    const avatar = el('span', 'account-avatar', label.slice(0, 1) || '米');
+    const copy = el('span', 'account-card-copy');
+    copy.append(el('strong', '', label));
+    copy.append(el('small', '', account.active ? '当前账号 · 数据已隔离' : '切换后重新加载该账号数据'));
+    const stateDot = el('span', `account-card-state${account.active ? ' active' : ''}`);
+    card.append(avatar, copy, stateDot);
+    card.onclick = () => {
+      if (!account.active) switchAccount(account.user_id);
+    };
+    list.append(card);
+  }
+}
+
+function openAccountPop() {
+  if (!state.loggedIn) return;
+  renderAccounts();
+  $('#accountPop').classList.add('open');
+  $('#accountPop').setAttribute('aria-hidden', 'false');
+}
+
+function closeAccountPop() {
+  $('#accountPop')?.classList.remove('open');
+  $('#accountPop')?.setAttribute('aria-hidden', 'true');
+}
+
+function showLogin(mode = 'initial') {
+  state.loginMode = mode;
+  const adding = mode === 'add';
+  $('#loginTitle').textContent = adding ? '添加米家账号' : '扫码登录';
+  $('#loginSubtitle').textContent = adding
+    ? '新账号会独立保存，家庭、设备、摄像头与自动化不会串到当前账号'
+    : '打开米家 App，扫描下方二维码';
+  $('#loginBack').hidden = !adding;
+  $('#qrBox').innerHTML = '<div class="qr-placeholder">二维码准备中</div>';
+  $('#loginLayer').style.display = 'grid';
+  requestAnimationFrame(() => $('#loginLayer').classList.remove('hide'));
+  setStatus(adding ? '正在添加账号…' : '未登录');
+}
+
+function hideLogin() {
+  $('#loginLayer').classList.add('hide');
+  $('#loginLayer').style.display = 'none';
+  $('#loginBack').hidden = true;
+  state.loginMode = 'initial';
+}
+
+function setShellEnabled(enabled) {
+  for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
+    const node = $('#' + id);
+    if (node) node.disabled = !enabled;
+  }
+  $('#logout').hidden = !enabled || !state.loggedIn;
+}
+
+async function resetAccountScopedState(reason) {
+  state.accountGeneration += 1;
+  state.devicesRequest += 1;
+  state.inspectorRequest += 1;
+  state.scenesRequest += 1;
+  state.camerasRequest += 1;
+  state.automationsRequest += 1;
+  state.cameraControlsRequest += 1;
+  state.cardObserver?.disconnect();
+  state.cardObserver = null;
+  if (state.cardHydrationTimer) clearTimeout(state.cardHydrationTimer);
+  state.cardHydrationTimer = null;
+  state.cardHydrationQueue.clear();
+  state.hydratedCards.clear();
+  state.cardProps = new Map();
+  state.overviewSensorLoading.clear();
+  state.overviewSensorHydrated.clear();
+  state.sensorSeries = [];
+  state.homes = [];
+  state.homeId = null;
+  state.devices = [];
+  state.scenes = [];
+  state.automations = [];
+  state.cameras = [];
+  state.selected = null;
+  state.selectedCameraDid = null;
+  state.roomFilter = 'all';
+  state.deviceFilter = 'all';
+  state.deviceQuery = '';
+  state.lastPresenceSyncAt = 0;
+  state.presenceSyncFailed = false;
+  state.presenceRefreshing = false;
+  if ($('#deviceSearch')) $('#deviceSearch').value = '';
+  $('#homeSelect')?.replaceChildren();
+  $('#deviceList')?.replaceChildren(el('div', 'empty', `正在${reason}…`));
+  $('#sceneList')?.replaceChildren(el('div', 'empty', `正在${reason}…`));
+  $('#autoList')?.replaceChildren(el('div', 'empty', `正在${reason}…`));
+  $('#camList')?.replaceChildren(el('div', 'empty', `正在${reason}…`));
+  setNavCount('devicesCount', 0);
+  setNavCount('sceneCount', 0);
+  setNavCount('automationCount', 0);
+  setNavCount('cameraCount', 0);
+  setNavCount('cameraCountNav', 0);
+  closeInspector();
+  closeAccountPop();
+  await stopCamera();
+  renderSidebarRooms();
+  updateChrome();
+}
+
+async function finishLogin(userId) {
+  state.loginRequest += 1;
+  state.polling = false;
+  state.loggedIn = true;
+  log.info('Auth', `账号登录完成：${userId}`);
+  await loadAccounts();
+  await resetAccountScopedState('加载账号数据');
+  await loadHomes();
+  hideLogin();
+}
+
+async function switchAccount(userId) {
+  if (state.accountTransition) return;
+  const current = activeAccount();
+  if (current?.user_id === userId) {
+    closeAccountPop();
+    return;
+  }
+  state.accountTransition = true;
+  closeAccountPop();
+  setShellEnabled(false);
+  setStatus('正在切换账号，旧账号数据已隐藏…');
+  await resetAccountScopedState('切换账号');
+  try {
+    await invoke('auth_switch_account', { userId });
+    state.loggedIn = true;
+    await loadAccounts();
+    await loadHomes();
+    toast('账号已切换，数据已隔离加载');
+  } catch (error) {
+    log.error('Auth', `切换账号失败：${error}`);
+    toast(`切换账号失败：${error}`, true);
+    await loadAccounts();
+    await loadHomes().catch(() => {});
+  } finally {
+    state.accountTransition = false;
+    setShellEnabled(state.loggedIn);
+  }
+}
+
+async function cancelAddAccount() {
+  if (state.loginMode !== 'add') return;
+  state.polling = false;
+  state.loginRequest += 1;
+  try {
+    await invoke('auth_cancel');
+    hideLogin();
+    setStatus('已取消添加账号');
+  } catch (error) {
+    log.warn('Auth', `取消登录失败：${error}`);
+    setStatus(`取消登录失败，请重试：${error}`, 'error');
+  }
+}
+
 async function loadHomes() {
+  const generation = state.accountGeneration;
+  setShellEnabled(false);
   try {
     const homes = await invoke('list_homes');
+    if (generation !== state.accountGeneration) return;
     state.homes = homes;
-    if (!homes.length) throw new Error('账号下没有家庭');
-    state.homeId = homes[0].id;
+    state.homeId = homes[0]?.id || null;
     renderHomeTabs();
-    await loadDevices();
     log.info('Home', `已加载家庭 ${homes.length} 个`);
-    $('#loginLayer').classList.add('hide');
+    hideLogin();
     $('#logout').hidden = false;
-    for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
-      $('#' + id).disabled = false;
-    }
+    setShellEnabled(true);
     updateAccount();
     $('#syncText').textContent = '已连接';
+    if (!homes.length) {
+      $('#overviewView').hidden = false;
+      $('#overviewView').innerHTML = '<div class="page-head"><div><div class="eyebrow">当前账号</div><h1 class="page-title">还没有家庭</h1><p class="page-sub">请先在米家 App 中创建家庭并添加设备，然后刷新。</p></div><div class="head-actions"><button class="ghost-btn" data-empty-refresh>刷新</button></div></div>';
+      $('#overviewView').querySelector('[data-empty-refresh]')?.addEventListener('click', loadHomes);
+      setStatus('登录成功，但账号下没有家庭');
+      return;
+    }
+    await loadDevices();
+    if (generation !== state.accountGeneration) return;
     await showOverview();
     Promise.allSettled([loadScenes(), loadCameras(), loadAutomations()]).then(() => {
       if (state.page === 'overview') renderOverview(true);
     });
+    await syncAccountLabel();
   } catch (error) {
+    if (generation !== state.accountGeneration) return;
     log.error('Home', `读取家庭失败：${error}`);
     state.loggedIn = false;
     $('#logout').hidden = true;
     setStatus(`读取家庭失败：${error}`, 'error');
     $('#startAuth').disabled = false;
+    setShellEnabled(false);
+  }
+}
+
+async function syncAccountLabel() {
+  const account = activeAccount();
+  const home = state.homes[0];
+  if (!account || account.display_name || !home?.name) return;
+  try {
+    await invoke('auth_set_account_label', { label: home.name });
+    await loadAccounts();
+    updateAccount();
+  } catch (error) {
+    log.debug('Auth', `保存账号显示名失败：${error}`);
   }
 }
 
@@ -330,11 +565,22 @@ function currentHome() {
 
 function updateAccount() {
   const home = currentHome();
-  const name = home?.name || '米家账号';
+  const currentAccount = activeAccount();
+  const name = currentAccount?.display_name || home?.name || accountLabel(currentAccount);
   $('#accountName').textContent = name;
   $('#accountAvatar').textContent = name.slice(0, 1) || '米';
-  const account = $('#settingsAccount');
-  if (account) account.textContent = name;
+  const accountState = $('#accountState');
+  if (accountState && state.loggedIn) {
+    accountState.textContent = `${Math.max(1, state.accounts.length)} 个账号 · 已连接`;
+  }
+  const settingsAccount = $('#settingsAccount');
+  if (settingsAccount) settingsAccount.textContent = name;
+  const settingsState = $('#settingsAccountState');
+  if (settingsState) {
+    settingsState.textContent = state.accounts.length > 1
+      ? `已连接 · ${state.accounts.length} 个账号`
+      : '已连接';
+  }
 }
 
 const PAGE_TITLES = {
@@ -1333,6 +1579,8 @@ function sparkline(values, key = 'spark') {
 
 async function hydrateOverviewSensor(sensor) {
   if (!sensor || state.overviewSensorLoading.has(sensor.did) || state.overviewSensorHydrated.has(sensor.did)) return;
+  const generation = state.accountGeneration;
+  const homeId = state.homeId;
   const profile = cardProfile(sensor);
   const requests = profile.metrics
     .filter((item) => item.readable !== false)
@@ -1341,6 +1589,7 @@ async function hydrateOverviewSensor(sensor) {
   state.overviewSensorLoading.add(sensor.did);
   try {
     const result = await invoke('get_properties', { requests });
+    if (generation !== state.accountGeneration || homeId !== state.homeId) return;
     for (const item of Array.isArray(result) ? result : []) {
       if (!item || item.did !== sensor.did || (item.code && item.code !== 0)) continue;
       state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
@@ -1354,8 +1603,10 @@ async function hydrateOverviewSensor(sensor) {
     log.debug('Overview', `温湿度状态暂不可读：${error}`);
   } finally {
     state.overviewSensorLoading.delete(sensor.did);
-    state.overviewSensorHydrated.add(sensor.did);
-    if (state.page === 'overview') renderOverview(true);
+    if (generation === state.accountGeneration && homeId === state.homeId) {
+      state.overviewSensorHydrated.add(sensor.did);
+      if (state.page === 'overview') renderOverview(true);
+    }
   }
 }
 
@@ -2012,12 +2263,17 @@ function renderAutomations() {
 }
 
 async function loadAutomations() {
+  const request = ++state.automationsRequest;
+  const generation = state.accountGeneration;
   try {
-    state.automations = await invoke('list_automations');
+    const automations = await invoke('list_automations');
+    if (request !== state.automationsRequest || generation !== state.accountGeneration) return;
+    state.automations = automations;
     setNavCount('automationCount', state.automations.length);
     renderAutomations();
     if (state.page === 'overview') renderOverview(true);
   } catch (error) {
+    if (request !== state.automationsRequest || generation !== state.accountGeneration) return;
     $('#autoList').innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
   }
 }
@@ -2901,7 +3157,30 @@ $('#cameraNav').onclick = showCameras;
 $('#sceneNav').onclick = showScenes;
 $('#automationNav').onclick = showAutomations;
 $('#settingsNav').onclick = showSettings;
-$('#accountButton').onclick = showSettings;
+$('#accountButton').onclick = (event) => {
+  event.stopPropagation();
+  if ($('#accountPop').classList.contains('open')) closeAccountPop();
+  else openAccountPop();
+};
+$('#settingsAccounts').onclick = (event) => {
+  event.stopPropagation();
+  openAccountPop();
+};
+$('#accountPopClose').onclick = closeAccountPop;
+$('#addAccountButton').onclick = (event) => {
+  event.stopPropagation();
+  closeAccountPop();
+  showLogin('add');
+  startAuth();
+};
+$('#removeAccountButton').onclick = () => logoutAccount();
+$('#loginBack').onclick = cancelAddAccount;
+document.addEventListener('click', (event) => {
+  const pop = $('#accountPop');
+  if (!pop.classList.contains('open')) return;
+  if (pop.contains(event.target) || event.target.closest('#accountButton, #settingsAccounts')) return;
+  closeAccountPop();
+});
 $('#refreshScenes').onclick = loadScenes;
 $('#autoForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -3129,50 +3408,43 @@ $('#settingsLogout').onclick = async () => {
 };
 
 async function logoutAccount() {
+  if (state.accountTransition) return;
+  const previous = activeAccount();
+  state.accountTransition = true;
+  state.polling = false;
+  closeAccountPop();
+  setShellEnabled(false);
+  setStatus('正在退出当前账号，旧账号数据已隐藏…');
+  await resetAccountScopedState('退出账号');
   let logoutError = null;
+  let result = null;
   try {
-    await invoke('auth_logout');
+    result = await invoke('auth_logout');
   } catch (error) {
     logoutError = error;
   }
-  state.loggedIn = false;
-  state.polling = false;
-  state.devicesRequest += 1;
-  state.inspectorRequest += 1;
-  state.cardObserver?.disconnect();
-  state.cardObserver = null;
-  if (state.cardHydrationTimer) clearTimeout(state.cardHydrationTimer);
-  state.cardHydrationTimer = null;
-  state.cardHydrationQueue.clear();
-  state.hydratedCards.clear();
-  state.lastPresenceSyncAt = 0;
-  state.presenceSyncFailed = false;
-  state.devices = [];
-  state.selected = null;
-  await stopCamera();
-  state.cameras = [];
-  state.roomFilter = 'all';
-  state.deviceFilter = 'all';
-  state.deviceQuery = '';
-  $('#deviceSearch').value = '';
-  for (const id of ['overviewView', 'devicesView', 'cameraView', 'sceneView', 'automationView', 'settingsView']) {
-    $('#' + id).hidden = true;
+  if (!logoutError && result) {
+    state.accounts = Array.isArray(result.accounts) ? result.accounts : state.accounts;
+    if (result.active_user_id) {
+      state.loggedIn = true;
+      await loadHomes();
+      toast(previous ? `已退出 ${accountLabel(previous)}，已切换到其他账号` : '已切换到其他账号');
+    } else {
+      state.loggedIn = false;
+      state.accounts = [];
+      renderAccounts();
+      showLogin('initial');
+      $('#startAuth').disabled = false;
+      setStatus('未登录');
+    }
+  } else {
+    state.loggedIn = true;
+    await loadAccounts();
+    await loadHomes().catch(() => {});
+    if (logoutError) toast(`退出当前账号失败：${logoutError}`, true);
   }
-  for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
-    $('#' + id).disabled = true;
-  }
-  state.scenes = [];
-  state.automations = [];
-  $('#camControls').hidden = true;
-  $('#logout').hidden = true;
-  closeInspector();
-  renderSidebarRooms();
-  $('#loginLayer').style.display = 'grid';
-  requestAnimationFrame(() => $('#loginLayer').classList.remove('hide'));
-  $('#qrBox').innerHTML = '<div class="qr-placeholder">二维码准备中</div>';
-  setStatus('未登录');
-  $('#startAuth').disabled = false;
-  if (logoutError) toast(`本地界面已退出，但清理凭据失败：${logoutError}`, true);
+  state.accountTransition = false;
+  setShellEnabled(state.loggedIn);
 }
 
 function applyTheme(theme) {
@@ -3514,7 +3786,10 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     [showOverview, showCameras, showScenes, showAutomations, showDevices][Number(event.key) - 1]();
   }
-  if (event.key === 'Escape') closeInspector();
+  if (event.key === 'Escape') {
+    closeAccountPop();
+    closeInspector();
+  }
 });
 
 async function boot() {
@@ -3558,24 +3833,28 @@ async function boot() {
     setStatus('请从 MiHome Mac 桌面应用打开这个页面', 'error');
     return;
   }
+  await loadAccounts();
   invoke('app_meta').then((meta) => {
     if (meta?.version) $('#appVersion').textContent = meta.version;
   }).catch(() => {});
   try {
     const userId = await invoke('auth_resume');
     if (!userId) {
-      setStatus('未登录');
+      showLogin('initial');
       startAuth();
       return;
     }
     state.loggedIn = true;
     log.info('App', '登录状态恢复成功');
     setStatus(`已恢复登录，用户 ${userId}`);
+    await loadAccounts();
     await loadHomes();
   } catch (error) {
     log.error('App', `恢复登录失败：${error}`);
     setStatus(`恢复登录失败：${error}`, 'error');
     $('#startAuth').disabled = false;
+    state.loggedIn = false;
+    showLogin('initial');
   }
 }
 

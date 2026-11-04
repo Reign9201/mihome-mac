@@ -99,7 +99,7 @@
             <span class="chev">›</span>
           </button>
           <button class="nav-item subtle logout-item" id="logout" hidden>
-            <span class="nav-icon" data-icon="power"></span><span>退出登录</span>
+            <span class="nav-icon" data-icon="power"></span><span>退出当前账号</span>
           </button>
         </div>
       </aside>
@@ -278,7 +278,10 @@
               <h3>账号</h3>
               <div class="setting-row">
                 <div class="setting-label"><strong id="settingsAccount">米家账号</strong><small id="settingsAccountState">已连接</small></div>
-                <button class="danger-btn" id="settingsLogout">退出登录</button>
+                <div class="setting-actions">
+                  <button class="ghost-btn" id="settingsAccounts">切换账号</button>
+                  <button class="danger-btn" id="settingsLogout">退出当前账号</button>
+                </div>
               </div>
             </div>
           </div>
@@ -306,6 +309,18 @@
     </footer>
   </div>
 
+  <div class="account-pop" id="accountPop" aria-hidden="true">
+    <div class="account-pop-head">
+      <div><strong>米家账号</strong><small>各账号的家庭、设备、摄像头和自动化完全隔离</small></div>
+      <button class="icon-btn" id="accountPopClose" aria-label="关闭账号菜单">×</button>
+    </div>
+    <div class="account-list" id="accountList"></div>
+    <div class="account-pop-actions">
+      <button class="primary-btn wide" id="addAccountButton">添加米家账号</button>
+      <button class="text-btn danger-text" id="removeAccountButton">退出当前账号</button>
+    </div>
+  </div>
+
   <div class="login-layer" id="loginLayer">
     <div class="login-visual">
       <div class="giant-word">家</div>
@@ -313,7 +328,7 @@
         <div class="eyebrow light">MIHOME FOR MAC</div>
         <h1>你的家，<br>在 Mac 上。</h1>
         <p>本地直连优先，云端兜底。一次扫码，在这台 Mac 上接管全部房间。</p>
-        <div class="login-badges"><span>本机解码</span><span>钥匙串存储</span><span>诊断日志</span></div>
+        <div class="login-badges"><span>本机解码</span><span>多账号隔离</span><span>诊断日志</span></div>
       </div>
       <div class="login-foot">第三方客户端 · 非小米官方产品</div>
     </div>
@@ -321,10 +336,10 @@
       <div class="login-card">
         <div class="login-card-head">
           <div>
-            <h2>扫码登录</h2>
-            <p>打开米家 App，扫描下方二维码</p>
+            <h2 id="loginTitle">扫码登录</h2>
+            <p id="loginSubtitle">打开米家 App，扫描下方二维码</p>
           </div>
-          <span class="login-secure" title="凭据仅保存在本机钥匙串">⌁</span>
+          <span class="login-secure" title="凭据保存在仅当前 macOS 用户可读的私有文件中">⌁</span>
         </div>
         <div class="qr-wrap">
           <div id="qrBox" class="qr-box"><div class="qr-placeholder">二维码准备中</div></div>
@@ -334,7 +349,8 @@
         </div>
         <p id="loginStatus" class="status login-status">正在恢复登录状态…</p>
         <button id="startAuth" class="primary-btn wide">生成二维码</button>
-        <p class="login-note">登录信息只写入本机 Keychain。本项目不会上传账号凭据。</p>
+        <button id="loginBack" class="text-btn" hidden>返回控制台</button>
+        <p class="login-note">账号凭据保存在仅当前 macOS 用户可读的私有文件中，本项目不会上传账号凭据。</p>
       </div>
       <div class="login-bottom">MiHome Mac · 非官方开源客户端</div>
     </div>
