@@ -1,13 +1,46 @@
-const invoke = window.__MIHOME_TAURI__?.invoke;
 const $ = (selector) => document.querySelector(selector);
 const SPEC_BATCH_SIZE = 128;
 const MAX_REMOTE_STREAMS = 6;
 const MAX_REMOTE_START_CONCURRENCY = 3;
 const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
 const CAMERA_STALL_INTERVALS = 3;
+const DEVICE_PRESENCE_REFRESH_MS = 15000;
 const log = window.MiLog || Object.freeze({
   debug() {}, info() {}, warn() {}, error() {},
 });
+const uiIcon = (name, className = '') => icon(name, className);
+const runtime = {
+  inflight: 0,
+  lastRequestMs: 0,
+  lastRenderMs: 0,
+  errors: 0,
+  logs: [],
+};
+const rawInvoke = window.__MIHOME_TAURI__?.invoke;
+
+function runtimeLog(message) {
+  runtime.logs.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} ${message}`);
+  runtime.logs = runtime.logs.slice(0, 4);
+  const box = $('#hudLog');
+  if (box) box.innerHTML = runtime.logs.map((line) => `<div>${esc(line)}</div>`).join('');
+}
+
+const invoke = rawInvoke
+  ? async (command, args = {}) => {
+    runtime.inflight += 1;
+    const started = performance.now();
+    try {
+      return await rawInvoke(command, args);
+    } catch (error) {
+      runtime.errors += 1;
+      runtimeLog(`${command} 失败`);
+      throw error;
+    } finally {
+      runtime.inflight = Math.max(0, runtime.inflight - 1);
+      runtime.lastRequestMs = performance.now() - started;
+    }
+  }
+  : undefined;
 
 for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart', 'contextmenu']) {
   document.addEventListener(eventName, (event) => event.preventDefault(), true);
@@ -20,17 +53,27 @@ function esc(value) {
 }
 
 function toast(message, error = false) {
+  const stack = $('#toastStack');
   const node = document.createElement('div');
   node.className = `toast${error ? ' error' : ''}`;
-  node.textContent = message;
-  document.body.append(node);
-  setTimeout(() => node.remove(), 2800);
+  node.innerHTML = `${uiIcon(error ? 'close' : 'check')}<span>${esc(message)}</span>`;
+  stack.append(node);
+  requestAnimationFrame(() => node.classList.add('show'));
+  setTimeout(() => {
+    node.classList.remove('show');
+    setTimeout(() => node.remove(), 260);
+  }, 2800);
 }
 
 const state = {
   homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
+  page: 'overview', theme: localStorage.getItem('mihome-theme') || 'light',
+  density: localStorage.getItem('mihome-density') || 'comfortable',
+  overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
+  sensorSeries: [], paletteIndex: 0, paletteItems: [],
   polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
+  deviceFilter: 'all', deviceQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
   remoteWatch: null, remoteWatches: [], cameraWatches: new Map(),
   cameraGeneration: 0, cameraControlsRequest: 0,
   cameraStopSequence: 0,
@@ -41,14 +84,22 @@ const state = {
   hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
   cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
   devicesRequest: 0, inspectorRequest: 0, scenesRequest: 0, camerasRequest: 0,
+  presenceRefreshing: false, lastPresenceSyncAt: 0, presenceSyncFailed: false,
 };
 
 function setStatus(text, kind = '') {
-  $('#loginStatus').textContent = text;
-  $('#loginStatus').className = `status ${kind}`;
+  const status = $('#loginStatus');
+  if (status) {
+    status.textContent = text;
+    status.className = `status login-status ${kind}`;
+  }
   const dot = $('#connDot');
-  dot.className = `dot ${kind === 'error' ? 'err' : state.loggedIn ? 'on' : ''}`;
+  dot.className = `dot ${kind === 'error' ? 'err' : state.loggedIn ? 'online' : ''}`;
   $('#connText').textContent = state.loggedIn ? '已连接' : kind === 'error' ? '连接失败' : '未登录';
+  const accountState = $('#accountState');
+  if (accountState) accountState.textContent = state.loggedIn ? '米家账号 · 已连接' : kind === 'error' ? '连接失败' : '等待登录';
+  const settingsState = $('#settingsAccountState');
+  if (settingsState) settingsState.textContent = state.loggedIn ? '已连接' : kind === 'error' ? '连接失败' : '未登录';
 }
 
 function el(tag, className, text) {
@@ -223,15 +274,17 @@ async function loadHomes() {
     renderHomeTabs();
     await loadDevices();
     log.info('Home', `已加载家庭 ${homes.length} 个`);
-    $('#loginView').hidden = true;
-    $('#devicesView').hidden = false;
-    document.querySelector('.main').classList.add('devices-mode');
-    $('#reload').hidden = false;
+    $('#loginLayer').classList.add('hide');
     $('#logout').hidden = false;
-    for (const id of ['cameraNav', 'sceneNav', 'automationNav']) {
+    for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
       $('#' + id).disabled = false;
     }
-    $('#pageTitle').textContent = homes[0].name;
+    updateAccount();
+    $('#syncText').textContent = '已连接';
+    await showOverview();
+    Promise.allSettled([loadScenes(), loadCameras(), loadAutomations()]).then(() => {
+      if (state.page === 'overview') renderOverview(true);
+    });
   } catch (error) {
     log.error('Home', `读取家庭失败：${error}`);
     state.loggedIn = false;
@@ -242,23 +295,113 @@ async function loadHomes() {
 }
 
 function renderHomeTabs() {
-  const box = $('#homeTabs');
+  const box = $('#homeSelect');
+  if (!box) return;
   box.replaceChildren();
   for (const home of state.homes) {
-    const button = el('button', `tab ${home.id === state.homeId ? 'active' : ''}`, home.name);
-    button.onclick = async () => {
-      state.homeId = home.id;
-      state.roomFilter = 'all';
-      renderHomeTabs();
-      await loadDevices();
-      if (state.homeId === home.id) $('#pageTitle').textContent = home.name;
-    };
-    box.append(button);
+    const option = document.createElement('option');
+    option.value = home.id;
+    option.textContent = home.name;
+    option.selected = home.id === state.homeId;
+    box.append(option);
   }
+  box.onchange = async () => {
+    state.homeId = box.value;
+    state.roomFilter = 'all';
+    state.deviceFilter = 'all';
+    state.deviceQuery = '';
+    if ($('#deviceSearch')) $('#deviceSearch').value = '';
+    state.selected = null;
+    state.overviewSensorHydrated.clear();
+    state.sensorSeries = [];
+    renderHomeTabs();
+    updateAccount();
+    updateChrome();
+    closeInspector();
+    await loadDevices();
+    await showOverview();
+    Promise.allSettled([loadScenes(), loadCameras(), loadAutomations()]);
+  };
 }
 
 function currentHome() {
   return state.homes.find((home) => home.id === state.homeId);
+}
+
+function updateAccount() {
+  const home = currentHome();
+  const name = home?.name || '米家账号';
+  $('#accountName').textContent = name;
+  $('#accountAvatar').textContent = name.slice(0, 1) || '米';
+  const account = $('#settingsAccount');
+  if (account) account.textContent = name;
+}
+
+const PAGE_TITLES = {
+  overview: '总览',
+  devices: '全部设备',
+  camera: '监控',
+  scenes: '场景',
+  automations: '自动化',
+  settings: '设置',
+};
+
+function updateChrome() {
+  document.querySelectorAll('#mainNav [data-nav], .sidebar-footer [data-nav]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.nav === state.page);
+  });
+  const home = currentHome()?.name || 'MiHome';
+  const room = state.roomFilter === 'all' ? '' : `${roomGroups().find((item) => item.id === state.roomFilter)?.name || ''} · `;
+  $('#windowTitle').textContent = `${room}${PAGE_TITLES[state.page] || '总览'} — ${home}`;
+  const online = state.devices.filter((device) => device.online).length;
+  const localCameras = state.cameras.filter((camera) => camera.online && camera.ip).length;
+  const remoteCameras = state.cameras.filter((camera) => camera.online && !camera.ip).length;
+  $('#statusPath').textContent = state.loggedIn
+    ? `${online}/${state.devices.length} 台在线 · ${localCameras} 台摄像头本地可达${remoteCameras ? ` · ${remoteCameras} 台仅远程` : ''}`
+    : '等待连接';
+  setNavCount('devicesCount', state.devices.length);
+  setNavCount('cameraCountNav', state.cameras.length);
+  $('#camSideCount').textContent = String(state.cameras.length);
+  $('#topnavCaption').textContent = localCameras
+    ? `${localCameras} 台本地摄像头可达`
+    : '本地优先 · 云端兜底';
+  const statusSync = $('#statusSync');
+  if (statusSync && state.loggedIn) {
+    if (state.presenceSyncFailed) {
+      statusSync.textContent = '状态同步失败，保留上次结果';
+    } else if (state.lastPresenceSyncAt) {
+      const time = new Intl.DateTimeFormat('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(state.lastPresenceSyncAt));
+      statusSync.textContent = `${time} 更新`;
+    } else {
+      statusSync.textContent = '等待首次同步';
+    }
+  }
+  updateSettingsSelection();
+}
+
+function showView(page) {
+  const started = performance.now();
+  state.page = page;
+  for (const [id, key] of [
+    ['overviewView', 'overview'],
+    ['devicesView', 'devices'],
+    ['cameraView', 'camera'],
+    ['sceneView', 'scenes'],
+    ['automationView', 'automations'],
+    ['settingsView', 'settings'],
+  ]) {
+    $('#' + id).hidden = key !== page;
+  }
+  $('#main').scrollTop = 0;
+  updateChrome();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    runtime.lastRenderMs = performance.now() - started;
+  }));
 }
 
 function roomName(device) {
@@ -286,26 +429,49 @@ function setNavCount(id, count) {
   if (node) node.textContent = count ? String(count) : '';
 }
 
-function renderRoomBar() {
-  const bar = $('#roomBar');
-  bar.replaceChildren();
-  if (!state.devices.length) {
-    bar.hidden = true;
-    return;
-  }
-  bar.hidden = false;
+function roomShortName(name) {
+  const text = String(name || '未');
+  if (/客厅/.test(text)) return '客';
+  if (/主卧|卧室/.test(text)) return '卧';
+  if (/书房/.test(text)) return '书';
+  if (/厨房/.test(text)) return '厨';
+  if (/玄关/.test(text)) return '玄';
+  if (/阳台/.test(text)) return '阳';
+  if (/卫生间|浴室/.test(text)) return '浴';
+  return text.slice(0, 1);
+}
+
+function renderSidebarRooms() {
+  const list = $('#roomList');
+  if (!list) return;
+  list.replaceChildren();
+  const fragment = document.createDocumentFragment();
   const groups = roomGroups();
-  const chips = [{ id: 'all', name: '全部', count: state.devices.length }, ...groups.map((group) => ({ id: group.id, name: group.name, count: group.devices.length }))];
-  if (!chips.some((chip) => chip.id === state.roomFilter)) state.roomFilter = 'all';
-  for (const chip of chips) {
-    const button = el('button', `room-chip ${state.roomFilter === chip.id ? 'active' : ''}`);
-    button.append(el('span', '', chip.name), el('small', '', String(chip.count)));
+  const all = el('button', `room-item all-rooms ${state.roomFilter === 'all' ? 'active' : ''}`);
+  all.type = 'button';
+  all.dataset.room = 'all';
+  all.append(el('span', 'room-glyph', '全'), el('span', '', '全部房间'));
+  if (state.devices.some((device) => device.online)) all.append(el('i', 'room-dot'));
+  all.append(el('span', 'room-count', String(state.devices.length)));
+  all.onclick = () => {
+    state.roomFilter = 'all';
+    showOverview();
+  };
+  fragment.append(all);
+  for (const group of groups) {
+    const button = el('button', `room-item ${state.roomFilter === group.id ? 'active' : ''}`);
+    button.type = 'button';
+    button.dataset.room = group.id;
+    button.append(el('span', 'room-glyph', roomShortName(group.name)), el('span', '', group.name));
+    if (group.devices.some((device) => device.online)) button.append(el('i', 'room-dot'));
+    button.append(el('span', 'room-count', String(group.devices.length)));
     button.onclick = () => {
-      state.roomFilter = chip.id;
-      renderDevices();
+      state.roomFilter = state.roomFilter === group.id ? 'all' : group.id;
+      showOverview();
     };
-    bar.append(button);
+    fragment.append(button);
   }
+  list.append(fragment);
 }
 
 async function loadDevices() {
@@ -316,15 +482,91 @@ async function loadDevices() {
     const devices = await invoke('list_devices', { homeId });
     if (request !== state.devicesRequest || homeId !== state.homeId) return;
     state.devices = devices;
+    state.lastPresenceSyncAt = Date.now();
+    state.presenceSyncFailed = false;
     state.cardProps = new Map();
     state.hydratedCards = new Set();
+    state.overviewSensorHydrated.clear();
+    state.sensorSeries = [];
     setNavCount('devicesCount', devices.length);
     renderDevices();
-    $('#inspector').replaceChildren(el('p', 'muted', '选一台设备，查看状态和控制。'));
+    renderSidebarRooms();
+    closeInspector();
+    renderOverview();
+    updateChrome();
     loadDeviceSpecs(devices);
   } catch (error) {
     if (request !== state.devicesRequest || homeId !== state.homeId) return;
     $('#deviceList').replaceChildren(el('div', 'empty error', `读取设备失败：${error}`));
+    renderSidebarRooms();
+  }
+}
+
+function clearCachedDeviceState(did) {
+  state.hydratedCards.delete(did);
+  const prefix = `${did}:`;
+  for (const key of state.cardProps.keys()) {
+    if (key.startsWith(prefix)) state.cardProps.delete(key);
+  }
+}
+
+async function refreshDevicePresence() {
+  if (!invoke || !state.loggedIn || !state.homeId || state.presenceRefreshing) return false;
+  state.presenceRefreshing = true;
+  const homeId = state.homeId;
+  const request = ++state.devicesRequest;
+  try {
+    const devices = await invoke('list_devices', { homeId });
+    if (request !== state.devicesRequest || homeId !== state.homeId) return false;
+    const previous = new Map(state.devices.map((device) => [device.did, device]));
+    const changed = devices.filter((device) => {
+      const before = previous.get(device.did);
+      return !before
+        || before.online !== device.online
+        || before.name !== device.name
+        || before.model !== device.model
+        || before.room_id !== device.room_id
+        || before.room_name !== device.room_name
+        || before.parent_id !== device.parent_id;
+    });
+    const onlineChanged = changed.filter((device) => {
+      const before = previous.get(device.did);
+      return !before || before.online !== device.online;
+    });
+    for (const device of onlineChanged) clearCachedDeviceState(device.did);
+    state.devices = devices;
+    state.lastPresenceSyncAt = Date.now();
+    state.presenceSyncFailed = false;
+    if (!changed.length && devices.length === previous.size) {
+      updateChrome();
+      return true;
+    }
+    setNavCount('devicesCount', devices.length);
+    renderSidebarRooms();
+    if (state.page === 'overview') renderOverview(true);
+    if (state.page === 'devices') renderDevices();
+    const selected = state.selected
+      ? devices.find((device) => device.did === state.selected.did)
+      : null;
+    state.selected = selected || null;
+    if (selected) renderInspector(selected);
+    else if ($('#inspector').classList.contains('open')) closeInspector();
+    updateChrome();
+    if ($('#menubarPop').classList.contains('open')) renderQuickPanel();
+    for (const device of onlineChanged) {
+      if (device.online) queueCardHydration(device);
+    }
+    if (changed.length) {
+      log.info('Device', `设备状态刷新：${changed.length} 台发生变化`);
+    }
+    return true;
+  } catch (error) {
+    state.presenceSyncFailed = true;
+    updateChrome();
+    log.debug('Device', `在线状态刷新失败：${error}`);
+    return false;
+  } finally {
+    state.presenceRefreshing = false;
   }
 }
 
@@ -410,6 +652,8 @@ async function loadDeviceSpecs(devices) {
     state.specLoading = false;
     state.hydratedCards.clear();
     renderDevices();
+    renderSidebarRooms();
+    if (state.page === 'overview') renderOverview(true);
     if (!$('#cameraView').hidden) {
       renderCameras();
       if (state.activeCamera && state.cameraStreams.length) {
@@ -752,88 +996,526 @@ function cardSummary(device, profile) {
   return '在线';
 }
 
-function renderDeviceCard(device) {
+function deviceTone(kind) {
+  const family = window.MiIcons.familyFor(kind);
+  return ({
+    lighting: 'warm',
+    climate: 'cool',
+    security: 'sage',
+    curtain: 'sand',
+    sensor: 'sage',
+    plug: 'sand',
+    network: 'cool',
+    entertainment: 'ink',
+  })[family] || 'sand';
+}
+
+function inlineDeviceSwitch(device, def) {
+  const on = Boolean(cardValue(device, def.siid, def.piid));
+  const button = el('button', `inline-switch ${on ? 'on' : ''}`);
+  button.type = 'button';
+  button.disabled = !device.online;
+  button.setAttribute('role', 'switch');
+  button.setAttribute('aria-checked', String(on));
+  button.setAttribute('aria-label', `${device.name}${def.label}`);
+  button.onclick = async (event) => {
+    event.stopPropagation();
+    button.disabled = true;
+    try {
+      await setCardProp(device, def.siid, def.piid, !on);
+      if ($('#menubarPop')?.classList.contains('open')) renderQuickPanel();
+    } catch (error) {
+      toast(`设置失败：${error}`, true);
+      button.disabled = !device.online;
+    }
+  };
+  return button;
+}
+
+function openCameraDevice(device) {
+  const camera = state.cameras.find((item) => item.did === device.did);
+  if (camera) {
+    state.selectedCameraDid = camera.did;
+    showCameras();
+  } else {
+    showCameras();
+  }
+}
+
+function renderDeviceRow(device) {
   const profile = cardProfile(device);
   const kind = deviceKind(device);
-  const family = window.MiIcons.familyFor(kind);
-  const card = el('article', `device-card ${state.selected?.did === device.did ? 'active' : ''} ${device.online ? '' : 'offline'}`);
-  card.tabIndex = 0;
-  card.setAttribute('role', 'button');
-  card.setAttribute('aria-label', `${device.name}，${roomName(device)}`);
-  card.dataset.family = family;
-  card.dataset.did = device.did;
+  const row = el('div', `device-row ${state.selected?.did === device.did ? 'active' : ''} ${device.online ? '' : 'off'}`);
+  row.tabIndex = 0;
+  row.setAttribute('role', 'button');
+  row.setAttribute('aria-label', `${device.name}，${roomName(device)}`);
+  row.dataset.did = device.did;
+  row.dataset.family = window.MiIcons.familyFor(kind);
 
-  const top = el('div', 'device-card-top');
-  const glyph = el('span', 'device-glyph');
+  const glyph = el('span', 'device-icon');
+  glyph.dataset.tone = deviceTone(kind);
   glyph.dataset.kind = kind;
-  glyph.dataset.family = family;
   glyph.innerHTML = deviceGlyph(device);
-  top.append(glyph);
+  row.append(glyph);
 
-  const topActions = el('div', 'card-top-actions');
+  const copy = el('div', 'device-id');
+  const name = el('div', 'device-name');
+  name.append(document.createTextNode(device.name));
+  if (kind === 'camera-ptz' || kind === 'camera-fixed') {
+    const camera = state.cameras.find((item) => item.did === device.did);
+    name.append(el('span', camera?.ip ? 'tag lan' : 'tag cloud', camera?.ip ? '本地' : '远程'));
+  }
+  copy.append(name, el('div', 'device-meta', cardSummary(device, profile)));
+  row.append(copy);
+
+  const controls = el('div', 'device-control');
   const primary = profile.controls.find((item) => item.primary);
-  if (primary) topActions.append(cardPower(device, primary));
-  else if (profile.action?.top && profile.action.kind === 'tv-power') topActions.append(cardTvPower(device));
-  else if (profile.action?.top) topActions.append(cardReboot(device));
-  top.append(topActions);
-  card.append(top);
+  if (primary) controls.append(inlineDeviceSwitch(device, primary));
+  else if (kind === 'camera-ptz' || kind === 'camera-fixed') {
+    const view = el('button', 'mini-view', '查看');
+    view.type = 'button';
+    view.onclick = (event) => {
+      event.stopPropagation();
+      openCameraDevice(device);
+    };
+    controls.append(view);
+  } else if (profile.action?.top) {
+    controls.append(profile.action.kind === 'tv-power' ? cardTvPower(device) : cardReboot(device));
+  }
+  row.append(controls);
 
-  const title = el('div', 'device-card-title');
-  title.append(el('strong', 'device-card-name', device.name));
-  const subline = el('div', 'card-subline');
-  subline.append(el('span', 'device-room', roomName(device)));
-  subline.append(el('span', 'card-subline-sep', '·'));
-  subline.append(el('span', 'card-summary', cardSummary(device, profile)));
-  title.append(subline);
-  card.append(title);
+  const more = el('button', 'row-more');
+  more.type = 'button';
+  more.setAttribute('aria-label', `查看 ${device.name} 详情`);
+  more.innerHTML = uiIcon('more');
+  more.onclick = (event) => {
+    event.stopPropagation();
+    selectDevice(device);
+  };
+  row.append(more);
 
-  card.onclick = () => selectDevice(device);
-  card.onkeydown = (event) => {
+  row.onclick = () => selectDevice(device);
+  row.onkeydown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       selectDevice(device);
     }
   };
-  return card;
+  return row;
+}
+
+function cameraForDevice(device) {
+  return state.cameras.find((camera) => camera.did === device.did) || null;
+}
+
+function deviceFilterState(device) {
+  if (!device.online) return 'off';
+  const camera = cameraForDevice(device);
+  if (camera) return camera.ip ? 'local' : 'cloud';
+  const primary = cardProfile(device).controls.find((item) => item.primary);
+  if (primary && cardValue(device, primary.siid, primary.piid) === false) return 'off';
+  return 'cloud';
+}
+
+function deviceConnection(device) {
+  const camera = cameraForDevice(device);
+  if (!camera) return { label: '云端', className: 'cloud' };
+  if (!camera.online) return { label: '离线', className: 'local' };
+  return camera.ip
+    ? { label: '本地', className: 'lan' }
+    : { label: '远程', className: 'cloud' };
+}
+
+function deviceState(device) {
+  if (!device.online) return { label: '离线', className: 'off' };
+  if (cameraForDevice(device)) return { label: '在线', className: 'live' };
+  const primary = cardProfile(device).controls.find((item) => item.primary);
+  if (!primary) return { label: '在线', className: '' };
+  const value = cardValue(device, primary.siid, primary.piid);
+  if (value === undefined || value === null) return { label: '在线', className: '' };
+  return value
+    ? { label: '开启', className: '' }
+    : { label: '关闭', className: 'off' };
+}
+
+function renderDeviceTableRow(device) {
+  const kind = deviceKind(device);
+  const camera = cameraForDevice(device);
+  const connection = deviceConnection(device);
+  const status = deviceState(device);
+  const row = el('div', `table-row ${state.selected?.did === device.did ? 'active' : ''}`);
+  row.tabIndex = 0;
+  row.setAttribute('role', 'button');
+  row.dataset.did = device.did;
+  row.setAttribute('aria-label', `${device.name}，${roomName(device)}，${status.label}`);
+
+  const identity = el('div', 'table-device');
+  const glyph = el('span', 'device-icon');
+  glyph.dataset.tone = deviceTone(kind);
+  glyph.dataset.kind = kind;
+  glyph.innerHTML = deviceGlyph(device);
+  identity.append(glyph, el('span', '', device.name));
+
+  const connectionNode = el('span');
+  connectionNode.append(el('span', `tag ${connection.className}`, connection.label));
+
+  const action = el('button', 'row-more');
+  action.type = 'button';
+  if (camera) {
+    action.innerHTML = uiIcon('play');
+    action.setAttribute('aria-label', `打开 ${device.name} 监控`);
+    action.title = '打开监控';
+    action.onclick = (event) => {
+      event.stopPropagation();
+      openCameraDevice(device);
+    };
+  } else {
+    action.innerHTML = uiIcon('more');
+    action.setAttribute('aria-label', `查看 ${device.name} 详情`);
+    action.onclick = (event) => {
+      event.stopPropagation();
+      selectDevice(device);
+    };
+  }
+
+  row.append(
+    identity,
+    el('span', '', roomName(device)),
+    connectionNode,
+    el('span', `state-pill ${status.className}`, status.label),
+    action,
+  );
+  row.onclick = () => selectDevice(device);
+  row.onkeydown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectDevice(device);
+    }
+  };
+  return row;
 }
 
 function refreshDeviceCard(device) {
-  const old = [...document.querySelectorAll('.device-card')]
-    .find((node) => node.dataset.did === device.did);
-  if (!old) return;
-  const replacement = renderDeviceCard(device);
-  old.replaceWith(replacement);
-  observeDeviceCard(replacement, device);
+  const rows = [...document.querySelectorAll('.device-row, .table-row')]
+    .filter((node) => node.dataset.did === device.did);
+  for (const old of rows) {
+    state.cardObserver?.unobserve(old);
+    const replacement = old.classList.contains('table-row')
+      ? renderDeviceTableRow(device)
+      : renderDeviceRow(device);
+    old.replaceWith(replacement);
+    observeDeviceCard(replacement, device);
+  }
+}
+
+function renderDeviceFilters() {
+  const bar = $('#deviceFilters');
+  if (!bar) return;
+  bar.replaceChildren();
+  const counts = {
+    all: state.devices.length,
+    local: state.devices.filter((device) => deviceFilterState(device) === 'local').length,
+    cloud: state.devices.filter((device) => deviceFilterState(device) === 'cloud').length,
+    off: state.devices.filter((device) => deviceFilterState(device) === 'off').length,
+  };
+  for (const [key, label] of [
+    ['all', '全部'],
+    ['local', '本地直连'],
+    ['cloud', '云端'],
+    ['off', '已关闭'],
+  ]) {
+    const button = el('button', `filter-chip ${state.deviceFilter === key ? 'active' : ''}`, label);
+    button.type = 'button';
+    button.dataset.deviceFilter = key;
+    button.setAttribute('aria-pressed', String(state.deviceFilter === key));
+    button.append(el('span', 'filter-count', ` ${counts[key]}`));
+    bar.append(button);
+  }
 }
 
 function renderDevices() {
   const list = $('#deviceList');
-  for (const card of list.querySelectorAll('.device-card')) {
-    state.cardObserver?.unobserve(card);
+  for (const row of list.querySelectorAll('.device-row, .table-row')) {
+    state.cardObserver?.unobserve(row);
   }
   list.replaceChildren();
   if (!state.devices.length) {
     list.append(el('div', 'empty', '这个家庭没有设备'));
-    $('#roomBar').hidden = true;
+    renderDeviceFilters();
+    $('#devicePageCount').textContent = '0';
     return;
   }
-  const groups = roomGroups();
-  renderRoomBar();
-  const target = state.roomFilter === 'all'
-    ? state.devices
-    : groups.find((group) => group.id === state.roomFilter)?.devices || [];
+  renderDeviceFilters();
+  const localCameras = state.devices.filter((device) => deviceFilterState(device) === 'local').length;
+  const query = state.deviceQuery.trim().toLowerCase();
+  const target = state.devices.filter((device) => {
+    if (state.deviceFilter !== 'all' && deviceFilterState(device) !== state.deviceFilter) return false;
+    if (!query) return true;
+    return `${device.name} ${device.model || ''} ${roomName(device)}`
+      .toLowerCase()
+      .includes(query);
+  });
+  $('#devicesEyebrow').textContent = `${state.devices.length} 台设备 · ${localCameras} 台本地摄像头可达`;
+  $('#devicesSubtitle').textContent = state.deviceFilter === 'all' && !query
+    ? '点任意一行查看属性、连接路径与最近状态。'
+    : `当前筛选 ${target.length} 台设备；点击房间可回到总览继续按空间浏览。`;
+  $('#devicePageCount').textContent = `${target.length} / ${state.devices.length}`;
   if (!target.length) {
-    list.append(el('div', 'empty', '这个房间还没有设备'));
+    list.append(el('div', 'empty', '没有符合筛选条件的设备'));
     return;
   }
+  const fragment = document.createDocumentFragment();
   for (const device of target) {
-    const card = renderDeviceCard(device);
-    list.append(card);
-    observeDeviceCard(card, device);
+    const row = renderDeviceTableRow(device);
+    fragment.append(row);
+    observeDeviceCard(row, device);
   }
+  list.append(fragment);
   // Keep the first screen responsive even when IntersectionObserver callbacks are
   // delayed (for example while the WebView window is in the background).
-  for (const device of target.slice(0, 8)) queueCardHydration(device);
+  for (const device of target.slice(0, 12)) queueCardHydration(device);
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 6) return '夜深了';
+  if (hour < 11) return '早上好';
+  if (hour < 14) return '中午好';
+  if (hour < 18) return '下午好';
+  return '晚上好';
+}
+
+function todayLabel() {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }).format(new Date());
+}
+
+function overviewSensorValues(sensor) {
+  if (!sensor) return { temperature: null, humidity: null };
+  const profile = cardProfile(sensor);
+  const findMetric = (pattern) => profile.metrics.find((item) =>
+    pattern.test(`${item.label} ${item.suffix || ''} ${item.unit || ''}`));
+  const temperatureDef = findMetric(/温度|temperature/i);
+  const humidityDef = findMetric(/湿度|humidity/i);
+  return {
+    temperature: temperatureDef ? cardValue(sensor, temperatureDef.siid, temperatureDef.piid) : null,
+    humidity: humidityDef ? cardValue(sensor, humidityDef.siid, humidityDef.piid) : null,
+  };
+}
+
+function sparkline(values, key = 'spark') {
+  const points = values.length > 1 ? values : [values[0] ?? 0, values[0] ?? 0];
+  const w = 320;
+  const h = 42;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const coords = points.map((value, index) => {
+    const x = points.length === 1 ? w : (index / (points.length - 1)) * w;
+    const y = h - 3 - ((value - min) / span) * (h - 6);
+    return [x, y];
+  });
+  const line = coords.map((point, index) =>
+    `${index ? 'L' : 'M'}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(' ');
+  return `<svg class="hero-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="${key}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--accent)" stop-opacity=".18"/>
+      <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="${line} L${w},${h} L0,${h} Z" fill="url(#${key})"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="${coords.at(-1)[0]}" cy="${coords.at(-1)[1]}" r="2.4" fill="var(--accent)"/>
+  </svg>`;
+}
+
+async function hydrateOverviewSensor(sensor) {
+  if (!sensor || state.overviewSensorLoading.has(sensor.did) || state.overviewSensorHydrated.has(sensor.did)) return;
+  const profile = cardProfile(sensor);
+  const requests = profile.metrics
+    .filter((item) => item.readable !== false)
+    .map((item) => ({ did: sensor.did, siid: item.siid, piid: item.piid }));
+  if (!requests.length) return;
+  state.overviewSensorLoading.add(sensor.did);
+  try {
+    const result = await invoke('get_properties', { requests });
+    for (const item of Array.isArray(result) ? result : []) {
+      if (!item || item.did !== sensor.did || (item.code && item.code !== 0)) continue;
+      state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
+    }
+    const values = overviewSensorValues(sensor);
+    if (Number.isFinite(Number(values.temperature))) {
+      state.sensorSeries.push(Number(values.temperature));
+      state.sensorSeries = state.sensorSeries.slice(-18);
+    }
+  } catch (error) {
+    log.debug('Overview', `温湿度状态暂不可读：${error}`);
+  } finally {
+    state.overviewSensorLoading.delete(sensor.did);
+    state.overviewSensorHydrated.add(sensor.did);
+    if (state.page === 'overview') renderOverview(true);
+  }
+}
+
+function overviewCameraCard(camera) {
+  const button = el('button', 'overview-cam');
+  button.type = 'button';
+  const art = el('div', 'cam-thumb-art');
+  art.append(
+    el('span', `live-dot${camera.online ? '' : ' muted'}`),
+    el('span', 'cam-thumb-badge', camera.online ? 'LIVE' : 'OFFLINE'),
+  );
+  const info = el('div', 'overview-cam-info');
+  info.append(el('strong', '', camera.name));
+  info.append(el('span', '', camera.ip ? '局域网可达' : '仅远程通道'));
+  button.append(art, info);
+  button.onclick = () => {
+    state.selectedCameraDid = camera.did;
+    showCameras();
+  };
+  return button;
+}
+
+function overviewScenePill(scene, index) {
+  const button = el('button', 'scene-pill');
+  button.type = 'button';
+  button.dataset.tone = ['amber', 'ink', 'blue', 'dusk'][index % 4];
+  button.innerHTML = `<span class="sc-icon">${uiIcon(index % 2 ? 'moon' : 'spark')}</span>
+    <span class="sc-text"><strong>${esc(scene.name)}</strong><small>手动场景 · 点击执行</small></span>`;
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await invoke('run_scene', { sceneId: scene.id, homeId: state.homeId });
+      toast(`「${scene.name}」已执行`);
+    } catch (error) {
+      toast(String(error), true);
+    } finally {
+      button.disabled = false;
+    }
+  };
+  return button;
+}
+
+function renderOverview(preserveScroll = false) {
+  const box = $('#overviewView');
+  if (!box) return;
+  const scroll = preserveScroll ? $('#main').scrollTop : 0;
+  const groups = roomGroups();
+  if (state.roomFilter !== 'all' && !groups.some((group) => group.id === state.roomFilter)) {
+    state.roomFilter = 'all';
+  }
+  const visibleRooms = state.roomFilter === 'all'
+    ? groups
+    : groups.filter((group) => group.id === state.roomFilter);
+  const sensor = state.devices.find((device) => deviceKind(device) === 'temp-humidity')
+    || state.devices.find((device) => ['motion-sensor', 'sensor'].includes(deviceKind(device)));
+  const sensorValues = overviewSensorValues(sensor);
+  const temperature = Number(sensorValues.temperature);
+  const humidity = Number(sensorValues.humidity);
+  const online = state.devices.filter((device) => device.online).length;
+  const localCameras = state.cameras.filter((camera) => camera.online && camera.ip).length;
+  const title = state.roomFilter === 'all'
+    ? greeting()
+    : groups.find((group) => group.id === state.roomFilter)?.name || greeting();
+  const homeName = currentHome()?.name || '我的家';
+  const firstScene = state.scenes[0];
+  box.innerHTML = `<div class="page-head">
+    <div>
+      <div class="eyebrow">${esc(todayLabel())} · ${esc(homeName)}</div>
+      <h1 class="page-title">${esc(title)}</h1>
+      <p class="page-sub">${online}/${state.devices.length} 台设备在线，${localCameras} 台摄像头本地可达，${state.scenes.length} 个手动场景。</p>
+    </div>
+    <div class="head-actions">
+      <button class="ghost-btn" data-overview-refresh>${uiIcon('history')} 刷新状态</button>
+      ${firstScene ? `<button class="primary-btn" data-overview-scene="${esc(firstScene.id)}">${uiIcon('play')} ${esc(firstScene.name)}</button>` : ''}
+    </div>
+  </div>
+  <div class="hero">
+    <div class="hero-main">
+      <div class="metric-label">${uiIcon('thermometer')} ${sensor ? `${esc(roomName(sensor))} · ${esc(sensor.name)}` : '家庭环境'}</div>
+      <div class="hero-reading"><span class="big">${Number.isFinite(temperature) ? temperature.toFixed(1) : online}</span><span class="unit">${Number.isFinite(temperature) ? '°C' : '台在线'}</span></div>
+      <div class="hero-sub">${Number.isFinite(humidity) ? `<b>湿度 ${humidity.toFixed(0)}%</b><span>·</span>` : ''}<span>${sensor && !Number.isFinite(temperature) ? '正在读取传感器状态' : '来自设备实时属性'}</span></div>
+      ${sparkline(state.sensorSeries.length ? state.sensorSeries : [Number.isFinite(temperature) ? temperature : online], 'overviewSpark')}
+    </div>
+    <div class="hero-metrics">
+      <div class="metric">
+        <div class="metric-label">${uiIcon('drop')} 在线设备</div>
+        <div class="metric-value">${online}<small>/ ${state.devices.length}</small></div>
+        <div class="metric-foot good">${state.devices.length ? Math.round((online / state.devices.length) * 100) : 0}% 在线</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">${uiIcon('camera')} 本地监控</div>
+        <div class="metric-value">${localCameras}<small>/ ${state.cameras.length}</small></div>
+        <div class="metric-foot ${localCameras ? 'good' : ''}">${localCameras ? '局域网可达' : '等待本地连接'}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">${uiIcon('clock')} 定时任务</div>
+        <div class="metric-value">${state.automations.filter((item) => item.enabled).length}<small>/ ${state.automations.length}</small></div>
+        <div class="metric-foot">${state.automations.length ? '已启用' : '尚未创建'}</div>
+      </div>
+    </div>
+  </div>`;
+
+  const refresh = box.querySelector('[data-overview-refresh]');
+  if (refresh) refresh.onclick = loadAll;
+  const sceneRun = box.querySelector('[data-overview-scene]');
+  if (sceneRun) {
+    sceneRun.onclick = async () => {
+      sceneRun.disabled = true;
+      try {
+        await invoke('run_scene', { sceneId: sceneRun.dataset.overviewScene, homeId: state.homeId });
+        toast(`「${firstScene.name}」已执行`);
+      } catch (error) {
+        toast(String(error), true);
+      } finally {
+        sceneRun.disabled = false;
+      }
+    };
+  }
+
+  if (state.cameras.length) {
+    const cams = el('section', 'overview-cams');
+    const head = el('div', 'overview-cams-head');
+    const copy = el('div');
+    copy.append(el('div', 'eyebrow', '实时监控'), el('h3', '', `${state.cameras.length} 台摄像头`));
+    const openAll = el('button', 'text-btn', '打开监控台');
+    openAll.type = 'button';
+    openAll.onclick = showCameras;
+    head.append(copy, openAll);
+    const grid = el('div', 'overview-cam-grid');
+    for (const camera of state.cameras.slice(0, 3)) grid.append(overviewCameraCard(camera));
+    cams.append(head, grid);
+    box.append(cams);
+  }
+
+  if (state.scenes.length) {
+    const quick = el('div', 'quick-scenes');
+    state.scenes.slice(0, 4).forEach((scene, index) => quick.append(overviewScenePill(scene, index)));
+    box.append(quick);
+  }
+
+  if (!visibleRooms.length) {
+    box.append(el('div', 'empty', '这个家庭还没有可显示的房间与设备'));
+  }
+  for (const room of visibleRooms) {
+    const section = el('section', 'room-block');
+    const head = el('div', 'room-head');
+    head.append(el('span', 'room-title', room.name), el('span', 'room-count', `${room.devices.length} 台`), el('span', 'line'));
+    const list = el('div', 'device-list');
+    const fragment = document.createDocumentFragment();
+    for (const device of room.devices) {
+      const row = renderDeviceRow(device);
+      fragment.append(row);
+      observeDeviceCard(row, device);
+    }
+    list.append(fragment);
+    section.append(head, list);
+    box.append(section);
+  }
+  if (sensor) hydrateOverviewSensor(sensor);
+  $('#main').scrollTop = scroll;
 }
 
 function inspectorProfile(device) {
@@ -862,7 +1544,9 @@ function inspectorRequests(device, profile) {
 async function selectDevice(device) {
   const request = ++state.inspectorRequest;
   state.selected = device;
-  renderDevices();
+  for (const row of document.querySelectorAll('.device-row')) {
+    row.classList.toggle('active', row.dataset.did === device.did);
+  }
   renderInspector(device, null, true);
   const profile = inspectorProfile(device);
   try {
@@ -1132,6 +1816,8 @@ function renderInspector(device, error, loading = false) {
   const family = window.MiIcons.familyFor(kind);
   box.replaceChildren();
   box.scrollTop = 0;
+  box.classList.add('open');
+  box.setAttribute('aria-hidden', 'false');
 
   const head = el('div', 'detail-head');
   const icon = el('span', 'detail-icon');
@@ -1146,6 +1832,12 @@ function renderInspector(device, error, loading = false) {
   sub.append(el('span', `detail-online ${device.online ? 'on' : ''}`, device.online ? '在线' : '离线'));
   heading.append(sub);
   head.append(heading);
+  const close = el('button', 'insp-close');
+  close.type = 'button';
+  close.setAttribute('aria-label', '关闭详情');
+  close.innerHTML = uiIcon('close');
+  close.onclick = closeInspector;
+  head.append(close);
   box.append(head);
 
   if (error) box.append(el('p', 'detail-error', `读取设备状态失败：${error}`));
@@ -1196,6 +1888,16 @@ function renderInspector(device, error, loading = false) {
 
 }
 
+function closeInspector() {
+  state.selected = null;
+  state.inspectorRequest += 1;
+  const box = $('#inspector');
+  box.classList.remove('open');
+  box.setAttribute('aria-hidden', 'true');
+  box.replaceChildren();
+  for (const row of document.querySelectorAll('.device-row.active')) row.classList.remove('active');
+}
+
 async function setPower(device, value) {
   try {
     await setCardProp(device, 2, 1, value);
@@ -1207,17 +1909,19 @@ async function setPower(device, value) {
 
 async function showDevices() {
   await stopCamera();
-  $('#cameraView').hidden = true;
-  $('#sceneView').hidden = true;
-  $('#automationView').hidden = true;
-  $('#devicesView').hidden = false;
-  document.querySelector('.main').classList.add('devices-mode');
-  document.querySelector('.main').scrollTop = 0;
-  $('#reload').hidden = false;
-  $('#pageTitle').textContent = state.homes.find((home) => home.id === state.homeId)?.name || '设备';
-  for (const id of ['devicesNav', 'cameraNav', 'sceneNav', 'automationNav']) {
-    $('#' + id).classList.toggle('active', id === 'devicesNav');
-  }
+  showView('devices');
+  renderDevices();
+  renderSidebarRooms();
+  updateChrome();
+}
+
+async function showOverview() {
+  if (!state.loggedIn) return;
+  await stopCamera();
+  showView('overview');
+  renderSidebarRooms();
+  renderOverview();
+  updateChrome();
 }
 
 function sceneTone(index) {
@@ -1240,10 +1944,10 @@ function sceneListHTML() {
       const tone = sceneTone(index);
       const icon = sceneIcon(scene.name);
       return `<article class="scene-card" data-tone="${tone}">
-        <div class="scene-art"><span class="orb a"></span><span class="orb b"></span><span class="orb c"></span><span class="sc-ic">${icon}</span></div>
+        <div class="scene-art"><span class="orb a"></span><span class="orb b"></span><span class="orb c"></span><span class="sc-ic">${icon}</span><span class="sc-time">手动场景</span></div>
         <div class="scene-info">
-          <div class="scene-text"><h3>${esc(scene.name)}</h3><p>${scene.id ? `ID ${esc(String(scene.id).slice(0, 12))}` : '手动场景'}</p></div>
-          <button class="ghost" data-run-scene="${esc(scene.id)}">执行</button>
+          <div class="txt"><strong>${esc(scene.name)}</strong><small>${scene.id ? `ID ${esc(String(scene.id).slice(0, 12))}` : '手动场景'}</small></div>
+          <button class="run-btn" data-run-scene="${esc(scene.id)}">${uiIcon('play')} 执行</button>
         </div>
       </article>`;
     })
@@ -1264,6 +1968,7 @@ async function loadScenes() {
     state.scenes = scenes;
     setNavCount('sceneCount', state.scenes.length);
     box.innerHTML = sceneListHTML();
+    if (state.page === 'overview') renderOverview(true);
   } catch (error) {
     if (request !== state.scenesRequest || homeId !== state.homeId) return;
     box.innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
@@ -1273,18 +1978,7 @@ async function loadScenes() {
 async function showScenes() {
   if (!state.loggedIn) return;
   await stopCamera();
-  $('#loginView').hidden = true;
-  $('#devicesView').hidden = true;
-  document.querySelector('.main').classList.remove('devices-mode');
-  $('#reload').hidden = true;
-  $('#cameraView').hidden = true;
-  $('#automationView').hidden = true;
-  $('#sceneView').hidden = false;
-  document.querySelector('.main').scrollTop = 0;
-  $('#pageTitle').textContent = '场景';
-  $('#devicesNav').classList.remove('active');
-  $('#cameraNav').classList.remove('active');
-  $('#sceneNav').classList.add('active');
+  showView('scenes');
   await loadScenes();
 }
 
@@ -1309,9 +2003,10 @@ function renderAutomations() {
     const sceneName = state.scenes.find((scene) => scene.id === item.scene_id)?.name || item.scene_id;
     return `<article class="auto-row">
       <time>${esc(item.time)}</time>
-      <div><strong>${esc(item.name)}</strong><small>${days} · ${esc(sceneName)}</small></div>
-      <label class="switch"><input type="checkbox" data-toggle-auto="${esc(item.id)}" ${item.enabled ? 'checked' : ''}><span></span></label>
-      <button class="ghost" data-delete-auto="${esc(item.id)}">删除</button>
+      <div class="auto-body"><div class="auto-name">${esc(item.name)}</div><div class="auto-target">${days} · ${esc(sceneName)}</div></div>
+      <span class="auto-days">${days}</span>
+      <label class="switch ${item.enabled ? 'on' : ''}"><input type="checkbox" data-toggle-auto="${esc(item.id)}" ${item.enabled ? 'checked' : ''}><span></span></label>
+      <button class="ghost-btn" data-delete-auto="${esc(item.id)}">删除</button>
     </article>`;
   }).join('');
 }
@@ -1321,6 +2016,7 @@ async function loadAutomations() {
     state.automations = await invoke('list_automations');
     setNavCount('automationCount', state.automations.length);
     renderAutomations();
+    if (state.page === 'overview') renderOverview(true);
   } catch (error) {
     $('#autoList').innerHTML = `<div class="empty error">${esc(String(error))}</div>`;
   }
@@ -1329,17 +2025,7 @@ async function loadAutomations() {
 async function showAutomations() {
   if (!state.loggedIn) return;
   await stopCamera();
-  $('#loginView').hidden = true;
-  $('#devicesView').hidden = true;
-  document.querySelector('.main').classList.remove('devices-mode');
-  $('#reload').hidden = true;
-  $('#cameraView').hidden = true;
-  $('#sceneView').hidden = true;
-  $('#automationView').hidden = false;
-  document.querySelector('.main').scrollTop = 0;
-  $('#pageTitle').textContent = '自动化';
-  ['devicesNav', 'cameraNav', 'sceneNav'].forEach((id) => $('#' + id).classList.remove('active'));
-  $('#automationNav').classList.add('active');
+  showView('automations');
   await loadScenes();
   fillSceneSelect();
   await loadAutomations();
@@ -1347,19 +2033,14 @@ async function showAutomations() {
 
 async function showCameras() {
   if (!state.loggedIn) return;
-  $('#loginView').hidden = true;
-  $('#devicesView').hidden = true;
-  document.querySelector('.main').classList.remove('devices-mode');
-  $('#reload').hidden = true;
-  $('#sceneView').hidden = true;
-  $('#automationView').hidden = true;
-  $('#cameraView').hidden = false;
-  document.querySelector('.main').scrollTop = 0;
-  $('#pageTitle').textContent = '摄像头';
-  for (const id of ['devicesNav', 'cameraNav', 'sceneNav', 'automationNav']) {
-    $('#' + id).classList.toggle('active', id === 'cameraNav');
-  }
+  showView('camera');
   await loadCameras();
+}
+
+async function showSettings() {
+  await stopCamera();
+  showView('settings');
+  updateSettingsSelection();
 }
 
 async function loadCameras() {
@@ -1373,6 +2054,9 @@ async function loadCameras() {
     log.info('Camera', `摄像头列表已加载：${cameras.length} 台`);
     setNavCount('cameraCount', state.cameras.length);
     renderCameras();
+    renderSidebarRooms();
+    if (state.page === 'overview') renderOverview(true);
+    updateChrome();
     loadDeviceSpecs(cameras);
   } catch (error) {
     log.error('Camera', `读取摄像头列表失败：${error}`);
@@ -1380,45 +2064,163 @@ async function loadCameras() {
     state.cameras = [];
     setNavCount('cameraCount', 0);
     list.replaceChildren(el('div', 'empty error', `读取摄像头失败：${error}`));
+    updateChrome();
   }
 }
 
 function renderCameras() {
   const list = $('#camList');
   list.replaceChildren();
+  $('#camSideCount').textContent = String(state.cameras.length);
   if (!state.cameras.length) {
     list.append(el('div', 'empty', '账号下没有识别到摄像头'));
     $('#camEmpty').textContent = '没有可用摄像头';
+    $('#camTitle').textContent = '监控台';
+    $('#camSubtitle').textContent = '账号下没有识别到摄像头';
+    $('#camSpec').textContent = '无可用通道';
     return;
   }
+  if (!state.cameras.some((camera) => camera.did === state.selectedCameraDid)) {
+    state.selectedCameraDid = state.cameras[0].did;
+  }
+  const fragment = document.createDocumentFragment();
   for (const camera of state.cameras) {
-    const row = el('div', 'cam-row');
-    if (state.selectedCameraDid === camera.did) row.classList.add('active');
-    row.onclick = () => {
+    const card = el('div', `cam-card ${state.selectedCameraDid === camera.did ? 'active' : ''}`);
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.onclick = () => {
       state.selectedCameraDid = camera.did;
       renderCameras();
       if (state.selectedCameraDid === camera.did) {
         $('#camEmpty').textContent = `已选择 ${camera.name}，点击“本地”或“远程”打开。`;
+        updateCameraStage(camera, null, false);
       }
     };
-    row.append(el('span', 'cam-dot', camera.online ? '●' : '○'));
-    const copy = el('div');
+    card.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        card.click();
+      }
+    };
+    const art = el('div', 'cam-thumb-art');
+    art.append(
+      el('span', `live-dot${camera.online ? '' : ' muted'}`),
+      el('span', 'cam-thumb-badge', camera.online ? (camera.ip ? '本地可达' : '仅远程') : '离线'),
+    );
+    card.append(art);
+    const copy = el('div', 'cam-card-info');
     copy.append(el('strong', '', camera.name));
-    copy.append(el('small', '', camera.ip ? `局域网 · ${camera.ip}` : '通过远程连接'));
+    copy.append(el('span', '', camera.ip ? `局域网 · ${camera.ip}` : '远程通道'));
     copy.title = camera.model;
-    row.append(copy);
+    card.append(copy);
     const actions = el('div', 'cam-actions');
     const local = el('button', 'pill', '本地');
+    local.type = 'button';
     local.disabled = !camera.online || !camera.ip;
-    local.onclick = () => startCameraSet([camera], false);
+    local.onclick = (event) => {
+      event.stopPropagation();
+      state.selectedCameraDid = camera.did;
+      renderCameras();
+      startCameraSet([camera], false);
+    };
     const remote = el('button', 'pill remote', '远程');
+    remote.type = 'button';
     remote.disabled = !camera.online;
-    remote.onclick = () => startRemoteCamera(camera);
+    remote.onclick = (event) => {
+      event.stopPropagation();
+      state.selectedCameraDid = camera.did;
+      renderCameras();
+      startRemoteCamera(camera);
+    };
     actions.append(local, remote);
-    row.append(actions);
-    list.append(row);
+    card.append(actions);
+    fragment.append(card);
   }
-  $('#camEmpty').textContent = '选择一个摄像头';
+  list.append(fragment);
+  const selected = state.cameras.find((camera) => camera.did === state.selectedCameraDid)
+    || state.cameras[0];
+  if (!state.activeCamera) {
+    state.selectedCameraDid = selected?.did || null;
+    $('#camEmpty').textContent = '选择一个摄像头';
+    if (selected) updateCameraStage(selected, null, false);
+  }
+}
+
+function updateCameraStage(camera, stream, remote) {
+  if (!camera) return;
+  $('#camTitle').textContent = camera.name;
+  const cameraDevice = state.devices.find((device) => device.did === camera.did);
+  $('#camSubtitle').textContent = `${cameraDevice ? roomName(cameraDevice) : '摄像头'} · ${camera.model || '米家摄像头'}`;
+  $('#camSpec').textContent = camera.ip ? '局域网通道' : '远程通道';
+  $('#camLatency').textContent = remote ? '远程' : camera.ip ? '本地' : '等待连接';
+  $('#camTransport').textContent = stream ? '通道已建立' : '未连接';
+  $('#camLocalButton').classList.toggle('active', !remote && Boolean(camera.ip));
+  $('#camRemoteButton').classList.toggle('active', Boolean(remote));
+  $('#camLivePill').classList.toggle('replay', !camera.online);
+  $('#camLivePill').innerHTML = `<i></i>${camera.online ? 'LIVE' : 'OFFLINE'}`;
+  const ptz = $('#camPtzOverlay');
+  const supportsPtz = !String(camera.model || '').includes('039a01');
+  ptz.hidden = !remote || !supportsPtz;
+  ptz.setAttribute('aria-hidden', String(ptz.hidden));
+  for (const button of ptz.querySelectorAll('[data-ptz-dir]')) {
+    button.disabled = !stream;
+  }
+  updateCameraToolState();
+  renderCameraTimeline();
+}
+
+function renderCameraTimeline() {
+  const box = $('#camTimeline');
+  if (!box) return;
+  const camera = state.cameras.find((item) => item.did === state.selectedCameraDid)
+    || state.activeCamera;
+  const active = Boolean(
+    state.activeCamera
+    && state.cameraStreams.some((stream) => stream.id === state.activeCamera.did),
+  );
+  const now = new Date();
+  const date = new Intl.DateTimeFormat('zh-CN', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }).format(now);
+  const clock = new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+  const playhead = ((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400) * 100;
+  const started = state.cameraSessionStartedAt
+    ? new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(state.cameraSessionStartedAt))
+    : null;
+  const mode = state.remoteActive ? '远程通道' : '本地直连';
+  box.innerHTML = `<div class="timeline-head">
+    <div><div class="eyebrow">今天 · ${esc(date)}</div><h3>事件时间线</h3></div>
+    <div class="timeline-head-actions">
+      <span class="timeline-legend"><i class="legend-motion"></i>移动 <i class="legend-record"></i>录制</span>
+      <button class="ghost-btn" type="button" data-timeline-refresh>${uiIcon('history')} 刷新</button>
+    </div>
+  </div>
+  <div class="timeline-ruler"><span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>24:00</span></div>
+  <div class="timeline-track">
+    ${active ? '<span class="timeline-live" style="left:96%;width:4%"></span>' : ''}
+    <span class="timeline-playhead" id="timelinePlayhead" style="left:${playhead.toFixed(3)}%"></span>
+  </div>
+  <div class="timeline-list">
+    ${active
+      ? `<div class="timeline-event timeline-session">
+          <time>${esc(started || clock)}</time><span class="timeline-event-dot scene"></span>
+          <span class="timeline-event-copy"><strong>本次实时查看</strong><small>${esc(camera?.name || '摄像头')} · ${mode} · 画面只在本机解码</small></span>
+          <span class="timeline-event-play">${uiIcon('play')}</span>
+        </div>`
+      : `<div class="timeline-empty">${uiIcon('clock')}<span><strong>当前没有可读取的录像事件</strong><small>米家接口未向第三方客户端开放云存储事件列表；实时画面和本机诊断不受影响。</small></span></div>`}
+  </div>`;
+  box.querySelector('[data-timeline-refresh]')?.addEventListener('click', renderCameraTimeline);
 }
 
 async function startRemoteCamera(camera) {
@@ -1442,8 +2244,11 @@ async function startRemoteCameraSetNow(cameras, grid) {
   state.cameraGrid = grid;
   state.remoteAudio.clear();
   state.activeCamera = usable[0];
+  state.cameraSessionStartedAt = Date.now();
   state.selectedCameraDid = usable[0].did;
   state.remoteActive = true;
+  renderCameras();
+  updateCameraStage(usable[0], null, true);
   $('#camLayout').hidden = grid;
   $('#camGrid').hidden = !grid;
   $('#camEmpty').hidden = false;
@@ -1516,6 +2321,9 @@ async function startRemoteCameraSetNow(cameras, grid) {
         );
         watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
       } else {
+        updateCameraStage(camera, stream, true);
+        $('#camTransport').textContent = '远程通道已建立';
+        $('#camLatency').textContent = '远程';
         renderCameraControls(camera, true).catch((error) => {
           log.error('Camera', `渲染远程控制项失败：${error}`);
         });
@@ -1612,36 +2420,7 @@ async function renderCameraControls(camera, remote) {
   }
   box.hidden = false;
   box.replaceChildren();
-  const ptz = el('div', 'cam-ptz');
-  ptz.append(el('p', 'eyebrow', '云台控制'));
   const supportsPtz = !String(camera.model || '').includes('039a01');
-  if (!supportsPtz) {
-    ptz.append(el('p', 'muted', '该机型不支持云台'));
-  } else if (!remote) {
-    ptz.append(el('p', 'muted', '打开远程画面后可控制'));
-  } else {
-    const pad = el('div', 'ptz-pad');
-    const add = (direction, text, className) => {
-      const button = el('button', className, text);
-      button.type = 'button';
-      button.setAttribute('aria-label', `云台${text}`);
-      button.onclick = async () => {
-        try {
-          await invoke('camera_remote_ptz', { did: camera.did, direction });
-        } catch (error) {
-          log.error('Camera', `云台命令失败：${camera.name} ${direction} ${error}`);
-          toast(`云台命令失败：${error}`, true);
-        }
-      };
-      pad.append(button);
-    };
-    add('up', '↑', 'ptz-up');
-    add('left', '←', 'ptz-left');
-    add('right', '→', 'ptz-right');
-    add('down', '↓', 'ptz-down');
-    ptz.append(pad);
-  }
-  box.append(ptz);
 
   const video = $('#camVideo');
   {
@@ -1713,6 +2492,7 @@ async function renderCameraControls(camera, remote) {
         soundInput.disabled = false;
       }
     };
+    soundInput.addEventListener('change', () => setTimeout(updateCameraToolState, 0));
     soundToggle.append(soundInput, el('span'));
     soundRow.append(soundToggle);
     sound.append(soundRow);
@@ -1846,8 +2626,11 @@ async function startCameraSetNow(cameras, grid) {
     state.cameraStreams = streams;
     state.cameraGrid = grid;
     state.activeCamera = usable[0];
+    state.cameraSessionStartedAt = Date.now();
     state.selectedCameraDid = usable[0].did;
     state.remoteActive = false;
+    renderCameras();
+    updateCameraStage(usable[0], streams[0], false);
     log.info('Camera', `本地画面地址已返回：count=${streams.length}`);
     renderCameraControls(usable[0], false).catch((error) => {
       log.error('Camera', `渲染本地控制项失败：${error}`);
@@ -1891,6 +2674,8 @@ async function startCameraSetNow(cameras, grid) {
         if (generation === state.cameraGeneration && !state.remoteActive) {
           log.info('Camera', `本地首帧已加载：${usable[0].name}`);
           $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 本地实时画面`;
+          $('#camTransport').textContent = '本地首帧已加载';
+          $('#camLatency').textContent = '本地';
         }
       };
       video.muted = state.remoteAudio.get(usable[0].did) !== true;
@@ -1903,6 +2688,8 @@ async function startCameraSetNow(cameras, grid) {
         () => restartLocalCamera(usable[0], generation),
       );
       $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 正在建立本地连接`;
+      $('#camTransport').textContent = '正在建立本地通道';
+      $('#camLatency').textContent = '本地';
       watchRemote(video, usable[0], () => restartLocalCamera(usable[0], generation), generation);
       setTimeout(() => {
         if (generation === state.cameraGeneration && !state.remoteActive && !video.videoWidth) {
@@ -2075,6 +2862,8 @@ async function stopCameraNow(reason = '未知') {
   state.cameraWatches.clear();
   state.cameraStreams = [];
   state.activeCamera = null;
+  state.cameraSessionStartedAt = null;
+  state.cameraPaused = false;
   state.remoteActive = false;
   state.remoteAudio.clear();
   state.cameraControlsRequest += 1;
@@ -2094,15 +2883,25 @@ async function stopCameraNow(reason = '未知') {
   $('#camGrid').hidden = true;
   $('#camGrid').replaceChildren();
   $('#camLayout').hidden = false;
+  $('#camClock').textContent = '--:--:--';
+  $('#camTransport').textContent = '已停止';
+  document.querySelector('.camera-frame.theater')?.classList.remove('theater');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  updateCameraToolState();
+  const selected = state.cameras.find((camera) => camera.did === state.selectedCameraDid);
+  if (selected) updateCameraStage(selected, null, false);
   if (invoke) {
     try { await invoke('camera_stop', { requestId }); } catch (_) {}
   }
 }
 
+$('#overviewNav').onclick = showOverview;
 $('#devicesNav').onclick = showDevices;
 $('#cameraNav').onclick = showCameras;
 $('#sceneNav').onclick = showScenes;
 $('#automationNav').onclick = showAutomations;
+$('#settingsNav').onclick = showSettings;
+$('#accountButton').onclick = showSettings;
 $('#refreshScenes').onclick = loadScenes;
 $('#autoForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -2123,6 +2922,7 @@ $('#autoForm').addEventListener('submit', async (event) => {
     renderAutomations();
     $('#autoName').value = '';
     toast('定时任务已保存');
+    renderOverview(true);
   } catch (error) {
     toast(String(error), true);
   }
@@ -2157,6 +2957,126 @@ document.addEventListener('click', async (event) => {
 });
 $('#camReload').onclick = loadCameras;
 $('#camRemoteGrid').onclick = () => startRemoteCameraSet(state.cameras, true);
+$('#camLocalButton').onclick = () => {
+  const camera = state.cameras.find((item) => item.did === state.selectedCameraDid);
+  if (!camera) return toast('先选择一台摄像头', true);
+  startCameraSet([camera], false);
+};
+$('#camRemoteButton').onclick = () => {
+  const camera = state.cameras.find((item) => item.did === state.selectedCameraDid);
+  if (!camera) return toast('先选择一台摄像头', true);
+  startRemoteCamera(camera);
+};
+
+function activeCameraVideo() {
+  if (!state.cameraGrid) return $('#camVideo');
+  return [...document.querySelectorAll('#camGrid video')]
+    .find((video) => video.videoWidth > 0)
+    || document.querySelector('#camGrid video');
+}
+
+function updateCameraToolState() {
+  const pause = $('#camPause');
+  const sound = $('#camSound');
+  const camera = state.activeCamera;
+  const soundOn = Boolean(camera && state.remoteAudio.get(camera.did));
+  pause.classList.toggle('active', state.cameraPaused);
+  sound.classList.toggle('active', soundOn);
+  pause.innerHTML = `${uiIcon(state.cameraPaused ? 'play' : 'pause')}${state.cameraPaused ? '继续' : '暂停'}`;
+  sound.innerHTML = `${uiIcon('volume')}${soundOn ? '静音' : '声音'}`;
+}
+
+$('#camPause').onclick = () => {
+  const videos = state.cameraGrid
+    ? [...document.querySelectorAll('#camGrid video')]
+    : [$('#camVideo')];
+  if (!videos.length) return;
+  state.cameraPaused = !state.cameraPaused;
+  for (const video of videos) {
+    if (state.cameraPaused) video.pause();
+    else video.play().catch((error) => log.warn('Camera', `继续播放失败：${error}`));
+  }
+  updateCameraToolState();
+  $('#camHint').textContent = state.cameraPaused ? '画面已暂停，取流通道保持连接' : '画面已继续播放';
+};
+
+$('#camSound').onclick = () => {
+  const camera = state.activeCamera;
+  const video = activeCameraVideo();
+  if (!camera || !video) return toast('先打开一路摄像头画面', true);
+  const next = !state.remoteAudio.get(camera.did);
+  if (next && !setCameraAudio(video, true, camera.name)) {
+    state.remoteAudio.set(camera.did, false);
+    updateCameraToolState();
+    toast('当前通道没有可用音轨；本地播放通常只有视频。', true);
+    return;
+  }
+  if (!next) setCameraAudio(video, false, camera.name);
+  state.remoteAudio.set(camera.did, next);
+  updateCameraToolState();
+  $('#camHint').textContent = `${camera.name} · 声音${next ? '已打开' : '已关闭'}`;
+  renderCameraControls(camera, state.remoteActive).catch(() => {});
+};
+
+$('#camSnapshot').onclick = () => {
+  const video = activeCameraVideo();
+  const camera = state.activeCamera;
+  if (!video || !camera || !video.videoWidth || !video.videoHeight) {
+    return toast('画面还没有首帧，暂时无法截图', true);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    if (!blob) return toast('截图生成失败', true);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `${camera.name.replace(/[\\/:*?"<>|]/g, '-')}-${stamp}.png`;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    toast('截图已生成');
+  }, 'image/png');
+};
+
+$('#camFullScreen').onclick = async () => {
+  const frame = document.querySelector('#cameraFrame, .camera-frame');
+  if (!frame) return;
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else if (frame.requestFullscreen) {
+      await frame.requestFullscreen();
+    } else {
+      frame.classList.toggle('theater');
+    }
+  } catch (error) {
+    frame.classList.toggle('theater');
+    log.warn('Camera', `原生全屏不可用，已切换窗口内全屏：${error}`);
+  }
+};
+
+$('#camPtzOverlay').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-ptz-dir]');
+  const camera = state.activeCamera;
+  if (!button || !camera) return;
+  const direction = button.dataset.ptzDir;
+  button.disabled = true;
+  try {
+    await invoke('camera_remote_ptz', { did: camera.did, direction });
+    toast(`云台${button.getAttribute('aria-label').replace('云台', '')}指令已发送`);
+  } catch (error) {
+    log.error('Camera', `云台命令失败：${camera.name} ${direction} ${error}`);
+    toast(`云台命令失败：${error}`, true);
+  } finally {
+    button.disabled = state.remoteActive !== true;
+  }
+});
 
 $('#camGridToggle').onclick = () => {
   if (state.cameraGrid) {
@@ -2175,9 +3095,18 @@ $('#camGridToggle').onclick = () => {
 
 $('#startAuth').onclick = startAuth;
 $('#reload').onclick = loadDevices;
-$('#exportLog').onclick = async () => {
+$('#deviceSearch').addEventListener('input', (event) => {
+  state.deviceQuery = event.target.value;
+  renderDevices();
+});
+document.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-device-filter]');
+  if (!filter) return;
+  state.deviceFilter = filter.dataset.deviceFilter;
+  renderDevices();
+});
+async function exportDiagnostics(button = $('#exportLog')) {
   if (!invoke) return;
-  const button = $('#exportLog');
   button.disabled = true;
   log.info('Log', '用户请求导出诊断日志');
   try {
@@ -2189,8 +3118,17 @@ $('#exportLog').onclick = async () => {
   } finally {
     button.disabled = false;
   }
-};
+}
+$('#exportLog').onclick = () => exportDiagnostics($('#exportLog'));
+$('#settingsExportLog').onclick = () => exportDiagnostics($('#settingsExportLog'));
 $('#logout').onclick = async () => {
+  await logoutAccount();
+};
+$('#settingsLogout').onclick = async () => {
+  await logoutAccount();
+};
+
+async function logoutAccount() {
   let logoutError = null;
   try {
     await invoke('auth_logout');
@@ -2199,36 +3137,430 @@ $('#logout').onclick = async () => {
   }
   state.loggedIn = false;
   state.polling = false;
+  state.devicesRequest += 1;
+  state.inspectorRequest += 1;
+  state.cardObserver?.disconnect();
+  state.cardObserver = null;
+  if (state.cardHydrationTimer) clearTimeout(state.cardHydrationTimer);
+  state.cardHydrationTimer = null;
+  state.cardHydrationQueue.clear();
+  state.hydratedCards.clear();
+  state.lastPresenceSyncAt = 0;
+  state.presenceSyncFailed = false;
   state.devices = [];
   state.selected = null;
   await stopCamera();
   state.cameras = [];
   state.roomFilter = 'all';
-  $('#loginView').hidden = false;
-  $('#devicesView').hidden = true;
-  document.querySelector('.main').classList.remove('devices-mode');
-  $('#reload').hidden = true;
-  $('#cameraView').hidden = true;
-  $('#sceneView').hidden = true;
-  $('#automationView').hidden = true;
-  $('#sceneNav').disabled = true;
-  $('#automationNav').disabled = true;
+  state.deviceFilter = 'all';
+  state.deviceQuery = '';
+  $('#deviceSearch').value = '';
+  for (const id of ['overviewView', 'devicesView', 'cameraView', 'sceneView', 'automationView', 'settingsView']) {
+    $('#' + id).hidden = true;
+  }
+  for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
+    $('#' + id).disabled = true;
+  }
   state.scenes = [];
   state.automations = [];
-  $('#cameraNav').disabled = true;
-  $('#cameraNav').classList.remove('active');
   $('#camControls').hidden = true;
-  $('#devicesNav').classList.add('active');
   $('#logout').hidden = true;
-  $('#pageTitle').textContent = '连接你的米家';
+  closeInspector();
+  renderSidebarRooms();
+  $('#loginLayer').style.display = 'grid';
+  requestAnimationFrame(() => $('#loginLayer').classList.remove('hide'));
   $('#qrBox').innerHTML = '<div class="qr-placeholder">二维码准备中</div>';
   setStatus('未登录');
   $('#startAuth').disabled = false;
   if (logoutError) toast(`本地界面已退出，但清理凭据失败：${logoutError}`, true);
+}
+
+function applyTheme(theme) {
+  state.theme = theme;
+  document.body.dataset.theme = theme;
+  localStorage.setItem('mihome-theme', theme);
+  const button = $('#btnTheme');
+  if (button) {
+    button.innerHTML = uiIcon(theme === 'light' ? 'moon' : 'sun');
+    button.setAttribute('aria-label', theme === 'light' ? '切换到深色外观' : '切换到浅色外观');
+    button.title = theme === 'light' ? '切换到深色外观' : '切换到浅色外观';
+  }
+  updateSettingsSelection();
+}
+
+function updateSettingsSelection() {
+  document.querySelectorAll('[data-theme-set]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.themeSet === state.theme);
+  });
+  document.querySelectorAll('[data-density-set]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.densitySet === state.density);
+  });
+}
+
+document.addEventListener('click', (event) => {
+  const themeButton = event.target.closest('[data-theme-set]');
+  if (themeButton) {
+    applyTheme(themeButton.dataset.themeSet);
+    return;
+  }
+  const densityButton = event.target.closest('[data-density-set]');
+  if (densityButton) {
+    state.density = densityButton.dataset.densitySet;
+    document.body.dataset.density = state.density;
+    localStorage.setItem('mihome-density', state.density);
+    updateSettingsSelection();
+    if (state.page === 'overview') renderOverview(true);
+  }
+});
+
+function toggleQuickPanel(force) {
+  const panel = $('#menubarPop');
+  if (!panel) return;
+  const open = force ?? !panel.classList.contains('open');
+  panel.classList.toggle('open', open);
+  panel.setAttribute('aria-hidden', String(!open));
+  if (open) renderQuickPanel();
+}
+
+function renderQuickPanel() {
+  const sensor = state.devices.find((device) => deviceKind(device) === 'temp-humidity');
+  const values = overviewSensorValues(sensor);
+  const temperature = Number(values.temperature);
+  const humidity = Number(values.humidity);
+  const online = state.devices.filter((device) => device.online).length;
+  $('#popEnv').textContent = Number.isFinite(temperature) ? `${temperature.toFixed(1)}°` : `${online}`;
+  $('#popEnvSub').textContent = Number.isFinite(temperature)
+    ? `湿度 ${Number.isFinite(humidity) ? `${humidity.toFixed(0)}%` : '—'}\n${online}/${state.devices.length} 台在线`
+    : `台设备在线\n${state.devices.length} 台设备`;
+
+  const grid = $('#popGrid');
+  grid.replaceChildren();
+  const candidates = [...state.devices]
+    .sort((a, b) => Number(b.online) - Number(a.online))
+    .slice(0, 4);
+  for (const device of candidates) {
+    const row = el('div', 'pop-device');
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-label', `打开 ${device.name}`);
+    const glyph = el('span', 'pop-device-icon');
+    glyph.innerHTML = uiIcon('sliders');
+    row.append(glyph, el('span', 'pop-device-label', device.name));
+    const primary = cardProfile(device).controls.find((item) => item.primary);
+    if (primary && device.online) row.append(inlineDeviceSwitch(device, primary));
+    const openDevice = () => {
+      toggleQuickPanel(false);
+      selectDevice(device);
+    };
+    row.onclick = (event) => {
+      if (event.target.closest('button')) return;
+      openDevice();
+    };
+    row.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openDevice();
+      }
+    };
+    grid.append(row);
+  }
+  if (!candidates.length) grid.append(el('div', 'palette-empty', '暂无设备'));
+
+  const scenes = $('#popScenes');
+  scenes.replaceChildren();
+  for (const scene of state.scenes.slice(0, 3)) {
+    const button = el('button', '', scene.name);
+    button.type = 'button';
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await invoke('run_scene', { sceneId: scene.id, homeId: state.homeId });
+        toast(`「${scene.name}」已执行`);
+      } catch (error) {
+        toast(String(error), true);
+      } finally {
+        button.disabled = false;
+      }
+    };
+    scenes.append(button);
+  }
+}
+
+const hud = { on: false, frames: [], last: 0, raf: 0, timer: 0 };
+
+function toggleHud(force) {
+  const panel = $('#hud');
+  if (!panel) return;
+  hud.on = force ?? !hud.on;
+  panel.classList.toggle('show', hud.on);
+  panel.setAttribute('aria-hidden', String(!hud.on));
+  if (hud.on) {
+    hud.last = 0;
+    runtimeLog('性能面板已打开');
+    updateHud();
+    hud.raf = requestAnimationFrame(hudLoop);
+    hud.timer = setInterval(updateHud, 500);
+  } else {
+    cancelAnimationFrame(hud.raf);
+    clearInterval(hud.timer);
+    hud.raf = 0;
+    hud.timer = 0;
+  }
+}
+
+function updateHud() {
+  const frame = hud.frames.length ? hud.frames[hud.frames.length - 1] : 0;
+  const heap = performance.memory?.usedJSHeapSize;
+  $('#hudFrame').textContent = frame ? `${(1000 / frame).toFixed(1)} ms` : '--';
+  $('#hudRender').textContent = runtime.lastRenderMs ? `${runtime.lastRenderMs.toFixed(1)} ms` : '--';
+  $('#hudHeap').textContent = heap ? `${(heap / 1048576).toFixed(1)} MB` : '—';
+  $('#hudInflight').textContent = String(runtime.inflight);
+  $('#hudLastRequest').textContent = runtime.lastRequestMs ? `${runtime.lastRequestMs.toFixed(0)} ms` : '--';
+  $('#hudDom').textContent = String(document.querySelectorAll('*').length);
+}
+
+function hudLoop(timestamp) {
+  if (!hud.on) return;
+  if (hud.last) {
+    const elapsed = timestamp - hud.last;
+    if (elapsed > 0) {
+      hud.frames.push(1000 / elapsed);
+      hud.frames = hud.frames.slice(-60);
+      $('#hudFps').textContent = String(Math.round(1000 / elapsed));
+    }
+  }
+  hud.last = timestamp;
+  drawHudGraph();
+  updateHud();
+  hud.raf = requestAnimationFrame(hudLoop);
+}
+
+function drawHudGraph() {
+  const canvas = $('#hudGraph');
+  const ctx = canvas?.getContext?.('2d');
+  if (!ctx) return;
+  const { width, height } = canvas;
+  ctx.clearRect(0, 0, width, height);
+  if (hud.frames.length < 2) return;
+  const min = 30;
+  const max = Math.max(144, ...hud.frames);
+  ctx.beginPath();
+  hud.frames.forEach((fps, index) => {
+    const x = (index / Math.max(1, hud.frames.length - 1)) * width;
+    const y = height - ((Math.max(min, Math.min(max, fps)) - min) / (max - min)) * height;
+    if (index) ctx.lineTo(x, y);
+    else ctx.moveTo(x, y);
+  });
+  ctx.strokeStyle = '#7f9b8a';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+async function loadAll() {
+  await loadDevices();
+  await Promise.allSettled([loadScenes(), loadCameras(), loadAutomations()]);
+  renderOverview(true);
+  updateChrome();
+}
+
+function paletteSource() {
+  const items = state.devices.map((device) => ({
+    group: '设备',
+    label: device.name,
+    sub: `${roomName(device)} · ${device.online ? '在线' : '离线'}`,
+    icon: 'sliders',
+    run: () => selectDevice(device),
+  }));
+  for (const scene of state.scenes) {
+    items.push({
+      group: '场景',
+      label: scene.name,
+      sub: '执行手动场景',
+      icon: 'spark',
+      run: () => invoke('run_scene', { sceneId: scene.id, homeId: state.homeId })
+        .then(() => toast(`「${scene.name}」已执行`))
+        .catch((error) => toast(String(error), true)),
+    });
+  }
+  items.push({
+    group: '操作',
+    label: '刷新全部状态',
+    sub: '家庭、设备、场景、摄像头与自动化',
+    icon: 'history',
+    run: loadAll,
+  }, {
+    group: '操作',
+    label: '导出诊断日志',
+    sub: '打开访达中的日志文件',
+    icon: 'gear',
+    run: () => exportDiagnostics($('#exportLog')),
+  });
+  return items;
+}
+
+function renderPalette(query = '') {
+  const needle = query.trim().toLowerCase();
+  const all = paletteSource();
+  state.paletteItems = needle
+    ? all.filter((item) => `${item.group} ${item.label} ${item.sub}`.toLowerCase().includes(needle))
+    : all;
+  state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, state.paletteItems.length - 1));
+  const box = $('#paletteResults');
+  if (!state.paletteItems.length) {
+    box.innerHTML = '<div class="palette-empty">没有匹配的设备或操作</div>';
+    return;
+  }
+  const groups = new Map();
+  state.paletteItems.forEach((item, index) => {
+    if (!groups.has(item.group)) groups.set(item.group, []);
+    groups.get(item.group).push({ ...item, index });
+  });
+  box.innerHTML = [...groups.entries()].map(([group, items]) =>
+    `<div class="palette-group">${esc(group)}</div>${items.map((item) =>
+      `<button class="palette-item ${item.index === state.paletteIndex ? 'active' : ''}" data-palette-index="${item.index}">
+        ${uiIcon(item.icon)}<span>${esc(item.label)}</span><span class="sub">${esc(item.sub)}</span>
+      </button>`).join('')}`).join('');
+}
+
+function openPalette() {
+  $('#palette').classList.add('open');
+  $('#palette').setAttribute('aria-hidden', 'false');
+  $('#paletteInput').value = '';
+  state.paletteIndex = 0;
+  renderPalette('');
+  setTimeout(() => $('#paletteInput').focus(), 20);
+}
+
+function closePalette() {
+  $('#palette').classList.remove('open');
+  $('#palette').setAttribute('aria-hidden', 'true');
+}
+
+function runPalette() {
+  const item = state.paletteItems[state.paletteIndex];
+  if (!item) return;
+  closePalette();
+  setTimeout(() => item.run(), 30);
+}
+
+$('#btnPalette').onclick = openPalette;
+$('#btnMenuBar').onclick = (event) => {
+  event.stopPropagation();
+  toggleQuickPanel();
 };
+$('#btnMenuBar2').onclick = (event) => {
+  event.stopPropagation();
+  toggleQuickPanel();
+};
+$('#btnTheme').onclick = () => applyTheme(state.theme === 'light' ? 'dark' : 'light');
+$('#btnAddRoom').onclick = () => toast('房间由米家 App 管理；当前接口不支持在本机创建房间', true);
+$('#btnHud').onclick = () => toggleHud();
+$('#hudClose').onclick = () => toggleHud(false);
+$('#popOpen').onclick = () => {
+  toggleQuickPanel(false);
+  showOverview();
+};
+$('#paletteInput').oninput = () => renderPalette($('#paletteInput').value);
+$('#paletteResults').onclick = (event) => {
+  const item = event.target.closest('[data-palette-index]');
+  if (!item) return;
+  state.paletteIndex = Number(item.dataset.paletteIndex);
+  runPalette();
+};
+$('.palette-backdrop').onclick = closePalette;
+
+document.addEventListener('click', (event) => {
+  if (!$('#menubarPop').classList.contains('open')) return;
+  if (event.target.closest('#menubarPop, #btnMenuBar, #btnMenuBar2')) return;
+  toggleQuickPanel(false);
+});
+
+document.addEventListener('keydown', (event) => {
+  const modifier = event.metaKey || event.ctrlKey;
+  if (modifier && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    openPalette();
+    return;
+  }
+  if ($('#palette').classList.contains('open')) {
+    if (event.key === 'Escape') closePalette();
+    if (event.key === 'ArrowDown' && state.paletteItems.length) {
+      event.preventDefault();
+      state.paletteIndex = (state.paletteIndex + 1) % state.paletteItems.length;
+      renderPalette($('#paletteInput').value);
+    }
+    if (event.key === 'ArrowUp' && state.paletteItems.length) {
+      event.preventDefault();
+      state.paletteIndex = (state.paletteIndex - 1 + state.paletteItems.length) % state.paletteItems.length;
+      renderPalette($('#paletteInput').value);
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      runPalette();
+    }
+    return;
+  }
+  if (modifier && event.shiftKey && event.key.toLowerCase() === 'm') {
+    event.preventDefault();
+    toggleQuickPanel();
+    return;
+  }
+  if (event.altKey && event.key.toLowerCase() === 'p') {
+    event.preventDefault();
+    toggleHud();
+    return;
+  }
+  if (modifier && ['1', '2', '3', '4', '5'].includes(event.key)) {
+    event.preventDefault();
+    [showOverview, showCameras, showScenes, showAutomations, showDevices][Number(event.key) - 1]();
+  }
+  if (event.key === 'Escape') closeInspector();
+});
 
 async function boot() {
-  if (!invoke) return;
+  applyStaticIcons();
+  applyTheme(state.theme);
+  document.body.dataset.density = state.density;
+  updateSettingsSelection();
+  const updateClock = () => {
+    $('#statusClock').textContent = new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    const popTime = $('#popTime');
+    if (popTime) popTime.textContent = $('#statusClock').textContent;
+    $('#camClock').textContent = new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    const playhead = $('#timelinePlayhead');
+    if (playhead) {
+      const now = new Date();
+      playhead.style.left = `${(((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400) * 100).toFixed(3)}%`;
+    }
+  };
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(() => {
+    if (state.loggedIn && !document.hidden) refreshDevicePresence();
+  }, DEVICE_PRESENCE_REFRESH_MS);
+  window.addEventListener('focus', () => {
+    if (state.loggedIn) refreshDevicePresence();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (state.loggedIn && !document.hidden) refreshDevicePresence();
+  });
+  renderSidebarRooms();
+  if (!invoke) {
+    setStatus('请从 MiHome Mac 桌面应用打开这个页面', 'error');
+    return;
+  }
+  invoke('app_meta').then((meta) => {
+    if (meta?.version) $('#appVersion').textContent = meta.version;
+  }).catch(() => {});
   try {
     const userId = await invoke('auth_resume');
     if (!userId) {
@@ -2244,7 +3576,6 @@ async function boot() {
     log.error('App', `恢复登录失败：${error}`);
     setStatus(`恢复登录失败：${error}`, 'error');
     $('#startAuth').disabled = false;
-    startAuth();
   }
 }
 

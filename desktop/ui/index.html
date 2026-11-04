@@ -3,93 +3,380 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MiHome Mac · 开发版</title>
+  <title>MiHome Mac</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
   <script src="icons.js"></script>
+  <script src="ui-icons.js"></script>
   <script src="capabilities.js"></script>
   <script src="tauri-api.js"></script>
   <script src="diagnostics.js"></script>
   <script src="camera-player.js"></script>
 </head>
-<body>
-  <div class="app">
-    <aside class="side">
-      <div class="brand"><span class="mark"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 14.5 16 5l11 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8.5 13v13h15V13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="16" cy="19" r="2.4" fill="currentColor"/></svg></span><div><strong>MiHome</strong><small>Mac 控制台</small></div></div>
-      <nav><button id="devicesNav" class="nav active">设备<span id="devicesCount" class="nav-count"></span></button><button id="cameraNav" class="nav" disabled>摄像头<span id="cameraCount" class="nav-count"></span></button><button id="sceneNav" class="nav" disabled>场景<span id="sceneCount" class="nav-count"></span></button><button id="automationNav" class="nav" disabled>自动化<span id="automationCount" class="nav-count"></span></button></nav>
-      <div class="side-foot"><span id="connDot" class="dot"></span><span id="connText">未登录</span></div>
-    </aside>
-    <main class="main">
-      <header class="top"><div><p class="eyebrow">MIHOME MAC</p><h1 id="pageTitle">连接你的米家</h1></div><div class="top-actions"><button id="exportLog" class="ghost">诊断日志</button><button id="logout" class="ghost" hidden>退出</button></div></header>
+<body data-theme="light" data-density="comfortable">
+  <div class="app-window native" id="appWindow">
+    <header class="titlebar native-titlebar" id="titlebar" data-tauri-drag-region>
+      <span class="titlebar-spacer" aria-hidden="true"></span>
+      <div class="window-title" id="windowTitle" data-tauri-drag-region>总览 — MiHome</div>
+      <div class="titlebar-actions">
+        <span class="sync-state" id="syncState"><i></i><span id="syncText">已连接</span></span>
+        <button class="icon-btn log-btn" id="exportLog" title="导出诊断日志" aria-label="导出诊断日志">日志</button>
+        <button class="icon-btn" id="btnMenuBar" title="速控面板 ⌘⇧M" aria-label="打开速控面板" data-icon="menubar"></button>
+        <button class="icon-btn" id="btnTheme" title="切换外观" aria-label="切换外观" data-icon="moon"></button>
+        <button class="search-trigger" id="btnPalette">
+          <span class="search-ic" data-icon="search"></span>
+          <span>搜索设备或场景</span>
+          <kbd>⌘K</kbd>
+        </button>
+      </div>
+    </header>
 
-      <section id="loginView" class="login">
-        <div class="qr-card">
-          <div id="qrBox" class="qr-box"><div class="qr-placeholder">二维码准备中</div></div>
-          <div class="qr-copy"><h2>用米家 App 扫码</h2><p>打开米家 App，点右上角扫一扫。<br>登录只发生在这台 Mac 上。</p><p id="loginStatus" class="status">连接小米账号…</p></div>
+    <nav class="topnav" id="mainNav" aria-label="一级导航">
+      <div class="topnav-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M5 14.5 16 5l11 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M8.5 13v13h15V13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <circle cx="16" cy="19" r="2.4" fill="currentColor"/>
+          </svg>
         </div>
-        <button id="startAuth" class="primary">生成二维码</button>
-      </section>
+        <div class="brand-text">
+          <strong>MiHome</strong>
+          <span>Mac 控制台</span>
+        </div>
+      </div>
 
-      <section id="devicesView" class="devices" hidden>
-        <div class="devices-layout">
-          <div class="devices-content">
-            <div class="toolbar"><div id="homeTabs" class="tabs"></div><button id="reload" class="ghost">刷新</button></div>
-            <div id="roomBar" class="room-bar"></div>
-            <div class="device-grid" id="deviceList"></div>
+      <div class="topnav-tabs">
+        <button class="nav-item active" id="overviewNav" data-nav="overview">
+          <span class="nav-icon" data-icon="grid"></span><span>总览</span>
+        </button>
+        <button class="nav-item" id="cameraNav" data-nav="camera" disabled>
+          <span class="nav-icon" data-icon="camera"></span><span>监控</span>
+          <span class="nav-count" id="cameraCountNav"></span>
+        </button>
+        <button class="nav-item" id="sceneNav" data-nav="scenes" disabled>
+          <span class="nav-icon" data-icon="spark"></span><span>场景</span>
+        </button>
+        <button class="nav-item" id="automationNav" data-nav="automations" disabled>
+          <span class="nav-icon" data-icon="clock"></span><span>自动化</span>
+        </button>
+        <button class="nav-item" id="devicesNav" data-nav="devices" disabled>
+          <span class="nav-icon" data-icon="sliders"></span><span>全部设备</span>
+          <span class="nav-count" id="devicesCount"></span>
+        </button>
+      </div>
+
+      <div class="topnav-context">
+        <span class="topnav-caption" id="topnavCaption">本地优先 · 云端兜底</span>
+        <label class="home-chip" title="切换家庭">
+          <span class="home-chip-dot"></span>
+          <select id="homeSelect" aria-label="切换家庭"></select>
+          <span class="home-chip-chev">⌄</span>
+        </label>
+      </div>
+    </nav>
+
+    <div class="app-body">
+      <aside class="sidebar">
+        <div class="sidebar-section sidebar-rooms">
+          <div class="section-label"><span>空间</span><button class="mini-btn" id="btnAddRoom" title="添加房间" aria-label="添加房间">＋</button></div>
+          <p class="sidebar-hint">按房间快速筛选设备</p>
+          <div class="room-list" id="roomList"></div>
+        </div>
+
+        <div class="sidebar-spacer"></div>
+
+        <div class="sidebar-footer">
+          <button class="nav-item subtle" id="btnMenuBar2">
+            <span class="nav-icon" data-icon="menubar"></span><span>速控面板</span><kbd>⌘⇧M</kbd>
+          </button>
+          <button class="nav-item subtle" id="settingsNav" data-nav="settings">
+            <span class="nav-icon" data-icon="gear"></span><span>设置</span>
+          </button>
+          <button class="account" id="accountButton">
+            <span class="avatar" id="accountAvatar">米</span>
+            <span class="account-text"><strong id="accountName">米家账号</strong><small id="accountState">正在连接</small></span>
+            <span class="chev">›</span>
+          </button>
+          <button class="nav-item subtle logout-item" id="logout" hidden>
+            <span class="nav-icon" data-icon="power"></span><span>退出登录</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main" id="main" tabindex="-1">
+        <section id="overviewView" class="page" hidden></section>
+
+        <section id="devicesView" class="page" hidden>
+          <div class="page-head">
+            <div>
+              <div class="eyebrow" id="devicesEyebrow">全部设备</div>
+              <h1 class="page-title">全部设备</h1>
+              <p class="page-sub" id="devicesSubtitle">点任意一行查看属性、连接路径与最近状态。</p>
+            </div>
+            <div class="head-actions"><button id="reload" class="ghost-btn">刷新状态</button></div>
           </div>
-          <aside class="inspector" id="inspector"><p class="muted">选一台设备，查看状态和控制。</p></aside>
-        </div>
-      </section>
+          <div id="homeTabs" hidden></div>
+          <div class="device-toolbar">
+            <div class="device-filters" id="deviceFilters"></div>
+            <input id="deviceSearch" class="device-search" placeholder="搜索名称、型号或房间" autocomplete="off" spellcheck="false" aria-label="搜索设备">
+            <span class="mono" id="devicePageCount"></span>
+          </div>
+          <div class="table-head"><span>设备</span><span>房间</span><span>连接</span><span>状态</span><span>操作</span></div>
+          <div class="device-list" id="deviceList"></div>
+        </section>
 
-      <section id="cameraView" class="camera-page" hidden>
-        <div class="toolbar">
-          <div><p class="eyebrow">实时 · 局域网直连 / 远程连接</p></div>
-          <div class="actions"><button id="camRemoteGrid" class="ghost">远程宫格</button><button id="camGridToggle" class="ghost">宫格</button><button id="camReload" class="ghost">刷新</button></div>
-        </div>
-        <div class="cam-layout" id="camLayout">
-          <div class="cam-left">
-            <aside id="camList" class="cam-list"></aside>
-            <div class="cam-stage">
-              <video id="camVideo" autoplay muted playsinline hidden></video>
-              <div id="camEmpty" class="empty">正在读取摄像头…</div>
+        <section id="cameraView" class="page camera-page" hidden>
+          <div class="page-head">
+            <div>
+              <div class="eyebrow" id="cameraEyebrow">实时监控</div>
+              <h1 class="page-title">监控</h1>
+              <p class="page-sub">同一局域网内优先直连；远程通道受网络、relay 与设备固件影响。</p>
+            </div>
+            <div class="head-actions">
+              <button id="camGridToggle" class="ghost-btn">宫格</button>
+              <button id="camRemoteGrid" class="primary-btn">远程宫格</button>
             </div>
           </div>
-          <div id="camControls" class="cam-controls" hidden></div>
-        </div>
-        <div id="camGrid" class="cam-grid" hidden></div>
-        <p id="camHint" class="fine">优先使用局域网直连；远程连接首次约 10–20 秒。</p>
-      </section>
 
-      <section id="sceneView" class="camera-page" hidden>
-        <div class="toolbar">
-          <div><p class="eyebrow">手动场景</p><p class="fine">执行米家 App 里已有的手动场景；新场景仍在米家 App 里创建。</p></div>
-          <button id="refreshScenes" class="ghost">刷新</button>
-        </div>
-        <div id="sceneList" class="scene-list"></div>
-      </section>
+          <div class="camera-layout" id="camLayout">
+            <div class="camera-stage">
+              <div class="camera-frame">
+                <video id="camVideo" autoplay muted playsinline hidden></video>
+                <div id="camEmpty" class="camera-empty-state">选择摄像头并打开本地或远程画面</div>
+                <div class="cam-top">
+                  <span class="live-pill" id="camLivePill"><i></i>LIVE</span>
+                  <span class="cam-clock" id="camClock">--:--:--</span>
+                  <span class="cam-spec" id="camSpec">等待选择画面</span>
+                  <span class="cam-latency" id="camLatency">本地优先</span>
+                </div>
+                <div class="cam-bottom">
+                  <div class="cam-title">
+                    <strong id="camTitle">监控台</strong>
+                    <span id="camSubtitle">选择右侧摄像头开始</span>
+                  </div>
+                  <div class="cam-rec" id="camTransport">未连接</div>
+                </div>
+                <div class="cam-ptz" id="camPtzOverlay" aria-label="云台控制" hidden>
+                  <button type="button" data-ptz-dir="up" aria-label="云台上抬">↑</button>
+                  <button type="button" data-ptz-dir="left" aria-label="云台左转">←</button>
+                  <button type="button" aria-label="云台回中暂不可用" title="当前设备协议未提供回中指令" disabled>·</button>
+                  <button type="button" data-ptz-dir="right" aria-label="云台右转">→</button>
+                  <button type="button" data-ptz-dir="down" aria-label="云台下压">↓</button>
+                </div>
+              </div>
+              <div class="camera-toolbar">
+                <div class="quality-switch" aria-label="连接方式">
+                  <button id="camLocalButton">本地</button>
+                  <button id="camRemoteButton" class="active">远程</button>
+                </div>
+                <div class="camera-tools">
+                  <button id="camPause" class="cam-tool"><span data-icon="pause"></span>暂停</button>
+                  <button id="camSound" class="cam-tool"><span data-icon="volume"></span>声音</button>
+                  <button id="camSnapshot" class="cam-tool"><span data-icon="camera"></span>截图</button>
+                  <button id="camFullScreen" class="cam-tool"><span data-icon="expand"></span>全屏</button>
+                  <button class="cam-tool" disabled title="当前米家接口未开放手动录制"><span data-icon="record"></span>录制</button>
+                  <button class="cam-tool" disabled title="当前米家接口未开放隐私遮蔽"><span data-icon="shield"></span>遮蔽</button>
+                  <button id="camReload" class="cam-tool">刷新列表</button>
+                </div>
+              </div>
+            </div>
 
-      <section id="automationView" class="camera-page" hidden>
-        <div class="toolbar">
-          <div><p class="eyebrow">本机定时</p><p class="fine">到点执行一个米家手动场景；应用需要保持运行。</p></div>
-        </div>
-        <form id="autoForm" class="auto-form">
-          <label>名称<input id="autoName" maxlength="40" placeholder="例如：早上开灯" required></label>
-          <label>时间<input id="autoTime" type="time" value="07:30" required></label>
-          <label>场景<select id="autoScene" required></select></label>
-          <div class="auto-days" id="autoDays">
-            <label><input type="checkbox" value="1" checked>一</label>
-            <label><input type="checkbox" value="2" checked>二</label>
-            <label><input type="checkbox" value="3" checked>三</label>
-            <label><input type="checkbox" value="4" checked>四</label>
-            <label><input type="checkbox" value="5" checked>五</label>
-            <label><input type="checkbox" value="6">六</label>
-            <label><input type="checkbox" value="7">日</label>
+            <aside class="camera-side">
+              <div class="cam-side-head"><span>摄像头</span><span id="camSideCount">0</span></div>
+              <div class="cam-side-list" id="camList"></div>
+              <div class="cam-side-note">画面只在本机解码。同一摄像头通常只允许一台设备查看实时画面。</div>
+            </aside>
           </div>
-          <button class="primary" type="submit">保存</button>
-        </form>
-        <div id="autoList" class="auto-list"></div>
-      </section>
-    </main>
+
+          <div id="camGrid" class="camera-wall" hidden></div>
+          <section class="camera-timeline" id="camTimeline" aria-label="摄像头事件时间线"></section>
+          <aside id="camControls" class="cam-controls" hidden></aside>
+          <p id="camHint" class="fine">优先使用局域网直连；远程连接首次可能需要 10–20 秒。</p>
+        </section>
+
+        <section id="sceneView" class="page" hidden>
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">一键执行</div>
+              <h1 class="page-title">场景</h1>
+              <p class="page-sub">执行米家 App 里已有的手动场景；新场景仍在米家 App 创建。</p>
+            </div>
+            <div class="head-actions"><button id="refreshScenes" class="ghost-btn">刷新</button></div>
+          </div>
+          <div id="sceneList" class="scenes-grid"></div>
+        </section>
+
+        <section id="automationView" class="page" hidden>
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">本机定时</div>
+              <h1 class="page-title">自动化</h1>
+              <p class="page-sub">到点执行一个米家手动场景；应用需要保持运行。</p>
+            </div>
+          </div>
+          <div class="automation-create">
+            <div class="section-label"><span>新建定时</span></div>
+            <form id="autoForm" class="auto-form">
+              <label>名称<input id="autoName" maxlength="40" placeholder="例如：早上开灯" required></label>
+              <label>时间<input id="autoTime" type="time" value="07:30" required></label>
+              <label>场景<select id="autoScene" required></select></label>
+              <div class="auto-days" id="autoDays">
+                <label><input type="checkbox" value="1" checked>一</label>
+                <label><input type="checkbox" value="2" checked>二</label>
+                <label><input type="checkbox" value="3" checked>三</label>
+                <label><input type="checkbox" value="4" checked>四</label>
+                <label><input type="checkbox" value="5" checked>五</label>
+                <label><input type="checkbox" value="6">六</label>
+                <label><input type="checkbox" value="7">日</label>
+              </div>
+              <button class="primary-btn" type="submit">保存</button>
+            </form>
+          </div>
+          <div class="section-label automation-list-label"><span>定时任务</span></div>
+          <div id="autoList" class="auto-list"></div>
+        </section>
+
+        <section id="settingsView" class="page" hidden>
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">本机偏好</div>
+              <h1 class="page-title">设置</h1>
+              <p class="page-sub">外观、诊断与账号信息。登录凭据只保存在本机。</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-card">
+              <h3>外观</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>主题</strong><small>跟随当前应用设置</small></div>
+                <div class="segmented" id="themeSetting">
+                  <button data-theme-set="light">浅色</button>
+                  <button data-theme-set="dark">深色</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label"><strong>列表密度</strong><small>影响设备行与自动化行高</small></div>
+                <div class="segmented" id="densitySetting">
+                  <button data-density-set="comfortable">宽松</button>
+                  <button data-density-set="compact">紧凑</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>诊断</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>诊断日志</strong><small>包含连接路径与请求耗时，不含凭据</small></div>
+                <button class="ghost-btn" id="settingsExportLog">导出</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label"><strong>版本</strong><small>MiHome Mac</small></div>
+                <span class="mono" id="appVersion">1.0.0</span>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>账号</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong id="settingsAccount">米家账号</strong><small id="settingsAccountState">已连接</small></div>
+                <button class="danger-btn" id="settingsLogout">退出登录</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="loginView" class="login-placeholder" hidden>
+          <div class="empty">登录后加载家庭数据</div>
+        </section>
+      </main>
+
+      <aside class="inspector" id="inspector" aria-hidden="true"></aside>
+    </div>
+
+    <footer class="statusbar">
+      <div class="status-left">
+        <span id="connDot" class="dot"></span><span id="connText">未登录</span>
+        <span class="sep"></span><span id="statusPath">等待连接</span>
+        <span class="sep"></span><span id="statusSync">尚未同步</span>
+      </div>
+      <div class="status-right">
+        <button class="status-btn" id="btnHud">⌥P 性能面板</button>
+        <span class="sep"></span>
+        <span id="statusClock">--:--</span>
+      </div>
+    </footer>
   </div>
+
+  <div class="login-layer" id="loginLayer">
+    <div class="login-visual">
+      <div class="giant-word">家</div>
+      <div class="login-copy">
+        <div class="eyebrow light">MIHOME FOR MAC</div>
+        <h1>你的家，<br>在 Mac 上。</h1>
+        <p>本地直连优先，云端兜底。一次扫码，在这台 Mac 上接管全部房间。</p>
+        <div class="login-badges"><span>本机解码</span><span>钥匙串存储</span><span>诊断日志</span></div>
+      </div>
+      <div class="login-foot">第三方客户端 · 非小米官方产品</div>
+    </div>
+    <div class="login-panel">
+      <div class="login-card">
+        <div class="login-card-head">
+          <div>
+            <h2>扫码登录</h2>
+            <p>打开米家 App，扫描下方二维码</p>
+          </div>
+          <span class="login-secure" title="凭据仅保存在本机钥匙串">⌁</span>
+        </div>
+        <div class="qr-wrap">
+          <div id="qrBox" class="qr-box"><div class="qr-placeholder">二维码准备中</div></div>
+          <div class="scan-line" aria-hidden="true"></div>
+          <div class="qr-corner tl"></div><div class="qr-corner tr"></div>
+          <div class="qr-corner bl"></div><div class="qr-corner br"></div>
+        </div>
+        <p id="loginStatus" class="status login-status">正在恢复登录状态…</p>
+        <button id="startAuth" class="primary-btn wide">生成二维码</button>
+        <p class="login-note">登录信息只写入本机 Keychain。本项目不会上传账号凭据。</p>
+      </div>
+      <div class="login-bottom">MiHome Mac · 非官方开源客户端</div>
+    </div>
+  </div>
+
+  <div class="palette-layer" id="palette" aria-hidden="true">
+    <div class="palette-backdrop"></div>
+    <div class="palette" role="dialog" aria-label="命令面板">
+      <div class="palette-input-wrap">
+        <span class="palette-icon" data-icon="search"></span>
+        <input id="paletteInput" type="text" placeholder="搜索设备或场景…" autocomplete="off" spellcheck="false">
+        <kbd>esc</kbd>
+      </div>
+      <div class="palette-results" id="paletteResults"></div>
+      <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 打开</span></div>
+    </div>
+  </div>
+
+  <div class="menubar-pop" id="menubarPop" aria-hidden="true">
+    <div class="pop-head"><span>米家速控</span><span class="pop-time" id="popTime">--:--</span></div>
+    <div class="pop-env"><strong id="popEnv">--°</strong><span id="popEnvSub">正在读取环境</span><i class="pulse"></i></div>
+    <div class="pop-grid" id="popGrid"></div>
+    <div class="pop-scenes" id="popScenes"></div>
+    <button class="pop-open" id="popOpen">前往总览</button>
+  </div>
+
+  <div class="hud" id="hud" aria-hidden="true">
+    <div class="hud-head"><span>PERF · 实时数据</span><button id="hudClose" aria-label="关闭性能面板">×</button></div>
+    <div class="hud-fps"><strong id="hudFps">--</strong><span>fps</span><canvas id="hudGraph" width="220" height="36"></canvas></div>
+    <div class="hud-rows">
+      <div><span>帧预算</span><b id="hudFrame">--</b></div>
+      <div><span>本次渲染</span><b id="hudRender">--</b></div>
+      <div><span>JS 堆</span><b id="hudHeap">--</b></div>
+      <div><span>在途请求</span><b id="hudInflight">0</b></div>
+      <div><span>最近请求</span><b id="hudLastRequest">--</b></div>
+      <div><span>DOM 节点</span><b id="hudDom">--</b></div>
+    </div>
+    <div class="hud-log" id="hudLog"></div>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
   <script src="app.js"></script>
 </body>
 </html>

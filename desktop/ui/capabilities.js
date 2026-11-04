@@ -31,6 +31,7 @@
     'motion-detection-start-time': '侦测开始', 'motion-detection-end-time': '侦测结束',
     'connected-device-number': '连接设备数', 'ir-mode': '空调模式',
     'ir-temperature': '空调温度',
+    'download-speed': '下载速度', 'upload-speed': '上传速度',
   };
 
   const SERVICE_GROUPS = {
@@ -43,6 +44,7 @@
     cruise: '巡航', 'camera-fav-area': '收藏区域', 'ai-scene': '智能场景',
     'imi-alarm': '报警提醒', 'sd-status': '存储卡状态',
     'ir-aircondition-control': '空调控制',
+    router: '路由状态',
   };
 
   const UNIT_LABELS = {
@@ -97,12 +99,16 @@
     'panoramic cruise': '全景巡航', 'fixed point cruise': '定点巡航',
     reading: '阅读', movie: '电影', music: '音乐', night: '夜间',
     cool: '制冷', dry: '除湿', heat: '制热', fan: '送风',
+    none: '无', lighting: '照明', tv: '电视', warmth: '暖光',
+    'night light': '夜灯', 'straight wind': '直吹风', 'natural wind': '自然风',
+    'circular wind': '循环风', sleep: '睡眠',
   };
 
   const CARD_METRIC_ORDER = [
     'temperature', 'current-temperature', 'target-temperature',
     'relative-humidity', 'target-humidity', 'battery-level',
     'power-consumption', 'brightness', 'water-level', 'filter-life-level',
+    'connected-device-number',
   ];
   const CARD_OPTION_METRICS = new Set([
     'mode', 'status', 'charging-state', 'lock-state', 'door-state',
@@ -259,6 +265,7 @@
     if (suffix === 'voltage') return 'V';
     if (suffix === 'electric-current') return 'mA';
     if (suffix === 'power-consumption') return 'W';
+    if (suffix === 'connected-device-number') return ' 台';
     return '';
   }
 
@@ -289,21 +296,24 @@
         const digits = unit === '°C' ? 1 : 0;
         const readable = propertyAccessible(property);
         const writable = propertyWritable(property);
-        const options = propertyValueList(property)?.map((item) => [
+        const rawOptions = propertyValueList(property)?.map((item) => [
           item.value,
           optionLabel(item),
         ]);
+        const options = rawOptions?.filter(([, label]) => label !== '未知选项');
+        const primary = suffix === 'on' && serviceName !== 'indicator-light';
         if (writable && options?.length) {
           controls.push({
             type: 'segments', siid: service.iid, piid: property.iid, label,
-            options, group, primary: suffix === 'on', readable,
+            options, group, primary, readable,
           });
           continue;
         }
+        if (writable && rawOptions?.length) continue;
         if (writable && property.format === 'bool') {
           controls.push({
             type: 'toggle', siid: service.iid, piid: property.iid, label,
-            group, primary: suffix === 'on', readable,
+            group, primary, readable,
           });
           continue;
         }

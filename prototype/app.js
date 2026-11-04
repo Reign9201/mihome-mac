@@ -24,6 +24,7 @@ const state = {
   lastRender: 0,
   cacheHit: 96,
 };
+const previewMode = new URLSearchParams(location.search).get('preview') === '1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -1065,7 +1066,12 @@ function renderCurrent(preserveScroll = false) {
 
 function renderRooms() {
   const list = $('#roomList');
-  list.innerHTML = HOME.rooms.map(r => {
+  const totalOn = DEVICES.filter(isOn).length;
+  const allRooms = `<button class="room-item all-rooms ${state.room === 'all' ? 'active' : ''}" data-action="select-room" data-room="all">
+    <span class="room-glyph">全</span><span>全部房间</span>
+    ${totalOn ? '<i class="room-dot"></i>' : ''}<span class="room-count">${DEVICES.length}</span>
+  </button>`;
+  list.innerHTML = allRooms + HOME.rooms.map(r => {
     const count = DEVICES.filter(d => d.room === r.id).length;
     const on = DEVICES.filter(d => d.room === r.id && isOn(d)).length;
     return `<button class="room-item ${state.room === r.id ? 'active' : ''}" data-action="select-room" data-room="${r.id}">
@@ -1655,7 +1661,9 @@ document.addEventListener('click', e => {
       runScene(id);
       break;
     case 'select-room':
-      state.room = state.room === actionEl.dataset.room ? 'all' : actionEl.dataset.room;
+      state.room = actionEl.dataset.room === 'all' || state.room === actionEl.dataset.room
+        ? 'all'
+        : actionEl.dataset.room;
       state.page = 'overview';
       state.selected = null;
       renderCurrent();
@@ -1900,6 +1908,7 @@ function boot() {
     }
   }, 30_000);
   updateChrome();
+  if (previewMode) hideLogin();
 }
 
 boot();

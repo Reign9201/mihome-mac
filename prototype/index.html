@@ -25,46 +25,56 @@
         </div>
       </header>
 
+      <nav class="topnav" id="mainNav" aria-label="一级导航">
+        <div class="topnav-brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M5 14.5 16 5l11 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <path d="M8.5 13v13h15V13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+              <circle cx="16" cy="19" r="2.4" fill="currentColor"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <strong>MiHome</strong>
+            <span>Mac 控制台</span>
+          </div>
+        </div>
+
+        <div class="topnav-tabs">
+          <button class="nav-item active" data-nav="overview">
+            <span class="nav-icon" data-icon="grid"></span><span>总览</span>
+          </button>
+          <button class="nav-item" data-nav="camera">
+            <span class="nav-icon" data-icon="camera"></span><span>监控</span>
+            <span class="nav-count" id="cameraCountNav">3</span>
+          </button>
+          <button class="nav-item" data-nav="scenes">
+            <span class="nav-icon" data-icon="spark"></span><span>场景</span>
+          </button>
+          <button class="nav-item" data-nav="automations">
+            <span class="nav-icon" data-icon="clock"></span><span>自动化</span>
+          </button>
+          <button class="nav-item" data-nav="devices">
+            <span class="nav-icon" data-icon="sliders"></span><span>全部设备</span>
+            <span class="nav-count" id="deviceCountNav">14</span>
+          </button>
+        </div>
+
+        <div class="topnav-context">
+          <span class="topnav-caption">本地优先 · 云端兜底</span>
+          <button class="home-chip" id="btnHomeSwitch">
+            <span class="home-chip-dot"></span>
+            <span>云栖公寓</span>
+            <span class="home-chip-chev">⌄</span>
+          </button>
+        </div>
+      </nav>
+
       <div class="app-body">
         <aside class="sidebar">
-          <div class="brand">
-            <div class="brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 32 32" fill="none">
-                <path d="M5 14.5 16 5l11 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                <path d="M8.5 13v13h15V13" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-                <circle cx="16" cy="19" r="2.4" fill="currentColor"/>
-              </svg>
-            </div>
-            <div class="brand-text">
-              <strong>MiHome</strong>
-              <span>Mac 控制台</span>
-            </div>
-            <button class="home-switch" id="btnHomeSwitch" title="切换家庭">⌄</button>
-          </div>
-
-          <nav class="nav" id="mainNav">
-            <button class="nav-item active" data-nav="overview">
-              <span class="nav-icon" data-icon="grid"></span><span>总览</span>
-            </button>
-            <button class="nav-item" data-nav="camera">
-              <span class="nav-icon" data-icon="camera"></span><span>监控</span>
-              <span class="nav-count" id="cameraCountNav">3</span>
-            </button>
-            <button class="nav-item" data-nav="scenes">
-              <span class="nav-icon" data-icon="spark"></span><span>场景</span>
-            </button>
-            <button class="nav-item" data-nav="automations">
-              <span class="nav-icon" data-icon="clock"></span><span>自动化</span>
-              <span class="nav-count">5</span>
-            </button>
-            <button class="nav-item" data-nav="devices">
-              <span class="nav-icon" data-icon="sliders"></span><span>全部设备</span>
-              <span class="nav-count" id="deviceCountNav">14</span>
-            </button>
-          </nav>
-
-          <div class="sidebar-section">
-            <div class="section-label"><span>房间</span><button class="mini-btn" id="btnAddRoom" title="添加房间">＋</button></div>
+          <div class="sidebar-section sidebar-rooms">
+            <div class="section-label"><span>空间</span><button class="mini-btn" id="btnAddRoom" title="添加房间">＋</button></div>
+            <p class="sidebar-hint">按房间快速筛选设备</p>
             <div class="room-list" id="roomList"></div>
           </div>
 
