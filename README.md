@@ -225,7 +225,7 @@ npm --prefix desktop test
 UI_REGRESSION_ROUNDS=10 npm --prefix desktop run test:ui
 ```
 
-UI 回归默认逐轮生成页面和关键功能截图，并写入 `desktop/tests/artifacts/manifest.json`；设置 `UI_REGRESSION_SCREENSHOTS=0` 可跳过截图。
+10 轮 UI 回归会逐轮生成 50 张截图，覆盖全部页面、全部核心功能、登录和四档窗口尺寸，并写入 `desktop/tests/artifacts/manifest.json`；设置 `UI_REGRESSION_SCREENSHOTS=0` 可跳过截图。
 
 请勿提交登录凭据、Cookie、设备 Token、完整云端响应或包含个人设备信息的日志。
 
