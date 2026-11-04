@@ -12,7 +12,7 @@
 | 团队 | 1–2 名开发，无专职设计 | 优先选系统控件与成熟库，减少自写基础组件 |
 | 周期 | 6 周出可分发测试版 | 第一版包含摄像头实时查看；砍掉扫地机地图、固件升级、云端录像 |
 | 性能 | 14 台设备空闲内存低于 200 MB，单路 1080p 硬解额外低于 100 MB，本地开关 p95 低于 80 ms | 排除 Electron 与重型 WebView |
-| 安全 | Token 只进 Keychain，日志不含凭据 | 需要原生 Keychain 与统一日志脱敏 |
+| 安全 | Token 只进受保护凭据存储，日志不含凭据 | 当前 Tauri 版使用私有账号库；正式发行版应使用 Keychain 或等价保护 |
 | 分发 | 签名 DMG，Sparkle 更新 | 不做 App Store 首发 |
 | 合规 | 不复制 GPL 代码，不冒充小米官方 | 协议层按公开协议重写，产品改名 |
 
@@ -363,7 +363,7 @@ MiHomeMac/
 ### 6.5 安全测试
 
 - 日志扫描：导出诊断包，搜索 `token`、`cookie`、`ssecurity`、`passToken`，必须为零。
-- Keychain：确认卸载重装后旧凭据不可读；确认其他应用无法读取。
+- 凭据存储：当前确认账号文件为 0700/0600 且日志无凭据；正式 Keychain 发行版还要确认卸载重装后旧凭据不可读。
 - 崩溃报告：确认不包含请求体与响应体。
 - 依赖审计：`swift package show-dependencies`，检查许可证与已知漏洞。
 - 本地 UDP：确认错误 Token 不能解密，重放包被拒绝。
@@ -384,7 +384,7 @@ MiHomeMac/
 |---|---|---|
 | 建工程、模块、CI | 可构建的空壳 | `xcodebuild test` 通过 |
 | 二维码登录、Cookie、Token 刷新 | `AuthSession` | 真实账号登录成功，重启免登录 |
-| Keychain 存储 | `KeychainStore` | 卸载重装后凭据不可读 |
+| 凭据存储 | 私有账号库 / `KeychainStore` | 当前账号库权限与隔离通过；正式签名版验证 Keychain |
 | 请求签名 | `RequestSigner` | 固定向量测试通过 |
 | 家庭、房间、设备列表 | `DeviceRegistry` | 与米家 App 数量一致 |
 | 规格拉取与缓存 | `SpecRepository` | 同型号只请求一次 |

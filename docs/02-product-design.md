@@ -327,12 +327,12 @@
 | 数据 | 本机缓存大小与清除 | — |
 | 数据 | 诊断日志导出 | — |
 | 数据 | 版本与架构 | — |
-| 账号 | 当前账号、登录状态、退出登录 | — |
+| 账号 | 当前账号、账号切换、添加账号、登录状态、退出当前账号 | — |
 
 ### 9.2 危险操作
 
 - 清除缓存：只清设备列表、规格与图标，不清凭据与自动化；二次确认。
-- 退出登录：清 Keychain、Token、设备缓存；保留诊断日志；二次确认，文案说明退出后无法控制设备。
+- 退出当前账号：从本机账号库移除当前账号及其 Token，清空设备、摄像头和自动化缓存；若仍有其他账号则自动切换，否则回到登录页。保留诊断日志；文案说明退出后无法控制设备。
 - 删除家庭数据：第一版不提供，避免误删。
 
 ## 十、视觉系统
@@ -444,7 +444,7 @@ MiHomeMacApp
 │   ├── LANClient.swift             UDP 54321、AES、订阅
 │   ├── CameraService.swift         go2rtc helper 生命周期与本地 URL
 │   ├── SpecRepository.swift        规格缓存与解析
-│   ├── AuthSession.swift           Token、刷新、Keychain
+│   ├── AuthSession                 Token、刷新、账号库
 │   ├── Database.swift              GRDB 迁移与查询
 │   └── SettingsStore.swift         偏好与 App Group
 └── Platform
@@ -495,7 +495,7 @@ MiHomeMacApp
 |---|---:|---|
 | T0 进程启动 | 150 ms | 初始化日志、读取偏好、创建窗口 |
 | T1 首帧 | 400 ms | 窗口出现，显示骨架与上次缓存 |
-| T2 可用 | 1,500 ms | 读取 Keychain、恢复设备缓存、启动轮询 |
+| T2 可用 | 1,500 ms | 读取账号库、恢复设备缓存、启动轮询 |
 | T3 实时 | 3,000 ms | 完成首次云端刷新，状态标记“已同步” |
 
 启动时先显示缓存，再后台刷新。缓存超过 24 小时不直接显示为在线状态，标“缓存数据，正在刷新”。
@@ -514,7 +514,7 @@ MiHomeMacApp
 | `events` | `id`、`did`、`kind`、`result`、`latency_ms`、`created_at` | 诊断事件，30 天 |
 | `metrics` | `did`、`key`、`value`、`ts` | 读数曲线，按小时聚合 |
 
-凭据不进 SQLite。`serviceToken`、`passToken`、`ssecurity`、设备 `token` 都放 Keychain，按家庭和账号加前缀。
+凭据不进 SQLite。当前实现把 `serviceToken`、`passToken`、`ssecurity` 和设备 `token` 保存在仅当前 macOS 用户可读的账号库 `~/Library/Application Support/MiHome/accounts.json`（目录 0700、文件 0600），按账号隔离。正式签名发行版应迁移到 Keychain 或等价保护。
 
 ### 11.6 请求策略
 
@@ -563,7 +563,7 @@ MiHomeMacApp
 | 局域网 | UDP 54321 与 mDNS 发现 | 首次启用本地直连 |
 | 通知 | 自动化执行结果、Token 过期 | 首次开启通知 |
 | 登录项 | 开机启动 | 设置页手动开启 |
-| 钥匙串 | 保存 Token | 首次登录 |
+| 账号库 | 保存多账号 Token；正式发行版可换 Keychain | 首次登录 |
 
 App Sandbox 需要 `com.apple.security.network.client` 与 `com.apple.security.network.server`（UDP 绑定）。局域网权限被拒绝时，应用仍可用云端，设置页给出“去系统设置开启”的入口。
 
@@ -702,7 +702,7 @@ App Sandbox 需要 `com.apple.security.network.client` 与 `com.apple.security.n
 
 | 阶段 | 内容 | 产出 |
 |---|---|---|
-| 第 1 周 | 登录、Keychain、家庭与设备列表、规格缓存 | 能看到真实设备列表 |
+| 第 1 周 | 登录、账号库、家庭与设备列表、规格缓存 | 能看到真实设备列表 |
 | 第 2 周 | 属性读、开关写、设备行与检查器 | 能控制灯与插座 |
 | 第 3 周 | 场景、批量操作、错误处理、缓存 | 日常可用 |
 | 第 4 周 | 局域网握手、读写、回退 | 本地直连可用 |
