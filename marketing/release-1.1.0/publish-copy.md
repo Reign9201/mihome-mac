@@ -4,10 +4,10 @@
 
 | 文件 | 用途 |
 |---|---|
-| `xhs-01-cover.png` | 小红书 / X 封面 |
-| `xhs-02-accounts.png` | 多账号数据隔离 |
-| `xhs-03-camera.png` | 摄像头与全屋控制 |
-| `xhs-04-release.png` | 1.1.0 更新摘要 |
+| `xhs-01-cover.jpg` | 小红书 / X 封面 |
+| `xhs-02-accounts.jpg` | 多账号数据隔离 |
+| `xhs-03-camera.jpg` | 摄像头与全屋控制 |
+| `xhs-04-release.jpg` | 1.1.0 更新摘要 |
 
 四张图均为 1080 × 1440，使用当前应用实际界面和离线演示数据，不含真实账号、二维码、设备凭据或家庭画面。
 
