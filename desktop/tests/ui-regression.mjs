@@ -191,6 +191,14 @@ const mockSource = String.raw`
     'tv1:2:1': false,
     'router1:2:3': 22,
     'router1:5:1': false,
+    'b-light:2:1': true,
+    'b-light:2:2': 55,
+    'b-light:2:3': 3900,
+    'b-light:2:4': 2,
+    'c-light:2:1': false,
+    'c-light:2:2': 80,
+    'c-light:2:3': 5000,
+    'c-light:2:4': 3,
   };
   const devices = [
     { did: 'sensor1', name: '温湿度计', model: 'miaomiaoce.sensor_ht.t8', home_id: 'home1', room_id: 'living', room_name: '客厅', online: true, spec_type: 'urn:miot-spec-v2:device:temperature-humidity-sensor:0000A00A:mock:1', parent_id: null },
@@ -212,52 +220,139 @@ const mockSource = String.raw`
     { did: 'camera1', name: '小米智能摄像机3 云台版', model: 'chuangmi.camera.069a01', ip: '192.0.2.10', online: true, subtype: 'camera', channel: 0, spec_type: 'urn:miot-spec-v2:device:camera:0000A009:mock:1' },
     { did: 'camera2', name: '小米智能摄像机2 云台版', model: 'chuangmi.camera.039a01', ip: null, online: true, subtype: 'camera', channel: 0, spec_type: 'urn:miot-spec-v2:device:camera:0000A009:mock:1' },
   ];
+  const accountDevices = {
+    'mock-user': devices,
+    'mock-user-2': [{
+      did: 'b-light', name: '工作室射灯', model: 'yeelink.light.mock', home_id: 'home-b', room_id: 'b-room', room_name: '工作室', online: true, spec_type: 'urn:miot-spec-v2:device:light:0000A001:mock:1', parent_id: null,
+    }],
+    'mock-user-3': [{
+      did: 'c-light', name: '创意工作室灯', model: 'yeelink.light.mock', home_id: 'home-c', room_id: 'c-room', room_name: '工位', online: true, spec_type: 'urn:miot-spec-v2:device:light:0000A001:mock:1', parent_id: null,
+    }],
+  };
+  const accountHomes = {
+    'mock-user': [{
+      id: 'home1', name: '云栖公寓', uid: 1, room_count: 3,
+      rooms: [
+        { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
+        { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
+        { id: 'bedroom', name: '卧室', dids: ['fan1'] },
+      ],
+    }, {
+      id: 'home2', name: '工作室', uid: 1, room_count: 3,
+      rooms: [
+        { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
+        { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
+        { id: 'bedroom', name: '卧室', dids: ['fan1'] },
+      ],
+    }],
+    'mock-user-2': [{ id: 'home-b', name: '湖畔住宅', uid: 2, room_count: 1, rooms: [{ id: 'b-room', name: '工作室', dids: ['b-light'] }] }],
+    'mock-user-3': [{ id: 'home-c', name: '创意工作室', uid: 3, room_count: 1, rooms: [{ id: 'c-room', name: '工位', dids: ['c-light'] }] }],
+  };
+  const accountScenes = {
+    'mock-user': scenes,
+    'mock-user-2': [{ id: 'scene-b', name: '工作室加班', home_id: 'home-b' }],
+    'mock-user-3': [{ id: 'scene-c', name: '创意模式', home_id: 'home-c' }],
+  };
+  const accountCameras = {
+    'mock-user': cameras,
+    'mock-user-2': [],
+    'mock-user-3': [],
+  };
+  let accounts = [
+    { user_id: 'mock-user', display_name: '云栖账号', active: true },
+    { user_id: 'mock-user-2', display_name: '工作室账号', active: false },
+  ];
+  let activeUserId = 'mock-user';
+  const accountSummaries = () => accounts.map((account) => ({
+    ...account,
+    active: account.user_id === activeUserId,
+  }));
+  let authGeneration = 0;
+  const setActiveAccount = (userId) => {
+    if (!accounts.some((account) => account.user_id === userId)) return false;
+    activeUserId = userId;
+    return true;
+  };
   window.__SET_DEVICE_ONLINE__ = (did, online) => {
-    const device = devices.find((item) => item.did === did);
+    const device = (accountDevices[activeUserId] || []).find((item) => item.did === did);
     if (device) device.online = Boolean(online);
   };
-  let automations = [{
-    id: 'auto1',
-    name: '早上开灯',
-    time: '07:30',
-    days: [1, 2, 3, 4, 5],
-    scene_id: 'scene-home',
-    home_id: 'home1',
-    enabled: true,
-    last_run: null,
-  }];
-  let automationSequence = 2;
+  const accountAutomations = {
+    'mock-user': [{
+      id: 'auto1',
+      name: '早上开灯',
+      time: '07:30',
+      days: [1, 2, 3, 4, 5],
+      scene_id: 'scene-home',
+      home_id: 'home1',
+      enabled: true,
+      last_run: null,
+    }],
+    'mock-user-2': [],
+    'mock-user-3': [],
+  };
+  let automationSequence = 10;
+  window.__MOCK_NEXT_LOGIN__ = null;
+  window.__MOCK_DELAY_NEXT__ = null;
   window.__MOCK_CALLS__ = [];
   const clone = (value) => JSON.parse(JSON.stringify(value));
   window.__MIHOME_TAURI__ = Object.freeze({
     invoke: async (command, args = {}) => {
       window.__MOCK_CALLS__.push({ command, args: clone(args) });
-      if (command === 'auth_resume') return 'mock-user';
-      if (command === 'auth_logout') return null;
+      const delayed = window.__MOCK_DELAY_NEXT__;
+      if (delayed && delayed.command === command
+        && (!delayed.account || delayed.account === activeUserId)) {
+        window.__MOCK_DELAY_NEXT__ = null;
+        await new Promise((resolve) => setTimeout(resolve, delayed.ms));
+      }
+      if (command === 'auth_resume') return activeUserId;
+      if (command === 'auth_accounts') return clone(accountSummaries());
+      if (command === 'auth_logout') {
+        accounts = accounts.filter((account) => account.user_id !== activeUserId);
+        activeUserId = accounts[0]?.user_id || null;
+        return { active_user_id: activeUserId, accounts: clone(accountSummaries()) };
+      }
+      if (command === 'auth_switch_account') {
+        if (!setActiveAccount(args.userId)) throw new Error('mock account missing');
+        return args.userId;
+      }
+      if (command === 'auth_set_account_label') {
+        const account = accounts.find((item) => item.user_id === activeUserId);
+        if (account) account.display_name = args.label;
+        return null;
+      }
+      if (command === 'auth_cancel') {
+        authGeneration += 1;
+        return null;
+      }
       if (command === 'auth_start') {
+        authGeneration += 1;
         return {
           qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" aria-label="mock qr"><rect width="20" height="20" fill="#fff"/><path d="M2 2h6v6H2zm10 0h6v6h-6zM2 12h6v6H2zm10 2h2v2h-2zm4-2h2v2h-2z" fill="#111"/></svg>',
         };
       }
-      if (command === 'auth_poll') return { status: 'success', user_id: 'mock-user', message: '' };
+      if (command === 'auth_poll') {
+        const pollGeneration = authGeneration;
+        if (window.__MOCK_DELAY_NEXT__?.command === 'auth_poll') {
+          await new Promise((resolve) => setTimeout(resolve, window.__MOCK_DELAY_NEXT__.ms));
+          window.__MOCK_DELAY_NEXT__ = null;
+        }
+        if (pollGeneration !== authGeneration) {
+          return { status: 'error', user_id: null, message: '登录已取消' };
+        }
+        const userId = window.__MOCK_NEXT_LOGIN__ || accounts[0]?.user_id || 'mock-user';
+        const labels = { 'mock-user': '云栖账号', 'mock-user-2': '工作室账号', 'mock-user-3': '创意账号' };
+        window.__MOCK_NEXT_LOGIN__ = null;
+        if (!accounts.some((account) => account.user_id === userId)) {
+          accounts.push({ user_id: userId, display_name: labels[userId] || null, active: false });
+        }
+        setActiveAccount(userId);
+        return { status: 'success', user_id: userId, message: '' };
+      }
       if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.0.0' };
       if (command === 'ui_ready' || command === 'camera_stop' || command === 'log_export') return null;
-      if (command === 'list_homes') return [{
-        id: 'home1', name: '云栖公寓', uid: 1, room_count: 3,
-        rooms: [
-          { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
-          { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
-          { id: 'bedroom', name: '卧室', dids: ['fan1'] },
-        ],
-      }, {
-        id: 'home2', name: '工作室', uid: 1, room_count: 3,
-        rooms: [
-          { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
-          { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
-          { id: 'bedroom', name: '卧室', dids: ['fan1'] },
-        ],
-      }];
-      if (command === 'list_devices') return clone(devices);
+      if (command === 'list_homes') return clone(accountHomes[activeUserId] || []);
+      if (command === 'list_devices') return clone(accountDevices[activeUserId] || []);
       if (command === 'get_device_specs') {
         return {
           specs: Object.fromEntries(args.specTypes.filter((key) => specs[key]).map((key) => [key, specs[key]])),
@@ -275,9 +370,9 @@ const mockSource = String.raw`
         return [{ code: 0 }];
       }
       if (command === 'call_action') return null;
-      if (command === 'list_scenes') return clone(scenes);
+      if (command === 'list_scenes') return clone(accountScenes[activeUserId] || []);
       if (command === 'run_scene') return null;
-      if (command === 'list_cameras') return clone(cameras);
+      if (command === 'list_cameras') return clone(accountCameras[activeUserId] || []);
       if (command === 'camera_start') {
         return args.dids.map((did) => ({ id: did, url: 'http://127.0.0.1:9/mock.m3u8', host: 'local', prefer_mse: true, video_only: true }));
       }
@@ -286,19 +381,21 @@ const mockSource = String.raw`
       }
       if (command === 'camera_remote_stop' || command === 'camera_remote_ptz') return null;
       if (command === 'camera_diagnostics') return { alive: true, api_ready: true, detail: 'mock ready' };
-      if (command === 'list_automations') return clone(automations);
+      if (command === 'list_automations') return clone(accountAutomations[activeUserId] || []);
       if (command === 'save_automation') {
         const item = { ...args.automation, id: 'auto' + automationSequence++ };
-        automations.push(item);
-        return clone(automations);
+        accountAutomations[activeUserId].push(item);
+        return clone(accountAutomations[activeUserId]);
       }
       if (command === 'toggle_automation') {
-        automations = automations.map((item) => item.id === args.id ? { ...item, enabled: args.enabled } : item);
-        return clone(automations);
+        accountAutomations[activeUserId] = accountAutomations[activeUserId]
+          .map((item) => item.id === args.id ? { ...item, enabled: args.enabled } : item);
+        return clone(accountAutomations[activeUserId]);
       }
       if (command === 'delete_automation') {
-        automations = automations.filter((item) => item.id !== args.id);
-        return clone(automations);
+        accountAutomations[activeUserId] = accountAutomations[activeUserId]
+          .filter((item) => item.id !== args.id);
+        return clone(accountAutomations[activeUserId]);
       }
       throw new Error('unhandled mock invoke: ' + command);
     },
@@ -784,6 +881,23 @@ try {
         );
         await screenshot(`r${round}-${name}-${width}`);
       }
+      await click('#accountButton');
+      await waitForSelector('#accountPop.open');
+      const accountPopMetrics = await pageEval(cdp, `(() => {
+        const pop = document.querySelector('#accountPop');
+        const rect = pop.getBoundingClientRect();
+        return {
+          inside: rect.left >= -1 && rect.right <= innerWidth + 1
+            && rect.top >= -1 && rect.bottom <= innerHeight + 1,
+          overflow: pop.scrollWidth > pop.clientWidth + 1,
+          cards: pop.querySelectorAll('.account-card').length,
+        };
+      })()`);
+      expect(accountPopMetrics.cards >= 2, `round ${round}, ui ${width}px: account pop is empty`);
+      expect(accountPopMetrics.inside, `round ${round}, ui ${width}px: account pop is clipped`);
+      expect(!accountPopMetrics.overflow, `round ${round}, ui ${width}px: account pop overflows`);
+      await screenshot(`r${round}-account-pop-${width}`);
+      await click('#accountPopClose');
     }
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: 1440,
@@ -840,10 +954,131 @@ try {
     );
     await screenshot(`r${round}-20-camera-resumed`);
 
-    await click('#logout');
+    await click('#accountButton');
+    await waitForSelector('#accountPop.open');
+    const accountSwitcher = await pageEval(cdp, `({
+      cards: document.querySelectorAll('#accountList .account-card').length,
+      active: document.querySelector('#accountList .account-card.active strong')?.textContent,
+      hasAdd: Boolean(document.querySelector('#addAccountButton')),
+      hasRemove: Boolean(document.querySelector('#removeAccountButton')),
+    })`);
+    expect(accountSwitcher.cards === 2, `round ${round}: expected 2 saved accounts, got ${accountSwitcher.cards}`);
+    expect(accountSwitcher.active === '云栖账号', `round ${round}: wrong active account ${accountSwitcher.active}`);
+    expect(accountSwitcher.hasAdd && accountSwitcher.hasRemove, `round ${round}: account actions missing`);
+    await screenshot(`r${round}-21-account-switcher`);
+
+    // A delayed response from the old account must never repopulate the new account.
+    await pageEval(cdp, `window.__MOCK_DELAY_NEXT__ = { command: 'list_devices', account: 'mock-user', ms: 650 }; window.dispatchEvent(new Event('focus')); true`);
+    await pageEval(cdp, `document.querySelector('#accountList [data-account="mock-user-2"]').click(); true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#accountName')?.textContent === '工作室账号'
+        && Boolean(document.querySelector('.device-row[data-did="b-light"]'))`,
+    ));
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    const accountB = await pageEval(cdp, `({
+      account: document.querySelector('#accountName')?.textContent,
+      home: document.querySelector('#homeSelect')?.selectedOptions[0]?.textContent,
+      devices: [...document.querySelectorAll('.device-row')].map((node) => node.dataset.did),
+      leaked: Boolean(document.querySelector('.device-row[data-did="light1"]')),
+    })`);
+    expect(accountB.account === '工作室账号' && accountB.home === '湖畔住宅', `round ${round}: account B did not load its own home`);
+    expect(accountB.devices.includes('b-light') && !accountB.leaked, `round ${round}: account A leaked into account B`);
+    await screenshot(`r${round}-22-account-b`);
+
+    await click('#accountButton');
+    await pageEval(cdp, `document.querySelector('#accountList [data-account="mock-user"]').click(); true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#accountName')?.textContent === '云栖账号'
+        && Boolean(document.querySelector('.device-row[data-did="light1"]'))`,
+    ));
+    expect(
+      await pageEval(cdp, `document.querySelectorAll('.device-row').length === 9`),
+      `round ${round}: account A did not recover all devices`,
+    );
+    await screenshot(`r${round}-23-account-a-restored`);
+
+    await pageEval(cdp, `window.__MOCK_DELAY_NEXT__ = { command: 'auth_poll', ms: 900 }; true`);
+    await click('#accountButton');
+    await click('#addAccountButton');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#loginTitle')?.textContent === '添加米家账号'`));
+    expect(
+      await pageEval(cdp, `document.querySelector('#loginBack')?.hidden === false`),
+      `round ${round}: add-account back action is hidden`,
+    );
+    await screenshot(`r${round}-24-add-account`);
+    await click('#loginBack');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(
+      await pageEval(cdp, `document.querySelector('#accountName')?.textContent === '云栖账号'
+        && Boolean(document.querySelector('.device-row[data-did="light1"]'))`),
+      `round ${round}: cancelled add-account changed the active account`,
+    );
+    await click('#accountButton');
+    await waitForSelector('#accountPop.open');
+    expect(
+      await pageEval(cdp, `document.querySelectorAll('#accountList .account-card').length === 2`),
+      `round ${round}: cancelled add-account created an account record`,
+    );
+    await screenshot(`r${round}-25-add-account-cancelled`);
+    await click('#accountPopClose');
+
+    await pageEval(cdp, `window.__MOCK_NEXT_LOGIN__ = 'mock-user-3'; window.__MOCK_DELAY_NEXT__ = { command: 'auth_poll', ms: 1200 }; true`);
+    await click('#accountButton');
+    await click('#addAccountButton');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#loginTitle')?.textContent === '添加米家账号'`));
+    await screenshot(`r${round}-26-add-account-pending`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`));
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#accountName')?.textContent === '创意账号'
+        && Boolean(document.querySelector('.device-row[data-did="c-light"]'))`,
+    ));
+    const accountC = await pageEval(cdp, `({
+      device: document.querySelector('.device-row')?.dataset.did,
+      leaked: Boolean(document.querySelector('.device-row[data-did="light1"]')),
+    })`);
+    expect(accountC.device === 'c-light' && !accountC.leaked, `round ${round}: added account reused old device data`);
+    await click('#accountButton');
+    await waitForSelector('#accountPop.open');
+    expect(
+      await pageEval(cdp, `document.querySelectorAll('#accountList .account-card').length === 3`),
+      `round ${round}: added account is missing from the account switcher`,
+    );
+    expect(
+      await pageEval(cdp, `document.querySelector('#accountState')?.textContent.includes('3 个账号')`),
+      `round ${round}: account count did not refresh after adding`,
+    );
+    await screenshot(`r${round}-27-account-c-added`);
+    await click('#accountPopClose');
+
+    await click('#accountButton');
+    await click('#removeAccountButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#accountName')?.textContent === '云栖账号'
+        && Boolean(document.querySelector('.device-row[data-did="light1"]'))`,
+    ));
+    expect(
+      await pageEval(cdp, `!document.querySelector('.device-row[data-did="c-light"]')`),
+      `round ${round}: removed account data remained visible`,
+    );
+    await screenshot(`r${round}-28-account-fallback`);
+
+    await click('#accountButton');
+    await click('#removeAccountButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#accountName')?.textContent === '工作室账号'
+        && Boolean(document.querySelector('.device-row[data-did="b-light"]'))`,
+    ));
+    await click('#accountButton');
+    await click('#removeAccountButton');
     await waitFor(() => pageEval(cdp, `!document.querySelector('#loginLayer').classList.contains('hide')`));
     await new Promise((resolve) => setTimeout(resolve, 520));
-    await screenshot(`r${round}-21-login`);
+    await screenshot(`r${round}-29-login`);
     for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width,
@@ -879,10 +1114,11 @@ try {
     });
     viewportWidth = 1440;
     viewportHeight = 900;
+    await pageEval(cdp, `window.__MOCK_NEXT_LOGIN__ = 'mock-user'; true`);
     await click('#startAuth');
     await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`));
     expect(
-      await pageEval(cdp, `document.querySelector('#accountName').textContent === '云栖公寓'`),
+      await pageEval(cdp, `document.querySelector('#accountName').textContent === '云栖账号'`),
       `round ${round}: account did not reload after login`,
     );
     await pageEval(cdp, `(() => {
@@ -891,14 +1127,22 @@ try {
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor(() => pageEval(cdp, `document.querySelector('#accountName').textContent === '工作室'`));
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#homeSelect').value === 'home2'
+        && document.querySelector('#windowTitle').textContent.includes('工作室')`,
+    ));
     await pageEval(cdp, `(() => {
       const select = document.querySelector('#homeSelect');
       select.value = 'home1';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     })()`);
-    await waitFor(() => pageEval(cdp, `document.querySelector('#accountName').textContent === '云栖公寓'`));
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#homeSelect').value === 'home1'
+        && document.querySelector('#windowTitle').textContent.includes('云栖公寓')`,
+    ));
   }
 
   const heap = await pageEval(cdp, `performance.memory ? performance.memory.usedJSHeapSize : 0`);
