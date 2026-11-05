@@ -862,18 +862,53 @@ try {
                 && (rect.left < -1 || rect.right > innerWidth + 1);
             })
             .map((node) => node.id || node.className || node.tagName);
+          const describe = (node) => {
+            const rect = node.getBoundingClientRect();
+            return {
+              node: node.id ? '#' + node.id : node.tagName.toLowerCase() + (node.className ? '.' + String(node.className).replace(/\\s+/g, '.') : ''),
+              left: Math.round(rect.left * 10) / 10,
+              right: Math.round(rect.right * 10) / 10,
+              width: Math.round(rect.width * 10) / 10,
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+              minWidth: getComputedStyle(node).minWidth,
+            };
+          };
+          const pageRect = page.getBoundingClientRect();
+          const overflowNodes = [...page.querySelectorAll('*')]
+            .filter((node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              const beyondPage = rect.right > pageRect.right + 1 || rect.left < pageRect.left - 1;
+              const scrollsWithin = node.scrollWidth > node.clientWidth + 1;
+              return style.display !== 'none' && style.visibility !== 'hidden'
+                && rect.width > 0 && rect.height > 0 && (beyondPage || scrollsWithin);
+            })
+            .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)
+            .slice(0, 8)
+            .map(describe);
           return {
             title: page.querySelector('.page-title')?.textContent || '',
             visibleNodes: visibleNodes.length,
+            pageWidth: page.clientWidth,
+            pageScrollWidth: page.scrollWidth,
+            rootWidth: document.documentElement.clientWidth,
+            rootScrollWidth: document.documentElement.scrollWidth,
             overflow: page.scrollWidth > page.clientWidth + 1
               || document.documentElement.scrollWidth > innerWidth + 1,
+            overflowNodes,
             clipped,
             shellClipped,
           };
         })()`);
         expect(Boolean(metrics.title), `round ${round}, ui ${width}px: ${name} has no title`);
         expect(metrics.visibleNodes > 0, `round ${round}, ui ${width}px: ${name} has no visible interactive content`);
-        expect(metrics.overflow === false, `round ${round}, ui ${width}px: ${name} overflows horizontally`);
+        expect(
+          metrics.overflow === false,
+          `round ${round}, ui ${width}px: ${name} overflows horizontally `
+            + `(page ${metrics.pageScrollWidth}/${metrics.pageWidth}, root ${metrics.rootScrollWidth}/${metrics.rootWidth}, `
+            + `nodes ${JSON.stringify(metrics.overflowNodes)})`,
+        );
         expect(metrics.clipped.length === 0, `round ${round}, ui ${width}px: ${name} clips ${metrics.clipped.join(', ')}`);
         expect(
           metrics.shellClipped.length === 0,
