@@ -1,7 +1,8 @@
 # MiHome Mac 1.1.1 发布与回归记录
 
-状态：发布前验证完成。版本号、CHANGELOG、README 下载入口和内置
-FFmpeg 构建链路均已更新到 1.1.1。
+状态：发布验证完成。版本号、CHANGELOG、README 下载入口和内置
+FFmpeg 构建链路均已更新到 1.1.1，最终安装包来自 tag 构建
+`41940611902`。
 
 ## 发布范围
 
@@ -29,7 +30,7 @@ cargo test (core)             75/75 通过
 cargo fmt (desktop)           通过
 cargo clippy (desktop)        通过
 shell syntax                  通过
-FFmpeg arm64/x64/universal    SHA256 校验通过
+FFmpeg arm64/x64              SHA256 校验通过
 UI_REGRESSION_ROUNDS=10       通过
 ```
 
@@ -40,9 +41,9 @@ UI_REGRESSION_ROUNDS=10       通过
   "rounds": 10,
   "checks": 3952,
   "screenshots": 620,
-  "maxInteractionMs": 39.9,
+  "maxInteractionMs": 33.5,
   "domNodes": 1088,
-  "heapMB": 2.69,
+  "heapMB": 3.82,
   "runtimeErrors": [],
   "failures": []
 }
@@ -59,16 +60,16 @@ UI_REGRESSION_ROUNDS=10       通过
 
 ```text
 轮次  启动耗时  退出方式  FFmpeg   架构    动态依赖    日志  残留进程
-1     1733 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-2     1168 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-3     1199 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-4     1164 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-5     1205 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-6     1184 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-7     1181 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-8     1206 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-9     1471 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
-10    1165 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+1     3507 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+2     3164 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+3     3473 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+4     3187 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+5     3499 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+6     3485 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+7     3485 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+8     3492 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+9     3198 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
+10    3158 ms  SIGTERM   8.1.3    x86_64  system-only  ok    clean
 ```
 
 每轮均确认：
@@ -80,21 +81,19 @@ UI_REGRESSION_ROUNDS=10       通过
 - 日志没有 panic、崩溃、权限拒绝或找不到 FFmpeg。
 - 发送 SIGTERM 后主程序正常退出，没有残留子进程。
 
-universal DMG 在 Intel 主机上实际启动 x86_64 slice；arm64 slice 因当前主机
-无法执行，只完成 `lipo` 架构、Mach-O 动态依赖、签名、包体资源和 SHA256
-静态校验。三架构均通过 `scripts/verify-macos-bundle.sh`，应用包使用有效的
-ad-hoc 签名。
+arm64 DMG 因当前测试主机为 Intel，未做实际执行；已完成 `lipo` 架构、
+Mach-O 动态依赖、签名、包体资源、许可证和 SHA256 静态校验。x64 与 arm64
+均通过 `scripts/verify-macos-bundle.sh`，应用包使用有效的 ad-hoc 签名。
 
 ## 发布包
 
 | 产物 | 大小（bytes） | SHA256 |
 |---|---:|---|
-| `MiHome-Mac-1.1.1-arm64.dmg` | 10,423,302 | `be3cc2b2a696da5c6e256b212810552b43727c4474b7d1f17bac1b710e20bb31` |
-| `MiHome-Mac-1.1.1-x64.dmg` | 12,493,822 | `544610c802d9c43b330ec97c5d276004419434d17050964a481aa16392752d9a` |
-| `MiHome-Mac-1.1.1-universal.dmg` | 22,882,628 | `9a7fea1574f826c5cc18e274caed16a88e488c62467bfaca445001194240e793` |
+| `MiHome-Mac-1.1.1-arm64.dmg` | 10,363,638 | `eb07a44164dbf2210fef61b9e7697335a0bc35f6e5f926cd4b0b0413bbb1851f` |
+| `MiHome-Mac-1.1.1-x64.dmg` | 12,419,834 | `60442d5065993af8eec0bc36ef20316db36074feaebefa62b53d0ffc933cab08` |
 
 GitHub Release 发布 arm64 与 x64 两个独立安装包，并提供对应 `.sha256`
-文件。universal 包保留用于本地验证，不作为默认下载。
+文件。两个文件均来自 tag `v1.1.1` 对应的 GitHub Actions 构建。
 
 ## 已知边界
 
