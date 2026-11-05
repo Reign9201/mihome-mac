@@ -26,6 +26,13 @@ macOS 1.1.1 提供两个独立安装包：
 
 两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.1.1 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.1.1)。
 
+### 1.1.1 更新
+
+- 安装包直接携带 FFmpeg 8.1.3、go2rtc 和许可证文件，不再要求普通用户安装外部转码器。
+- FFmpeg 只保留摄像头链路需要的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 和滤镜，而不是完整发行版。
+- 最终 x64 安装包已在 Intel macOS 完成 10 轮隔离安装与启动验证；arm64 包完成架构、依赖、资源、签名和 SHA256 静态校验。
+- 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值、测试范围和体积说明见 [1.1.1 发布记录](docs/11-release-1.1.1.md)。
+
 ## 功能
 
 - 使用米家 App 扫码登录，无需在应用中保存账号密码
