@@ -30,7 +30,7 @@ macOS 1.1.1 提供两个独立安装包：
 
 - 安装包直接携带 FFmpeg 8.1.3、go2rtc 和许可证文件，不再要求普通用户安装外部转码器。
 - FFmpeg 只保留摄像头链路需要的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 和滤镜，而不是完整发行版。
-- 最终 x64 安装包已在 Intel macOS 完成 10 轮隔离安装与启动验证；arm64 包完成架构、依赖、资源、签名和 SHA256 静态校验。
+- x64 与 arm64 安装包已分别在 Intel macOS 和 Apple Silicon macOS 上完成 10 轮全新隔离安装与启动验证；每轮均验证版本、扫码二维码、内置 FFmpeg 8.1.3、动态依赖、日志和退出清理。
 - 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值、测试范围和体积说明见 [1.1.1 发布记录](docs/11-release-1.1.1.md)。
 
 ## 功能
