@@ -1,0 +1,53 @@
+name: Release DMG regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: v1.1.1
+        type: string
+      rounds:
+        description: Isolated install rounds
+        required: true
+        default: "10"
+        type: string
+      expected_ffmpeg:
+        description: Expected bundled FFmpeg version
+        required: true
+        default: "8.1.3"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  arm64:
+    runs-on: macos-26-arm64
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = "arm64"
+      - name: Run isolated install regression
+        env:
+          TAG: ${{ inputs.tag }}
+          ROUNDS: ${{ inputs.rounds }}
+          EXPECTED_FFMPEG: ${{ inputs.expected_ffmpeg }}
+        run: |
+          chmod +x scripts/test-macos-release.sh scripts/verify-macos-bundle.sh
+          ./scripts/test-macos-release.sh \
+            --arch arm64 \
+            --tag "$TAG" \
+            --rounds "$ROUNDS" \
+            --ffmpeg-version "$EXPECTED_FFMPEG" \
+            --output "dist/macos-regression/${TAG}-arm64"
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-regression-${{ inputs.tag }}-arm64
+          path: dist/macos-regression/${{ inputs.tag }}-arm64
+          if-no-files-found: warn
+          retention-days: 30
