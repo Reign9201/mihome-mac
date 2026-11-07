@@ -36,6 +36,8 @@ UI regression                 3913 checks / 101 screenshots
 
 UI 回归覆盖桌面与窄屏、LTR/RTL、控件截断、横向溢出、残留中文、动态节点和
 运行时错误。测试使用离线 Mock 数据，不代表真实账号、设备或平台凭据验证。
+CI 运行记录：
+[`42377696262`](https://github.com/Reign9201/mihome-mac/actions/runs/42377696262)。
 
 ## 安装包结构验证
 
@@ -53,8 +55,20 @@ x64 DMG 在 Intel macOS 15.7.9 上完成 1 轮全新隔离安装与启动：
 残留进程     0
 ```
 
-arm64 DMG 已完成包体、架构、代码签名、内置依赖和 FFmpeg 结构验证。由于本次
-本地构建宿主为 Intel，arm64 启动验证由原生 arm64 CI runner 继续执行。
+arm64 DMG 已完成包体、架构、代码签名、内置依赖和 FFmpeg 结构验证，并在
+GitHub Actions 原生 arm64 macOS 26.7.2 runner 上完成 1 轮全新隔离安装与启动：
+
+```text
+启动耗时     8528 ms
+扫码二维码   已生成
+架构         arm64
+动态依赖     system-only
+退出方式     SIGTERM
+残留进程     0
+```
+
+运行记录：
+[`42377775829`](https://github.com/Reign9201/mihome-mac/actions/runs/42377775829)。
 
 ## 发布包
 
@@ -64,6 +78,9 @@ arm64 DMG 已完成包体、架构、代码签名、内置依赖和 FFmpeg 结�
 | `MiHome-Mac-1.2.0-x64.dmg` | 14,933,805 | `6bd641d7e30076a7d54c9914bfd463b23bf957ef5de20d7d8638f032b55ea72c` |
 
 每个 DMG 同时提供对应 `.sha256` 文件。
+
+tag 触发的 arm64/x64 远端构建与包体验证均通过：
+[`42377696247`](https://github.com/Reign9201/mihome-mac/actions/runs/42377696247)。
 
 ## 已知边界
 
