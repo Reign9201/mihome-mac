@@ -2,7 +2,7 @@
 
 MiHome Mac is licensed under GPL-3.0-or-later. This file records the upstream
 projects and third-party components that informed or are distributed with the
-application. It was last reviewed on 2026-11-04.
+application. It was last reviewed on 2026-11-06.
 
 ## Protocol and product references
 
@@ -47,6 +47,40 @@ code and binaries are not included in this repository or its application bundle.
   source code or binary is copied or distributed.
 
 ## Distributed components
+
+### lark-channel
+
+- Project: https://github.com/jacoesad/channel-sdk-rust
+- Version: 0.6.0
+- License: MIT
+- Use: Feishu/Lark WebSocket event transport, event normalization, and message
+  replies. Linked into the desktop binary.
+
+### tokio-tungstenite / tungstenite
+
+- Projects: https://github.com/snapview/tokio-tungstenite and
+  https://github.com/snapview/tungstenite-rs
+- Version: 0.26.x
+- License: MIT
+- Use: Enterprise WeChat intelligent-bot WebSocket long connection and Feishu
+  WebSocket transport. Linked into the desktop binary.
+
+### dingtalk-stream-sdk
+
+- Project: https://github.com/wenhaozhao/dingtalk-stream-sdk-rust
+- Version: 0.2.5
+- License: MIT OR Apache-2.0
+- Use: DingTalk robot Stream long connection, authentication, callbacks, and
+  session webhook replies. Linked into the desktop binary.
+
+### whisper.cpp
+
+- Project: https://github.com/ggml-org/whisper.cpp
+- Version: 1.9.5
+- License: MIT
+- Use: Optional local speech-to-text runtime. The executable and its dynamic
+  libraries are installed under the user's MiHome application-support directory;
+  the GGML model is downloaded separately and is not included in the repository.
 
 ### AlexxIT/go2rtc
 

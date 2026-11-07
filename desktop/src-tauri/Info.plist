@@ -4,5 +4,7 @@
 <dict>
   <key>NSLocalNetworkUsageDescription</key>
   <string>MiHome Mac 需要访问局域网，以发现并直接连接同一网络中的小米摄像头。</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>MiHome Mac 使用语音识别，把你在飞书等平台发送的语音转换成设备控制指令。</string>
 </dict>
 </plist>

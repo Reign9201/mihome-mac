@@ -123,6 +123,10 @@
       .replace(/\s+/g, ' ');
   }
 
+  function displayText(value) {
+    return globalThis.MihomeI18n?.t?.(String(value ?? '')) ?? String(value ?? '');
+  }
+
   function localizedText(value) {
     const text = String(value ?? '').trim();
     if (!text) return '';
@@ -143,21 +147,24 @@
   function optionLabel(item) {
     const description = String(item?.description ?? '').trim();
     const translated = VALUE_LABELS[normalizedText(description)];
-    if (translated) return translated;
-    return localizedText(description) || localizedUnitValue(description) || '未知选项';
+    if (translated) return displayText(translated);
+    return displayText(localizedText(description) || localizedUnitValue(description) || '未知选项');
   }
 
   function arrayValueLabel(item) {
     if (item === undefined || item === null || typeof item === 'object') return '';
     const text = String(item).trim();
     if (!text || /^-?\d+(?:\.\d+)?$/.test(text)) return '';
-    return VALUE_LABELS[normalizedText(text)] || localizedText(text) || '';
+    return displayText(VALUE_LABELS[normalizedText(text)] || localizedText(text) || '');
   }
 
   function formatArrayValue(value) {
     if (!Array.isArray(value)) return '';
     const labels = value.map(arrayValueLabel).filter(Boolean);
-    return labels.length ? labels.join('、') : '—';
+    if (!labels.length) return '—';
+    const locale = globalThis.window?.MihomeI18n?.locale || 'zh-Hans';
+    const separator = /^(?:zh|ja)/.test(locale) ? '、' : locale === 'ar' ? '، ' : ', ';
+    return labels.join(separator);
   }
 
   function formatCardMetric(def, value) {
@@ -169,13 +176,13 @@
       if (!CARD_OPTION_METRICS.has(def.suffix) || /^-?\d+(?:\.\d+)?$/.test(label)) {
         return '';
       }
-      return `${def.label} ${label}`;
+      return `${displayText(def.label)} ${displayText(label)}`;
     }
     const numeric = typeof value === 'number'
       || (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value));
     if (!numeric || !Number.isFinite(Number(value))) return '';
     if (!CARD_METRIC_ORDER.includes(def.suffix)) return '';
-    return `${def.label} ${Number(value).toFixed(def.digits ?? 0)}${def.unit || ''}`;
+    return `${displayText(def.label)} ${Number(value).toFixed(def.digits ?? 0)}${def.unit || ''}`;
   }
 
   function summarizeCardMetrics(profile, getValue) {
@@ -265,7 +272,7 @@
     if (suffix === 'voltage') return 'V';
     if (suffix === 'electric-current') return 'mA';
     if (suffix === 'power-consumption') return 'W';
-    if (suffix === 'connected-device-number') return ' 台';
+    if (suffix === 'connected-device-number') return '';
     return '';
   }
 

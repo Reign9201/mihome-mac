@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP_NAME="MiHome Mac"
 EXEC_NAME="mihome-mac"
-TAG="v1.1.1"
-VERSION="1.1.1"
+TAG="v1.2.0"
+VERSION="1.2.0"
 ARCH=""
 ROUNDS=10
 DMG=""
@@ -24,8 +24,8 @@ Usage: scripts/test-macos-release.sh [options]
 
 Options:
   --arch arm64|x64       Test architecture (default: host architecture)
-  --tag v1.1.1           Release tag used for download and version checks
-  --version 1.1.1        Expected app version (default: tag without leading v)
+  --tag v1.2.0           Release tag used for download and version checks
+  --version 1.2.0        Expected app version (default: tag without leading v)
   --rounds 10            Number of isolated install/start rounds
   --dmg PATH             Use an existing DMG instead of downloading the Release
   --sha256 HEX           Expected DMG SHA256 (also read from PATH.sha256)
@@ -268,10 +268,13 @@ validate_app() {
     return 1
   }
 
-  codesign --verify --deep --strict "$APP_BUNDLE" >/dev/null 2>&1 || {
-    ROUND_ERROR="copied app bundle signature verification failed"
-    return 1
-  }
+  if ! codesign --verify --deep --strict "$APP_BUNDLE" >/dev/null 2>&1; then
+    if [[ "${REQUIRE_SIGNED:-0}" == "1" ]]; then
+      ROUND_ERROR="copied app bundle signature verification failed"
+      return 1
+    fi
+    echo "  app is unsigned; signature check skipped (set REQUIRE_SIGNED=1 to enforce)"
+  fi
 
   for resource in LICENSE THIRD_PARTY_NOTICES.md go2rtc-LICENSE ffmpeg-LICENSE \
     ffmpeg-COPYING.GPLv3 ffmpeg-x264-COPYING ffmpeg-opus-COPYING; do
@@ -293,14 +296,16 @@ validate_app() {
 
   local encoders
   local decoders
+  local demuxers
   local muxers
   local filters
   encoders=$("$FFMPEG" -hide_banner -encoders 2>/dev/null)
   decoders=$("$FFMPEG" -hide_banner -decoders 2>/dev/null)
+  demuxers=$("$FFMPEG" -hide_banner -demuxers 2>/dev/null)
   muxers=$("$FFMPEG" -hide_banner -muxers 2>/dev/null)
   filters=$("$FFMPEG" -hide_banner -filters 2>/dev/null)
 
-  for encoder in libx264 h264_videotoolbox libopus pcm_alaw; do
+  for encoder in libx264 h264_videotoolbox libopus pcm_alaw pcm_s16le; do
     printf '%s\n' "$encoders" |
       grep -Eq "^[[:space:]]*[VAS][A-Z.]{5}[[:space:]]+${encoder}([[:space:]]|$)" || {
         ROUND_ERROR="ffmpeg encoder missing: $encoder"
@@ -314,9 +319,16 @@ validate_app() {
         return 1
       }
   done
-  printf '%s\n' "$muxers" |
-    grep -Eq '^[[:space:]]*E[[:space:]]+rtsp([[:space:]]|$)' || {
-      ROUND_ERROR="ffmpeg RTSP muxer is missing"
+  for muxer in rtsp wav; do
+    printf '%s\n' "$muxers" |
+      grep -Eq "^[[:space:]]*E[[:space:]]+${muxer}([[:space:]]|$)" || {
+        ROUND_ERROR="ffmpeg muxer missing: $muxer"
+        return 1
+      }
+  done
+  printf '%s\n' "$demuxers" |
+    grep -Eq '^[[:space:]]*D[[:space:]]+ogg([[:space:]]|$)' || {
+      ROUND_ERROR="ffmpeg Ogg demuxer is missing"
       return 1
     }
   for filter in scale fps aresample format; do

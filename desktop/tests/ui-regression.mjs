@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LANGUAGES } from '../scripts/i18n-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
@@ -291,9 +292,80 @@ const mockSource = String.raw`
     'mock-user-2': [],
     'mock-user-3': [],
   };
+  const integration = {
+    settings: {
+      gateway_enabled: false,
+      gateway_port: 17666,
+      gateway_token_masked: '••••mock',
+      gateway_token_configured: true,
+      feishu: {
+        enabled: true, configured: true, mode: 'websocket',
+        app_id: 'cli_••••mock', secret_configured: true,
+        verification_configured: false, encryption_configured: false,
+      },
+      wecom: {
+        enabled: false, configured: false, mode: 'websocket',
+        app_id: null, secret_configured: false,
+        verification_configured: false, encryption_configured: false,
+      },
+      dingtalk: {
+        enabled: false, configured: false, mode: 'websocket',
+        app_id: null, secret_configured: false,
+        verification_configured: false, encryption_configured: false,
+      },
+      llm_enabled: false,
+      llm_base_url: 'https://api.openai.com/v1',
+      llm_model: 'gpt-4.1-mini',
+      llm_key_configured: false,
+      asr_enabled: true,
+      asr_provider: 'whisper_cpp',
+      asr_base_url: 'https://api.openai.com/v1',
+      asr_model: 'whisper-1',
+      asr_language: 'zh-CN',
+      asr_key_configured: false,
+      asr_command: 'whisper-cli',
+      asr_model_path: '',
+      bindings: [],
+      active_pairing_codes: [],
+    },
+    gateway: {
+      running: false, port: null, base_url: null,
+      uptime_seconds: null, error: null,
+    },
+    connections: {
+      feishu_ws: {
+        running: true, state: 'connected', endpoint: '飞书事件长连接',
+        connected_seconds: 120, last_error: null,
+      },
+      wecom_ws: {
+        running: false, state: 'stopped', endpoint: 'wss://openws.work.weixin.qq.com',
+        connected_seconds: null, last_error: null,
+      },
+      dingtalk_ws: {
+        running: false, state: 'stopped', endpoint: '钉钉 Stream 长连接',
+        connected_seconds: null, last_error: null,
+      },
+    },
+  };
+  const integrationSnapshot = () => clone({
+    settings: integration.settings,
+    gateway: integration.gateway,
+    connections: integration.connections,
+    webhook: {
+      feishu_path: '/v1/platform/feishu',
+      wecom_path: '/v1/platform/wecom',
+      dingtalk_mode: 'stream',
+      requires_public_tunnel: true,
+    },
+  });
   let automationSequence = 10;
+  window.__MOCK_SET_CONNECTION__ = (key, patch) => {
+    Object.assign(integration.connections[key], patch);
+    return integrationSnapshot();
+  };
   window.__MOCK_NEXT_LOGIN__ = null;
   window.__MOCK_DELAY_NEXT__ = null;
+  window.__MOCK_LIST_HOMES_ERROR__ = null;
   window.__MOCK_CALLS__ = [];
   const clone = (value) => JSON.parse(JSON.stringify(value));
   window.__MIHOME_TAURI__ = Object.freeze({
@@ -349,9 +421,12 @@ const mockSource = String.raw`
         setActiveAccount(userId);
         return { status: 'success', user_id: userId, message: '' };
       }
-      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.1.1' };
+      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.2.0' };
       if (command === 'ui_ready' || command === 'camera_stop' || command === 'log_export') return null;
-      if (command === 'list_homes') return clone(accountHomes[activeUserId] || []);
+      if (command === 'list_homes') {
+        if (window.__MOCK_LIST_HOMES_ERROR__) throw new Error(window.__MOCK_LIST_HOMES_ERROR__);
+        return clone(accountHomes[activeUserId] || []);
+      }
       if (command === 'list_devices') return clone(accountDevices[activeUserId] || []);
       if (command === 'get_device_specs') {
         return {
@@ -397,6 +472,83 @@ const mockSource = String.raw`
           .filter((item) => item.id !== args.id);
         return clone(accountAutomations[activeUserId]);
       }
+      if (command === 'integration_snapshot') return integrationSnapshot();
+      if (command === 'integration_save_platform') {
+        const target = integration.settings[args.platform];
+        target.enabled = args.enabled;
+        target.mode = args.mode || target.mode;
+        target.configured = true;
+        target.secret_configured = true;
+        target.app_id = args.appId || target.app_id || 'mock••••';
+        const connection = integration.connections[args.platform + '_ws'];
+        if (args.enabled && target.mode === 'websocket') {
+          connection.running = true;
+          connection.state = 'connected';
+          connection.connected_seconds = 1;
+          connection.last_error = null;
+        } else {
+          connection.running = false;
+          connection.state = 'stopped';
+          connection.connected_seconds = null;
+        }
+        return integrationSnapshot();
+      }
+      if (command === 'integration_reconnect_platform') {
+        const connection = integration.connections[args.platform + '_ws'];
+        connection.running = true;
+        connection.state = 'connected';
+        connection.connected_seconds = 1;
+        connection.last_error = null;
+        return integrationSnapshot();
+      }
+      if (command === 'integration_save_llm') {
+        integration.settings.llm_enabled = args.enabled;
+        integration.settings.llm_base_url = args.baseUrl;
+        integration.settings.llm_model = args.model;
+        integration.settings.llm_key_configured = Boolean(args.apiKey) || integration.settings.llm_key_configured;
+        return integrationSnapshot();
+      }
+      if (command === 'integration_save_asr') {
+        integration.settings.asr_enabled = args.enabled;
+        integration.settings.asr_provider = args.provider;
+        integration.settings.asr_base_url = args.baseUrl;
+        integration.settings.asr_model = args.model;
+        integration.settings.asr_language = args.language;
+        integration.settings.asr_command = args.command;
+        integration.settings.asr_model_path = args.modelPath;
+        integration.settings.asr_key_configured = Boolean(args.apiKey) || integration.settings.asr_key_configured;
+        return integrationSnapshot();
+      }
+      if (command === 'integration_set_gateway') {
+        integration.gateway.running = args.enabled;
+        integration.gateway.port = args.enabled ? args.port : null;
+        integration.gateway.base_url = args.enabled ? 'http://127.0.0.1:' + args.port : null;
+        integration.settings.gateway_port = args.port;
+        integration.settings.gateway_enabled = args.enabled;
+        return integrationSnapshot();
+      }
+      if (command === 'integration_generate_pair_code') {
+        const pairing = {
+          code: '123456',
+          platform: args.platform,
+          expires_in: 600,
+          expires_at: Math.floor(Date.now() / 1000) + 600,
+        };
+        integration.settings.active_pairing_codes = [pairing];
+        return clone(pairing);
+      }
+      if (command === 'integration_revoke_binding') {
+        integration.settings.bindings = integration.settings.bindings.filter((item) => item.id !== args.id);
+        return integrationSnapshot();
+      }
+      if (command === 'integration_reveal_gateway_token') return 'mock-gateway-token';
+      if (command === 'integration_test_feishu'
+        || command === 'integration_test_wecom'
+        || command === 'integration_test_dingtalk') {
+        return '平台连接测试成功';
+      }
+      if (command === 'integration_test_llm') return '模型连接成功：gpt-4.1-mini';
+      if (command === 'integration_test_asr') return '语音识别可用';
       throw new Error('unhandled mock invoke: ' + command);
     },
   });
@@ -488,10 +640,15 @@ try {
     mobile: false,
   });
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: mockSource });
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `if (!localStorage.getItem('mihome.language')) localStorage.setItem('mihome.language', 'zh-Hans');`,
+  });
   await cdp.send('Page.navigate', {
     url: `http://127.0.0.1:${serverPort}/desktop/ui/index.html`,
   });
   await waitFor(() => pageEval(cdp, `document.readyState === 'complete'`));
+  await pageEval(cdp, `window.__MIHOME_RELOAD_PROBE__ = 1; localStorage.setItem('mihome.language', 'zh-Hans'); location.reload(); true`);
+  await waitFor(() => pageEval(cdp, `document.readyState === 'complete' && window.__MIHOME_RELOAD_PROBE__ === undefined`));
   await waitForSelector('#overviewView .page-head');
 
   const failures = [];
@@ -538,8 +695,8 @@ try {
   if (screenshots) await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
 
   for (let round = 1; round <= rounds; round += 1) {
-    await pageEval(cdp, `location.reload(); true`);
-    await waitFor(() => pageEval(cdp, `document.readyState === 'complete'`));
+    await pageEval(cdp, `window.__MIHOME_RELOAD_PROBE__ = 1; location.reload(); true`);
+    await waitFor(() => pageEval(cdp, `document.readyState === 'complete' && window.__MIHOME_RELOAD_PROBE__ === undefined`));
     await waitForSelector('#overviewView .page-head');
 
     const overview = await pageEval(cdp, `({
@@ -644,6 +801,7 @@ try {
       ['#cameraNav', '#cameraView'],
       ['#sceneNav', '#sceneView'],
       ['#automationNav', '#automationView'],
+      ['#accessNav', '#accessView'],
       ['#devicesNav', '#devicesView'],
       ['#overviewNav', '#overviewView'],
     ]) {
@@ -657,6 +815,80 @@ try {
       expect(visible.active, `round ${round}: ${nav} active state missing`);
       expect(visible.overflow === false, `round ${round}: horizontal overflow on ${nav}`);
     }
+
+    await click('#accessNav');
+    const accessPage = await pageEval(cdp, `({
+      title: document.querySelector('#accessView .page-title')?.textContent,
+      mode: document.querySelector('#accessConnectionMode')?.value,
+      webhookFieldsHidden: document.querySelector('#accessVerificationTokenField')?.hidden
+        && document.querySelector('#accessEncryptKeyField')?.hidden,
+      connection: document.querySelector('#accessConnectionState')?.textContent,
+      reconnectHidden: document.querySelector('#accessReconnect')?.hidden,
+      hasUserGuide: Boolean(document.querySelector('#copyUserOnboarding')),
+    })`);
+    expect(accessPage.title === '接入中心', `round ${round}: access title ${accessPage.title}`);
+    expect(accessPage.mode === 'websocket', `round ${round}: access mode ${accessPage.mode}`);
+    expect(accessPage.webhookFieldsHidden, `round ${round}: websocket fields should hide webhook secrets`);
+    expect(accessPage.connection === '已连接', `round ${round}: access connection ${accessPage.connection}`);
+    expect(accessPage.reconnectHidden, `round ${round}: reconnect should be hidden while connected`);
+    expect(accessPage.hasUserGuide, `round ${round}: user onboarding guide missing`);
+
+    await pageEval(cdp, `window.__MOCK_SET_CONNECTION__('feishu_ws', {
+      running: false,
+      state: 'error',
+      connected_seconds: null,
+      last_error: 'websocket heartbeat timed out',
+    })`);
+    await click('#accessRefresh');
+    await waitFor(() => pageEval(cdp,
+      `document.querySelector('#accessReconnect')?.hidden === false`));
+    const reconnectVisible = await pageEval(cdp, `({
+      label: document.querySelector('#accessReconnect')?.textContent,
+      disabled: document.querySelector('#accessReconnect')?.disabled,
+    })`);
+    expect(reconnectVisible.label === '重新连接',
+      `round ${round}: reconnect label ${reconnectVisible.label}`);
+    expect(reconnectVisible.disabled === false,
+      `round ${round}: reconnect should be enabled`);
+    await click('#accessReconnect');
+    await waitFor(() => pageEval(cdp,
+      `document.querySelector('#accessConnectionState')?.textContent === '已连接'`));
+
+    await pageEval(cdp, `document.querySelector('[data-access-platform="wecom"]').click(); true`);
+    const wecomAccess = await pageEval(cdp, `({
+      label: document.querySelector('#accessAppIdLabel')?.textContent,
+      webhookDisabled: document.querySelector('#accessConnectionMode option[value="webhook"]')?.disabled,
+    })`);
+    expect(wecomAccess.label === 'Bot ID', `round ${round}: wecom credential label ${wecomAccess.label}`);
+    expect(wecomAccess.webhookDisabled, `round ${round}: wecom webhook mode should be disabled`);
+
+    await pageEval(cdp, `document.querySelector('[data-access-platform="dingtalk"]').click(); true`);
+    const dingtalkAccess = await pageEval(cdp, `({
+      label: document.querySelector('#accessAppIdLabel')?.textContent,
+      secretLabel: document.querySelector('#accessAppSecretLabel')?.textContent,
+      webhookDisabled: document.querySelector('#accessConnectionMode option[value="webhook"]')?.disabled,
+      hasAsr: Boolean(document.querySelector('#asrProvider')),
+    })`);
+    expect(dingtalkAccess.label === 'Client ID', `round ${round}: dingtalk credential label ${dingtalkAccess.label}`);
+    expect(dingtalkAccess.secretLabel === 'Client Secret',
+      `round ${round}: dingtalk secret label ${dingtalkAccess.secretLabel}`);
+    expect(dingtalkAccess.webhookDisabled, `round ${round}: dingtalk webhook mode should be disabled`);
+    expect(dingtalkAccess.hasAsr, `round ${round}: asr configuration missing`);
+
+    await pageEval(cdp, `document.querySelector('[data-access-platform="feishu"]').click(); true`);
+    await pageEval(cdp, `(() => {
+      const select = document.querySelector('#accessConnectionMode');
+      select.value = 'webhook';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    const webhookAccess = await pageEval(cdp, `({
+      mode: document.querySelector('#accessConnectionMode')?.value,
+      fieldsVisible: !document.querySelector('#accessVerificationTokenField')?.hidden
+        && !document.querySelector('#accessEncryptKeyField')?.hidden,
+    })`);
+    expect(webhookAccess.mode === 'webhook' && webhookAccess.fieldsVisible,
+      `round ${round}: webhook mode did not reveal verification fields`);
 
     await click('#devicesNav');
     const devicesPage = await pageEval(cdp, `({
@@ -812,6 +1044,7 @@ try {
       ['scenes', '#sceneView'],
       ['automations', '#automationView'],
       ['devices', '#devicesView'],
+      ['access', '#accessView'],
       ['settings', '#settingsView'],
     ];
     for (const [width, height] of [[1440, 900], [1180, 800], [980, 680], [720, 900]]) {
@@ -829,7 +1062,8 @@ try {
             : ${JSON.stringify(selector)} === '#cameraView' ? '#cameraNav'
             : ${JSON.stringify(selector)} === '#sceneView' ? '#sceneNav'
             : ${JSON.stringify(selector)} === '#automationView' ? '#automationNav'
-            : ${JSON.stringify(selector)} === '#devicesView' ? '#devicesNav' : '#settingsNav';
+            : ${JSON.stringify(selector)} === '#devicesView' ? '#devicesNav'
+            : ${JSON.stringify(selector)} === '#accessView' ? '#accessNav' : '#settingsNav';
           document.querySelector(nav).click();
           return true;
         })()`);
@@ -1043,8 +1277,23 @@ try {
       `round ${round}: add-account back action is hidden`,
     );
     await screenshot(`r${round}-24-add-account`);
-    await click('#loginBack');
-    await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`));
+    let addAccountClosed = false;
+    for (let attempt = 0; attempt < 3 && !addAccountClosed; attempt += 1) {
+      await click('#loginBack');
+      try {
+        await waitFor(() => pageEval(cdp, `document.querySelector('#loginLayer').classList.contains('hide')`), 5000);
+        addAccountClosed = true;
+      } catch (error) {
+        if (attempt === 2) {
+          const state = await pageEval(cdp, `({
+            layer: document.querySelector('#loginLayer')?.className,
+            title: document.querySelector('#loginTitle')?.textContent,
+            status: document.querySelector('#statusText')?.textContent,
+          })`);
+          throw new Error(`round ${round}: cancel add-account did not close login: ${JSON.stringify(state)}`);
+        }
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
     expect(
       await pageEval(cdp, `document.querySelector('#accountName')?.textContent === '云栖账号'
@@ -1157,6 +1406,31 @@ try {
       `round ${round}: account did not reload after login`,
     );
     await pageEval(cdp, `(() => {
+      window.__MOCK_CALLS__ = [];
+      window.__MOCK_LIST_HOMES_ERROR__ = '小米云返回 HTTP 401 Unauthorized';
+      window.__MOCK_DELAY_NEXT__ = { command: 'auth_poll', ms: 1800 };
+      window.loadHomes();
+      return true;
+    })()`);
+    await waitFor(() => pageEval(
+      cdp,
+      `!document.querySelector('#loginLayer').classList.contains('hide')
+        && Boolean(document.querySelector('#qrBox svg'))`,
+    ), 5000);
+    expect(
+      await pageEval(
+        cdp,
+        `window.__MOCK_CALLS__.some((call) => call.command === 'auth_start')`,
+      ),
+      `round ${round}: expired session did not request a fresh QR code`,
+    );
+    await pageEval(cdp, `window.__MOCK_LIST_HOMES_ERROR__ = null; true`);
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#loginLayer').classList.contains('hide')
+        && document.querySelector('#accountName').textContent === '云栖账号'`,
+    ), 5000);
+    await pageEval(cdp, `(() => {
       const select = document.querySelector('#homeSelect');
       select.value = 'home2';
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1178,6 +1452,175 @@ try {
       `document.querySelector('#homeSelect').value === 'home1'
         && document.querySelector('#windowTitle').textContent.includes('云栖公寓')`,
     ));
+  }
+
+  const i18nRounds = [];
+  if (process.env.UI_I18N_ALL === '1') {
+    const pageSelectors = [
+      ['overview', '#overviewView', '#overviewNav'],
+      ['camera', '#cameraView', '#cameraNav'],
+      ['scenes', '#sceneView', '#sceneNav'],
+      ['automations', '#automationView', '#automationNav'],
+      ['devices', '#devicesView', '#devicesNav'],
+      ['access', '#accessView', '#accessNav'],
+      ['settings', '#settingsView', '#settingsNav'],
+    ];
+    const pageTitleSources = {
+      camera: '监控',
+      scenes: '场景',
+      automations: '自动化',
+      devices: '全部设备',
+      access: '接入中心',
+      settings: '设置',
+    };
+    for (const language of LANGUAGES) {
+      const code = language.code;
+      const rtl = code === 'ar' || code === 'he';
+      await pageEval(cdp, `window.__MIHOME_RELOAD_PROBE__ = 1; localStorage.setItem('mihome.language', ${JSON.stringify(code)}); location.reload(); true`);
+      await waitFor(() => pageEval(cdp, `document.readyState === 'complete' && window.__MIHOME_RELOAD_PROBE__ === undefined`));
+      await waitForSelector('#overviewView .page-head');
+      await waitFor(() => pageEval(
+        cdp,
+        `document.documentElement.lang === ${JSON.stringify(code)}
+          && !document.documentElement.classList.contains('i18n-loading')
+          && window.MihomeI18n?.locale === ${JSON.stringify(code)}`,
+      ));
+      const shell = await pageEval(cdp, `({
+        lang: document.documentElement.lang,
+        direction: document.documentElement.dir,
+        rtlClass: document.body.classList.contains('rtl'),
+        nav: document.querySelector('#overviewNav > span:last-child')?.textContent,
+        expectedNav: window.MihomeI18n.t('总览'),
+        monitorNav: document.querySelector('#cameraNav > span:not(.nav-icon):not(.nav-count)')?.textContent,
+        expectedMonitor: window.MihomeI18n.t('监控'),
+        accessNav: document.querySelector('#accessNav > span:not(.nav-icon):not(.nav-count)')?.textContent,
+        expectedAccess: window.MihomeI18n.t('接入'),
+        roomsHeading: document.querySelector('#btnAddRoom')?.previousElementSibling?.textContent,
+        expectedRoomsHeading: window.MihomeI18n.t('空间'),
+        allRooms: document.querySelector('.room-item.all-rooms > span:not(.room-glyph):not(.room-count)')?.textContent,
+        expectedAllRooms: window.MihomeI18n.t('全部房间'),
+        room: document.querySelector('[data-room="living"] > span:not(.room-glyph):not(.room-count)')?.textContent,
+        device: document.querySelector('.device-row[data-did="light1"] .device-name')?.childNodes[0]?.nodeValue,
+        bodyText: document.body.innerText,
+      })`);
+      expect(shell.lang === code, `i18n ${code}: html lang ${shell.lang}`);
+      expect(shell.direction === (rtl ? 'rtl' : 'ltr'), `i18n ${code}: direction ${shell.direction}`);
+      expect(shell.rtlClass === rtl, `i18n ${code}: rtl body class ${shell.rtlClass}`);
+      expect(shell.nav === shell.expectedNav, `i18n ${code}: navigation not translated (${shell.nav} != ${shell.expectedNav})`);
+      expect(shell.monitorNav === shell.expectedMonitor, `i18n ${code}: monitor navigation not translated (${shell.monitorNav} != ${shell.expectedMonitor})`);
+      expect(shell.accessNav === shell.expectedAccess, `i18n ${code}: integration navigation not translated (${shell.accessNav} != ${shell.expectedAccess})`);
+      expect(shell.roomsHeading === shell.expectedRoomsHeading, `i18n ${code}: rooms heading not translated (${shell.roomsHeading} != ${shell.expectedRoomsHeading})`);
+      expect(shell.allRooms === shell.expectedAllRooms, `i18n ${code}: all-rooms label not translated (${shell.allRooms} != ${shell.expectedAllRooms})`);
+      expect(shell.room === '客厅', `i18n ${code}: room data name was translated (${shell.room})`);
+      expect(shell.device === '客厅主灯', `i18n ${code}: device data name was translated (${shell.device})`);
+      expect(!/undefined|\[object Object\]|\{\d+\}/.test(shell.bodyText), `i18n ${code}: broken text in overview`);
+      expect(!/good noon|الفضاء|uzay|angkasa lepas|أجهزة الانترنت/i.test(shell.bodyText), `i18n ${code}: known context mistranslation visible`);
+
+      for (const [width, height] of [[1440, 900], [720, 900]]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        viewportWidth = width;
+        viewportHeight = height;
+        for (const [name, selector, nav] of pageSelectors) {
+          await pageEval(cdp, `document.querySelector(${JSON.stringify(nav)}).click(); true`);
+          await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+          const metrics = await pageEval(cdp, `(() => {
+            const page = document.querySelector(${JSON.stringify(selector)});
+            const visible = (node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+            };
+            const dataNames = new Set([
+              '云栖公寓', '工作室', '湖畔住宅', '创意工作室',
+              '云栖账号', '工作室账号', '创意账号',
+              '客厅', '书房', '卧室', '未分房间',
+            ]);
+            const collect = (node) => {
+              const text = String(node?.textContent || '').trim();
+              if (text.length >= 2 && text.length <= 80) dataNames.add(text);
+            };
+            document.querySelectorAll([
+              '.device-name', '.table-device', '.room-title',
+              '.room-item > span:not(.room-glyph):not(.room-count)',
+              '.account-text > strong', '#accountName', '#settingsAccount',
+              '.cam-card-info > strong', '.cam-tile-title', '.detail-heading h3',
+              '.sc-text > strong', '.auto-name', '.pop-device-label',
+              '.overview-cam-info > strong', '.scene-pill .sc-text strong',
+              '#sceneList .scene-card strong', '.auto-target', '#camSubtitle',
+            ].join(',')).forEach(collect);
+            page.querySelectorAll('option').forEach(collect);
+            const names = [...dataNames].filter((item) => item.length >= 2).sort((a, b) => b.length - a.length);
+            const scrubNames = (value) => {
+              let text = String(value || '');
+              for (const item of names) text = text.split(item).join('');
+              return text;
+            };
+            const sourceText = ${JSON.stringify(code)};
+            const checkHan = !['zh-Hans', 'zh-Hant', 'zh-HK', 'ja'].includes(sourceText);
+            const leftovers = [];
+            if (checkHan) {
+              const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+              let node = walker.nextNode();
+              while (node) {
+                const parent = node.parentElement;
+                if (parent && visible(parent) && !parent.closest('[data-i18n-ignore], .device-name, .table-device, .room-title, .account-text > strong, #accountName, #settingsAccount, #camTitle, #camSubtitle, .cam-card-info > strong, .cam-tile-title, .detail-heading > h3, .sc-text > strong, .auto-name, .pop-device-label, #popScenes > button, #homeSelect option, #autoScene option, #pairHome option, .binding-row > strong, .palette-item > span:not(.sub), .overview-cam-info > strong, .scene-pill .sc-text strong')) {
+                  const text = scrubNames(node.nodeValue).trim();
+                  if (/[\\u3400-\\u9fff]/.test(text)) leftovers.push(text.slice(0, 100));
+                }
+                node = walker.nextNode();
+              }
+              for (const node of page.querySelectorAll('[title], [placeholder], [aria-label], [alt]')) {
+                if (!visible(node)) continue;
+                for (const attr of ['title', 'placeholder', 'aria-label', 'alt']) {
+                  if (!node.hasAttribute(attr)) continue;
+                  const text = scrubNames(node.getAttribute(attr)).trim();
+                  if (/[\\u3400-\\u9fff]/.test(text)) leftovers.push(attr + '=' + text.slice(0, 100));
+                }
+              }
+            }
+            const clipped = [...page.querySelectorAll('button, input, select')]
+              .filter((node) => visible(node) && (node.getBoundingClientRect().left < -1 || node.getBoundingClientRect().right > innerWidth + 1))
+              .map((node) => node.id || node.className || node.tagName);
+            return {
+              title: page.querySelector('.page-title')?.textContent || '',
+              overflow: document.documentElement.scrollWidth > innerWidth + 1 || page.scrollWidth > page.clientWidth + 1,
+              clipped,
+              broken: /undefined|\\[object Object\\]|\\{\\d+\\}/.test(page.innerText),
+              leftovers: leftovers.slice(0, 8),
+            };
+          })()`);
+          const expectedTitle = pageTitleSources[name]
+            ? await pageEval(cdp, `window.MihomeI18n.t(${JSON.stringify(pageTitleSources[name])})`)
+            : null;
+          expect(Boolean(metrics.title), `i18n ${code}, ${width}px: ${name} has no title`);
+          expect(!expectedTitle || metrics.title === expectedTitle, `i18n ${code}, ${width}px: ${name} title "${metrics.title}" != "${expectedTitle}"`);
+          expect(!metrics.overflow, `i18n ${code}, ${width}px: ${name} overflows horizontally`);
+          expect(metrics.clipped.length === 0, `i18n ${code}, ${width}px: ${name} clips ${metrics.clipped.join(', ')}`);
+          expect(!metrics.broken, `i18n ${code}, ${width}px: ${name} contains broken text`);
+          expect(
+            metrics.leftovers.length === 0,
+            `i18n ${code}, ${width}px: ${name} has untranslated text: ${metrics.leftovers.join(' | ')}`,
+          );
+        }
+      }
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      viewportWidth = 1440;
+      viewportHeight = 900;
+      await pageEval(cdp, `document.querySelector('#overviewNav').click(); true`);
+      await pageEval(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+      await screenshot(`i18n-${code}-overview-1440`);
+      i18nRounds.push({ locale: code, direction: rtl ? 'rtl' : 'ltr' });
+    }
   }
 
   const heap = await pageEval(cdp, `performance.memory ? performance.memory.usedJSHeapSize : 0`);
@@ -1209,6 +1652,8 @@ try {
     heapMB: Number((heap / 1048576).toFixed(2)),
     runtimeErrors,
     ignoredResourceErrors,
+    i18nLocales: i18nRounds.length,
+    i18nRounds,
     failures,
   }, null, 2));
   if (failures.length) process.exitCode = 1;

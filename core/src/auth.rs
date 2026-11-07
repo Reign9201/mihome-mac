@@ -25,6 +25,8 @@ fn can_retry_request(uri: &str) -> bool {
         uri,
         "/v2/homeroom/gethome_merged"
             | "/home/home_device_list"
+            | "/v2/home/home_device_list"
+            | "/v2/home/device_list_page"
             | "/home/device_list"
             | "/appgateway/miot/appsceneservice/AppSceneService/GetSimpleSceneList"
             | "/miotspec/prop/get"
@@ -917,6 +919,8 @@ mod tests {
     #[test]
     fn retries_only_idempotent_cloud_reads() {
         assert!(can_retry_request("/v2/homeroom/gethome_merged"));
+        assert!(can_retry_request("/v2/home/device_list_page"));
+        assert!(can_retry_request("/v2/home/home_device_list"));
         assert!(can_retry_request("/miotspec/prop/get"));
         assert!(!can_retry_request("/miotspec/prop/set"));
         assert!(!can_retry_request("/miotspec/action"));

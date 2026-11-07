@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-Hans" class="i18n-loading">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,6 +12,7 @@
   <script src="tauri-api.js"></script>
   <script src="diagnostics.js"></script>
   <script src="camera-player.js"></script>
+  <script src="i18n.js"></script>
 </head>
 <body data-theme="light" data-density="comfortable">
   <div class="app-window native" id="appWindow">
@@ -59,6 +60,9 @@
         </button>
         <button class="nav-item" id="automationNav" data-nav="automations" disabled>
           <span class="nav-icon" data-icon="clock"></span><span>自动化</span>
+        </button>
+        <button class="nav-item" id="accessNav" data-nav="access">
+          <span class="nav-icon" data-icon="spark"></span><span>接入</span>
         </button>
         <button class="nav-item" id="devicesNav" data-nav="devices" disabled>
           <span class="nav-icon" data-icon="sliders"></span><span>全部设备</span>
@@ -222,19 +226,297 @@
               <label>时间<input id="autoTime" type="time" value="07:30" required></label>
               <label>场景<select id="autoScene" required></select></label>
               <div class="auto-days" id="autoDays">
-                <label><input type="checkbox" value="1" checked>一</label>
-                <label><input type="checkbox" value="2" checked>二</label>
-                <label><input type="checkbox" value="3" checked>三</label>
-                <label><input type="checkbox" value="4" checked>四</label>
-                <label><input type="checkbox" value="5" checked>五</label>
-                <label><input type="checkbox" value="6">六</label>
-                <label><input type="checkbox" value="7">日</label>
+                <label><input type="checkbox" value="1" checked><span data-i18n-weekday="1">一</span></label>
+                <label><input type="checkbox" value="2" checked><span data-i18n-weekday="2">二</span></label>
+                <label><input type="checkbox" value="3" checked><span data-i18n-weekday="3">三</span></label>
+                <label><input type="checkbox" value="4" checked><span data-i18n-weekday="4">四</span></label>
+                <label><input type="checkbox" value="5" checked><span data-i18n-weekday="5">五</span></label>
+                <label><input type="checkbox" value="6"><span data-i18n-weekday="6">六</span></label>
+                <label><input type="checkbox" value="7"><span data-i18n-weekday="7">日</span></label>
               </div>
               <button class="primary-btn" type="submit">保存</button>
             </form>
           </div>
           <div class="section-label automation-list-label"><span>定时任务</span></div>
           <div id="autoList" class="auto-list"></div>
+        </section>
+
+        <section id="accessView" class="page access-page" hidden>
+          <div class="page-head access-head">
+            <div>
+              <div class="eyebrow">AI CONTROL BRIDGE</div>
+              <h1 class="page-title">接入中心</h1>
+              <p class="page-sub">把飞书、企业微信、钉钉和本地自动化接到同一套受控设备目录。长连接无需公网回调，模型也看不到真实设备 ID。</p>
+            </div>
+            <div class="head-actions">
+              <button id="accessRefresh" class="ghost-btn">刷新状态</button>
+            </div>
+          </div>
+
+          <div class="access-signal" aria-label="接入状态">
+            <div class="signal-item" id="accessSignalAi">
+              <span class="signal-orb"></span>
+              <span><small>AI 意图</small><strong>本地规则</strong></span>
+            </div>
+            <div class="signal-line"></div>
+            <div class="signal-item" id="accessSignalPlatform">
+              <span class="signal-orb"></span>
+              <span><small>消息平台</small><strong>未配置</strong></span>
+            </div>
+            <div class="signal-line"></div>
+            <div class="signal-item" id="accessSignalGateway">
+              <span class="signal-orb"></span>
+              <span><small>本地网关</small><strong>未启动</strong></span>
+            </div>
+            <div class="signal-line"></div>
+            <div class="signal-item" id="accessSignalBinding">
+              <span class="signal-orb"></span>
+              <span><small>会话绑定</small><strong>0 个</strong></span>
+            </div>
+          </div>
+
+          <div class="access-layout">
+            <div class="access-main">
+              <section class="access-card onboarding-card">
+                <div class="access-card-head">
+                  <div>
+                    <span class="step-kicker">01 · 平台管理员</span>
+                    <h3>先选择接入路径</h3>
+                    <p>大众首发建议由你们发布共享官方机器人：用户扫码添加后发送配对码即可。企业或极客可直接使用这里的自建应用长连接。</p>
+                  </div>
+                  <div class="platform-switch" role="tablist" aria-label="接入平台">
+                    <button class="active" data-access-platform="feishu">飞书</button>
+                    <button data-access-platform="wecom">企业微信</button>
+                    <button data-access-platform="dingtalk">钉钉</button>
+                  </div>
+                </div>
+                <div class="onboarding-path">
+                  <div class="onboarding-node done"><b>1</b><span><strong>创建应用</strong><small>获取 App ID / Secret</small></span></div>
+                  <div class="onboarding-rail"></div>
+                  <div class="onboarding-node"><b>2</b><span><strong>建立连接</strong><small>长连接优先，无需公网</small></span></div>
+                  <div class="onboarding-rail"></div>
+                  <div class="onboarding-node"><b>3</b><span><strong>绑定家庭</strong><small>一次性配对码</small></span></div>
+                  <div class="onboarding-rail"></div>
+                  <div class="onboarding-node"><b>4</b><span><strong>发送指令</strong><small>开灯 / 空调 / 场景</small></span></div>
+                </div>
+                <div class="onboarding-actions">
+                  <button class="primary-btn" id="openPlatformDocs">打开官方接入文档</button>
+                  <button class="ghost-btn" id="copyAdminChecklist">复制管理员清单</button>
+                  <button class="ghost-btn" id="copyUserOnboarding">复制用户引导</button>
+                  <span class="fine" id="platformModeHint">长连接模式无需公网回调。</span>
+                </div>
+              </section>
+
+              <section class="access-card">
+                <div class="access-card-head compact">
+                  <div>
+                    <span class="step-kicker">02 · 应用凭据</span>
+                    <h3>连接平台应用</h3>
+                    <p>Secret 只写入本机私有配置文件，状态接口只返回是否已配置。</p>
+                  </div>
+                  <label class="switch inline-switch" title="启用平台">
+                    <input type="checkbox" id="accessPlatformEnabled">
+                    <span></span>
+                  </label>
+                </div>
+                <form id="accessPlatformForm" class="access-form">
+                  <label class="field span-2">
+                    <span>连接方式</span>
+                    <select id="accessConnectionMode">
+                      <option value="websocket">长连接（推荐，无需公网回调）</option>
+                      <option value="webhook">Webhook（需要公网 HTTPS 隧道）</option>
+                    </select>
+                  </label>
+                  <label class="field span-2">
+                    <span id="accessAppIdLabel">App ID</span>
+                    <input id="accessAppId" autocomplete="off" spellcheck="false" placeholder="cli_xxxxxxxxxxxxxxxx">
+                  </label>
+                  <label class="field span-2">
+                    <span id="accessAppSecretLabel">App Secret</span>
+                    <input id="accessAppSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="留空表示不修改">
+                  </label>
+                  <label class="field" id="accessVerificationTokenField">
+                    <span>Verification Token</span>
+                    <input id="accessVerificationToken" type="password" autocomplete="new-password" spellcheck="false" placeholder="事件订阅校验令牌">
+                  </label>
+                  <label class="field" id="accessEncryptKeyField">
+                    <span>Encrypt Key</span>
+                    <input id="accessEncryptKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="可选，建议启用">
+                  </label>
+                  <div class="connection-line span-2">
+                    <span>连接状态</span>
+                    <strong id="accessConnectionState">未启动</strong>
+                    <small id="accessConnectionDetail">保存凭据后自动连接</small>
+                    <button type="button" class="ghost-btn connection-retry" id="accessReconnect" hidden>重新连接</button>
+                  </div>
+                  <div class="form-foot span-2">
+                    <span class="fine" id="accessCredentialState">尚未配置</span>
+                    <div class="form-actions">
+                      <button type="button" class="ghost-btn" id="testPlatform">测试凭据</button>
+                      <button type="submit" class="primary-btn">保存并启用</button>
+                    </div>
+                  </div>
+                </form>
+              </section>
+
+              <section class="access-card gateway-card">
+                <div class="access-card-head compact">
+                  <div>
+                    <span class="step-kicker">03 · 本机网关</span>
+                    <h3>只监听 127.0.0.1</h3>
+                    <p>长连接不依赖本机网关对外暴露；Webhook 模式才需要公网隧道。网关令牌用于本地 API 调用，不会发给模型。</p>
+                  </div>
+                  <label class="switch inline-switch" title="启动本地网关">
+                    <input type="checkbox" id="accessGatewayEnabled">
+                    <span></span>
+                  </label>
+                </div>
+                <div class="gateway-grid">
+                  <label class="field compact-field">
+                    <span>端口</span>
+                    <input id="accessGatewayPort" type="number" min="1024" max="65535" value="17666">
+                  </label>
+                  <label class="field compact-field grow">
+                    <span>网关地址</span>
+                    <input id="accessGatewayEndpoint" readonly>
+                  </label>
+                  <button class="ghost-btn self-end" id="copyGatewayEndpoint">复制</button>
+                </div>
+                <div class="token-line">
+                  <span class="mono" id="accessGatewayToken">••••</span>
+                  <button class="text-btn" id="revealGatewayToken">显示令牌</button>
+                  <button class="text-btn" id="copyGatewayToken">复制令牌</button>
+                  <span class="token-status" id="accessGatewayState">未启动</span>
+                </div>
+                <div class="webhook-line">
+                  <span id="accessWebhookLabel">当前接入</span>
+                  <code id="accessWebhookPath">长连接</code>
+                  <span class="fine" id="accessWebhookHint">无需公网回调</span>
+                </div>
+              </section>
+
+              <section class="access-card pairing-card">
+                <div class="access-card-head compact">
+                  <div>
+                    <span class="step-kicker">04 · 用户配对</span>
+                    <h3>把机器人加入会话</h3>
+                    <p>生成一次性配对码，让平台用户和当前家庭建立绑定。10 分钟过期，只可认领一次。</p>
+                  </div>
+                  <select id="pairHome" class="compact-select" aria-label="配对家庭"></select>
+                </div>
+                <div class="pairing-stage">
+                  <div class="pair-code-box">
+                    <span id="pairCodeValue">------</span>
+                    <small id="pairCodeHint">尚未生成配对码</small>
+                  </div>
+                  <div class="pairing-copy">
+                    <strong>在机器人单聊或群里发送</strong>
+                    <code id="pairCommand">配对 ------</code>
+                    <p id="pairingInstruction">先启动网关、配置平台，再生成配对码。</p>
+                  </div>
+                  <button class="primary-btn" id="generatePairCode">生成配对码</button>
+                </div>
+                <div class="binding-list" id="accessBindings">
+                  <div class="empty compact-empty">还没有已绑定的平台会话</div>
+                </div>
+              </section>
+
+              <section class="access-card test-card">
+                <div class="access-card-head compact">
+                  <div>
+                    <span class="step-kicker">本机验收</span>
+                    <h3>先在这里跑通，再去平台测试</h3>
+                    <p>直接复用平台同一条解析与执行链路。高风险操作会要求二次确认。</p>
+                  </div>
+                </div>
+                <div class="assistant-console">
+                  <input id="assistantTestInput" placeholder="试试“打开空调并调至24度”“灯调成蓝色”或“关闭所有灯，除了客厅灯”" autocomplete="off">
+                  <button class="primary-btn" id="assistantTestSend">执行</button>
+                </div>
+                <div class="assistant-result" id="assistantTestResult">
+                  <span class="console-prompt">READY</span>
+                  <p>输入一条指令，验证设备目录、目标解析和执行回读。</p>
+                </div>
+              </section>
+            </div>
+
+            <aside class="access-rail">
+              <section class="rail-card rail-status">
+                <span class="rail-eyebrow">接入状态</span>
+                <div class="rail-status-list">
+                  <div><span>飞书应用</span><strong id="railFeishuState">未配置</strong></div>
+                  <div><span>企业微信</span><strong id="railWecomState">未配置</strong></div>
+                  <div><span>钉钉</span><strong id="railDingtalkState">未配置</strong></div>
+                  <div><span>本地网关</span><strong id="railGatewayState">未启动</strong></div>
+                  <div><span>AI 模型</span><strong id="railLlmState">规则解析</strong></div>
+                  <div><span>语音识别</span><strong id="railAsrState">未配置</strong></div>
+                </div>
+              </section>
+
+              <section class="rail-card">
+                <span class="rail-eyebrow">大模型（可选）</span>
+                <h4>只让它做意图解析</h4>
+                <p class="rail-copy">固定命令走本地规则；自由表达才交给 OpenAI 兼容接口。模型看不到米家设备 ID、Token 或 Cookie。</p>
+                <form id="llmForm" class="rail-form">
+                  <label class="rail-toggle"><span>启用模型</span><input type="checkbox" id="llmEnabled"><i></i></label>
+                  <label class="field"><span>接口地址</span><input id="llmBaseUrl" placeholder="https://api.openai.com/v1"></label>
+                  <label class="field"><span>模型</span><input id="llmModel" placeholder="gpt-4.1-mini"></label>
+                  <label class="field"><span>API Key</span><input id="llmApiKey" type="password" autocomplete="new-password" placeholder="留空表示不修改"></label>
+                  <div class="rail-actions">
+                    <button class="ghost-btn" type="button" id="testLlm">测试连接</button>
+                    <button class="ghost-btn" type="submit">保存模型设置</button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="rail-card">
+                <span class="rail-eyebrow">语音识别</span>
+                <h4>让机器人听懂语音</h4>
+                <p class="rail-copy">飞书语音会先下载到本机，再用 Whisper.cpp 转成文字，最后进入与大模型相同的受控指令链路。企业微信和钉钉优先使用平台自带转写。</p>
+                <form id="asrForm" class="rail-form">
+                  <label class="rail-toggle"><span>启用语音识别</span><input type="checkbox" id="asrEnabled"><i></i></label>
+                  <label class="field"><span>识别引擎</span>
+                    <select id="asrProvider">
+                      <option value="whisper_cpp">Whisper.cpp（本地推荐）</option>
+                      <option value="openai_compatible">OpenAI 兼容接口</option>
+                      <option value="apple">macOS 语音识别（实验）</option>
+                    </select>
+                  </label>
+                  <div id="asrLocalFields">
+                    <label class="field"><span>whisper-cli 路径</span><input id="asrCommand" placeholder="whisper-cli"></label>
+                    <label class="field"><span>模型文件路径</span><input id="asrModelPath" placeholder="~/Library/Application Support/MiHome/models/ggml-small-q5_1.bin"></label>
+                  </div>
+                  <div id="asrCloudFields" hidden>
+                    <label class="field"><span>接口地址</span><input id="asrBaseUrl" placeholder="https://api.openai.com/v1"></label>
+                    <label class="field"><span>模型</span><input id="asrModel" placeholder="whisper-1"></label>
+                    <label class="field"><span>API Key</span><input id="asrApiKey" type="password" autocomplete="new-password" placeholder="留空表示不修改"></label>
+                  </div>
+                  <p class="fine" id="asrAppleHint" hidden>首次使用需在“系统设置 → 隐私与安全性 → 语音识别”授权 MiHome Mac。</p>
+                  <label class="field"><span>语言</span><input id="asrLanguage" placeholder="zh-CN"></label>
+                  <div class="rail-actions">
+                    <button class="ghost-btn" type="button" id="testAsr">测试语音识别</button>
+                    <button class="ghost-btn" type="submit">保存语音设置</button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="rail-card safety-card">
+                <span class="rail-eyebrow">安全边界</span>
+                <h4>默认拒绝高风险动作</h4>
+                <ul class="safety-list">
+                  <li><i></i>模型输出只包含名称和值</li>
+                  <li><i></i>门锁、摄像头等需要二次确认</li>
+                  <li><i></i>执行后尽量回读真实状态</li>
+                  <li><i></i>凭据文件权限固定为 0600</li>
+                </ul>
+              </section>
+
+              <section class="rail-card rail-note">
+                <span class="rail-eyebrow">重要限制</span>
+                <p>当前是 Mac 常驻网关。电脑睡眠、退出应用或断网时，机器人无法控制设备。若要做到随时在线，需要后续部署云端 Gateway。</p>
+              </section>
+            </aside>
+          </div>
         </section>
 
         <section id="settingsView" class="page" hidden>
@@ -271,7 +553,7 @@
               </div>
               <div class="setting-row">
                 <div class="setting-label"><strong>版本</strong><small>MiHome Mac</small></div>
-                <span class="mono" id="appVersion">1.1.1</span>
+                <span class="mono" id="appVersion">1.2.0</span>
               </div>
             </div>
             <div class="settings-card">
@@ -282,6 +564,20 @@
                   <button class="ghost-btn" id="settingsAccounts">切换账号</button>
                   <button class="danger-btn" id="settingsLogout">退出当前账号</button>
                 </div>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>AI 与消息平台</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>接入中心</strong><small>飞书、企业微信、钉钉、语音、本地网关与模型配置</small></div>
+                <button class="ghost-btn" id="settingsAccess">打开</button>
+              </div>
+            </div>
+            <div class="settings-card">
+              <h3>语言与地区</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>界面语言</strong><small>切换后立即重新加载界面，设备与房间名称保持原样</small></div>
+                <select class="settings-select" id="languageSetting" aria-label="界面语言"></select>
               </div>
             </div>
           </div>
@@ -393,6 +689,7 @@
 
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 
+  <script>window.__MIHOME_I18N_READY__ = MihomeI18n.init().then(() => { MihomeI18n.localizeWeekdays(); MihomeI18n.installLanguageSelect(document.querySelector('#languageSetting')); });</script>
   <script src="app.js"></script>
 </body>
 </html>

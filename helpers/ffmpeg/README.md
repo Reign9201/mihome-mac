@@ -16,9 +16,9 @@ This is not the full FFmpeg distribution. `build-minimal.sh` uses
 paths:
 
 - Decoders: H.264, HEVC, Opus
-- Encoders: libx264, VideoToolbox H.264, libopus, PCM A-law
-- Demuxers/parsers: raw H.264, raw HEVC, RTSP, SDP, Opus
-- Muxers/protocols: RTSP, file, pipe, TCP, UDP, RTP, HTTP
+- Encoders: libx264, VideoToolbox H.264, libopus, PCM A-law, PCM signed 16-bit little-endian
+- Demuxers/parsers: raw H.264, raw HEVC, RTSP, SDP, Ogg, Opus
+- Muxers/protocols: RTSP, WAV, file, pipe, TCP, UDP, RTP, HTTP
 - Filters: scale, fps, aresample, format
 
 HLS is produced by the bundled go2rtc process; FFmpeg only publishes RTSP.

@@ -347,7 +347,7 @@ test('does not treat a router indicator light as the router power state', () => 
     profile,
     (def) => def.suffix === 'connected-device-number' ? 22 : false,
   );
-  assert.equal(summary, '连接设备数 22 台');
+  assert.equal(summary, '连接设备数 22');
 });
 
 test('localizes known modes and omits untranslatable enum buttons', () => {
@@ -458,6 +458,19 @@ test('array values hide status codes and localize readable labels', () => {
   assert.equal(formatArrayValue(['normal', 'Ptz Check']), '正常、云台检测');
 });
 
+test('array value separators follow the active locale', () => {
+  const previousWindow = globalThis.window;
+  try {
+    globalThis.window = { MihomeI18n: { locale: 'en' } };
+    assert.equal(formatArrayValue(['normal', 'Ptz Check']), '正常, 云台检测');
+    globalThis.window = { MihomeI18n: { locale: 'ar' } };
+    assert.equal(formatArrayValue(['normal', 'Ptz Check']), '正常، 云台检测');
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test('unknown vendor option text never falls back to English or raw values', () => {
   const { optionLabel, localizedUnitValue } = require('../ui/capabilities.js');
   assert.equal(optionLabel({ value: 9, description: 'Vendor Private Mode' }), '未知选项');
@@ -537,10 +550,12 @@ test('global UI lock disables selection and copying', () => {
   const js = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
   assert.match(css, /-webkit-user-select:\s*none/);
   assert.match(css, /(^|[^-])user-select:\s*none/);
+  assert.match(css, /input,[\s\S]*?\[contenteditable="true"\][\s\S]*?user-select:\s*text/);
   assert.match(css, /-webkit-user-drag:\s*none/);
   assert.match(css, /::selection\{background:transparent/);
   assert.match(js, /'copy', 'cut', 'dragstart'/);
   assert.match(js, /'selectstart'/);
+  assert.match(js, /closest\?\.\('input, textarea, \[contenteditable="true"\]'\)/);
   assert.match(js, /'contextmenu'/);
   assert.match(js, /camera_diagnostics/);
   assert.match(js, /MiCameraPlayer/);

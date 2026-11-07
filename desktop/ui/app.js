@@ -17,9 +17,12 @@ const runtime = {
   logs: [],
 };
 const rawInvoke = window.__MIHOME_TAURI__?.invoke;
+const uiLocale = () => window.MihomeI18n?.locale || 'zh-CN';
+const uiText = (value, values = null) =>
+  window.MihomeI18n?.t?.(String(value ?? ''), values) ?? String(value ?? '');
 
 function runtimeLog(message) {
-  runtime.logs.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} ${message}`);
+  runtime.logs.unshift(`${new Date().toLocaleTimeString(uiLocale(), { hour12: false })} ${message}`);
   runtime.logs = runtime.logs.slice(0, 4);
   const box = $('#hudLog');
   if (box) box.innerHTML = runtime.logs.map((line) => `<div>${esc(line)}</div>`).join('');
@@ -43,7 +46,10 @@ const invoke = rawInvoke
   : undefined;
 
 for (const eventName of ['copy', 'cut', 'dragstart', 'selectstart', 'contextmenu']) {
-  document.addEventListener(eventName, (event) => event.preventDefault(), true);
+  document.addEventListener(eventName, (event) => {
+    if (event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+    event.preventDefault();
+  }, true);
 }
 
 function esc(value) {
@@ -85,8 +91,12 @@ const state = {
   cardHydrationTimer: null, specs: new Map(), specErrors: new Map(), specLoading: false, specPending: new Set(),
   devicesRequest: 0, inspectorRequest: 0, scenesRequest: 0, camerasRequest: 0,
   automationsRequest: 0, accountGeneration: 0, accountTransition: false,
-  accounts: [], loginMode: 'initial', loginRequest: 0,
+  accounts: [], loginMode: 'initial', loginRequest: 0, authRecovery: null,
   presenceRefreshing: false, lastPresenceSyncAt: 0, presenceSyncFailed: false,
+  access: {
+    platform: 'feishu', snapshot: null, pairing: null,
+    pairTimer: null, token: '', loading: false, draftMode: null, pollTimer: null,
+  },
 };
 
 function setStatus(text, kind = '') {
@@ -364,6 +374,26 @@ function hideLogin() {
   state.loginMode = 'initial';
 }
 
+function isAuthExpiredError(error) {
+  return /\bHTTP\s*401\b|\b401\s*Unauthorized\b|\bUnauthorized\b/i.test(String(error || ''));
+}
+
+async function recoverExpiredSession(error) {
+  if (!isAuthExpiredError(error)) return false;
+  state.loggedIn = false;
+  state.polling = false;
+  $('#logout').hidden = true;
+  setShellEnabled(false);
+  showLogin('initial');
+  if (!state.authRecovery) {
+    state.authRecovery = startAuth().finally(() => {
+      state.authRecovery = null;
+    });
+  }
+  await state.authRecovery;
+  return true;
+}
+
 function setShellEnabled(enabled) {
   for (const id of ['overviewNav', 'cameraNav', 'sceneNav', 'automationNav', 'devicesNav', 'settingsNav']) {
     const node = $('#' + id);
@@ -508,6 +538,7 @@ async function loadHomes() {
   } catch (error) {
     if (generation !== state.accountGeneration) return;
     log.error('Home', `读取家庭失败：${error}`);
+    if (await recoverExpiredSession(error)) return;
     state.loggedIn = false;
     $('#logout').hidden = true;
     setStatus(`读取家庭失败：${error}`, 'error');
@@ -589,6 +620,7 @@ const PAGE_TITLES = {
   camera: '监控',
   scenes: '场景',
   automations: '自动化',
+  access: '接入',
   settings: '设置',
 };
 
@@ -598,25 +630,27 @@ function updateChrome() {
   });
   const home = currentHome()?.name || 'MiHome';
   const room = state.roomFilter === 'all' ? '' : `${roomGroups().find((item) => item.id === state.roomFilter)?.name || ''} · `;
-  $('#windowTitle').textContent = `${room}${PAGE_TITLES[state.page] || '总览'} — ${home}`;
+  const pageTitle = MihomeI18n?.t(PAGE_TITLES[state.page] || '总览') || PAGE_TITLES[state.page] || '总览';
+  $('#windowTitle').textContent = `${room}${pageTitle} — ${home}`;
   const online = state.devices.filter((device) => device.online).length;
   const localCameras = state.cameras.filter((camera) => camera.online && camera.ip).length;
   const remoteCameras = state.cameras.filter((camera) => camera.online && !camera.ip).length;
+  const remote = remoteCameras ? ` · ${uiText('仅远程 {0}', [remoteCameras])}` : '';
   $('#statusPath').textContent = state.loggedIn
-    ? `${online}/${state.devices.length} 台在线 · ${localCameras} 台摄像头本地可达${remoteCameras ? ` · ${remoteCameras} 台仅远程` : ''}`
-    : '等待连接';
+    ? uiText('在线 {0}/{1} · 本地摄像头 {2}{3}', [online, state.devices.length, localCameras, remote])
+    : uiText('等待连接');
   setNavCount('devicesCount', state.devices.length);
   setNavCount('cameraCountNav', state.cameras.length);
   $('#camSideCount').textContent = String(state.cameras.length);
   $('#topnavCaption').textContent = localCameras
-    ? `${localCameras} 台本地摄像头可达`
-    : '本地优先 · 云端兜底';
+    ? uiText('本地摄像头可达：{0}', [localCameras])
+    : uiText('本地优先 · 云端兜底');
   const statusSync = $('#statusSync');
   if (statusSync && state.loggedIn) {
     if (state.presenceSyncFailed) {
       statusSync.textContent = '状态同步失败，保留上次结果';
     } else if (state.lastPresenceSyncAt) {
-      const time = new Intl.DateTimeFormat('zh-CN', {
+      const time = new Intl.DateTimeFormat(uiLocale(), {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -633,12 +667,17 @@ function updateChrome() {
 function showView(page) {
   const started = performance.now();
   state.page = page;
+  if (page !== 'access' && state.access.pollTimer) {
+    clearInterval(state.access.pollTimer);
+    state.access.pollTimer = null;
+  }
   for (const [id, key] of [
     ['overviewView', 'overview'],
     ['devicesView', 'devices'],
     ['cameraView', 'camera'],
     ['sceneView', 'scenes'],
     ['automationView', 'automations'],
+    ['accessView', 'access'],
     ['settingsView', 'settings'],
   ]) {
     $('#' + id).hidden = key !== page;
@@ -653,7 +692,7 @@ function showView(page) {
 function roomName(device) {
   if (device.room_name) return device.room_name;
   const room = currentHome()?.rooms?.find((item) => item.id === device.room_id);
-  return room?.name || '未分房间';
+  return room?.name || uiText('未分房间');
 }
 
 function roomGroups() {
@@ -677,13 +716,14 @@ function setNavCount(id, count) {
 
 function roomShortName(name) {
   const text = String(name || '未');
-  if (/客厅/.test(text)) return '客';
-  if (/主卧|卧室/.test(text)) return '卧';
-  if (/书房/.test(text)) return '书';
-  if (/厨房/.test(text)) return '厨';
-  if (/玄关/.test(text)) return '玄';
-  if (/阳台/.test(text)) return '阳';
-  if (/卫生间|浴室/.test(text)) return '浴';
+  const glyph = (key) => [...String(MihomeI18n?.t(key) || key).trim()][0] || key.slice(0, 1);
+  if (/客厅/.test(text)) return glyph('客厅');
+  if (/主卧|卧室/.test(text)) return glyph('卧室');
+  if (/书房/.test(text)) return glyph('书房');
+  if (/厨房/.test(text)) return glyph('厨房');
+  if (/玄关/.test(text)) return glyph('玄关');
+  if (/阳台/.test(text)) return glyph('阳台');
+  if (/卫生间|浴室/.test(text)) return glyph('卫生间');
   return text.slice(0, 1);
 }
 
@@ -696,7 +736,8 @@ function renderSidebarRooms() {
   const all = el('button', `room-item all-rooms ${state.roomFilter === 'all' ? 'active' : ''}`);
   all.type = 'button';
   all.dataset.room = 'all';
-  all.append(el('span', 'room-glyph', '全'), el('span', '', '全部房间'));
+  const allRoomsLabel = uiText('全部房间');
+  all.append(el('span', 'room-glyph', [...allRoomsLabel.trim()][0] || '全'), el('span', '', allRoomsLabel));
   if (state.devices.some((device) => device.online)) all.append(el('i', 'room-dot'));
   all.append(el('span', 'room-count', String(state.devices.length)));
   all.onclick = () => {
@@ -705,10 +746,11 @@ function renderSidebarRooms() {
   };
   fragment.append(all);
   for (const group of groups) {
+    const label = group.id === 'unassigned' ? uiText(group.name) : group.name;
     const button = el('button', `room-item ${state.roomFilter === group.id ? 'active' : ''}`);
     button.type = 'button';
     button.dataset.room = group.id;
-    button.append(el('span', 'room-glyph', roomShortName(group.name)), el('span', '', group.name));
+    button.append(el('span', 'room-glyph', roomShortName(label)), el('span', '', label));
     if (group.devices.some((device) => device.online)) button.append(el('i', 'room-dot'));
     button.append(el('span', 'room-count', String(group.devices.length)));
     button.onclick = () => {
@@ -1003,7 +1045,7 @@ function formatCardValue(value, def) {
     return `${amount.toFixed(digits)} ${unit}`;
   }
   if (!def.unit && Math.abs(number) >= 1000) {
-    return new Intl.NumberFormat('zh-CN').format(number);
+    return new Intl.NumberFormat(uiLocale()).format(number);
   }
   return `${number.toFixed(def.digits ?? 0)}${def.unit || ''}`;
 }
@@ -1088,7 +1130,7 @@ function cardPower(device, def) {
   const button = el('button', `card-power ${on ? 'on' : 'off'}`);
   button.type = 'button';
   button.disabled = !device.online;
-  button.title = `${def.label} ${on ? '已开启' : '已关闭'}`;
+  button.title = `${uiText(def.label)} ${uiText(on ? '已开启' : '已关闭')}`;
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(on));
   const bulb = def.label.includes('灯') || def.label.includes('照明');
@@ -1129,8 +1171,8 @@ function cardToggle(device, def) {
     }
   };
   const copy = el('span', 'card-toggle-copy');
-  copy.append(el('span', '', def.label));
-  copy.append(el('small', '', input.checked ? '已开启' : '已关闭'));
+  copy.append(el('span', '', uiText(def.label)));
+  copy.append(el('small', '', uiText(input.checked ? '已开启' : '已关闭')));
   const track = el('span', 'card-switch-track');
   track.append(el('span', 'card-switch-knob'));
   row.append(copy, input, track);
@@ -1141,7 +1183,7 @@ function cardToggle(device, def) {
 function cardRange(device, def) {
   const row = el('label', 'card-range');
   const head = el('span', 'card-range-head');
-  head.append(el('span', '', def.label));
+  head.append(el('span', '', uiText(def.label)));
   const current = cardValue(device, def.siid, def.piid);
   const step = Number(def.step) > 0 ? Number(def.step) : 1;
   const digits = Number.isFinite(Number(def.digits))
@@ -1179,11 +1221,11 @@ function cardRange(device, def) {
 
 function cardSegments(device, def) {
   const row = el('div', 'card-segments');
-  row.append(el('span', 'card-segments-label', def.label));
+  row.append(el('span', 'card-segments-label', uiText(def.label)));
   const group = el('div', 'card-segment-group');
   const current = cardValue(device, def.siid, def.piid);
   for (const [value, label] of def.options) {
-    const button = el('button', 'card-segment', label);
+    const button = el('button', 'card-segment', uiText(label));
     button.type = 'button';
     button.classList.toggle('active', String(current) === String(value));
     button.disabled = !device.online;
@@ -1203,7 +1245,7 @@ function cardSegments(device, def) {
 }
 
 function cardAction(device, action) {
-  const button = el('button', 'card-action', action.label);
+  const button = el('button', 'card-action', uiText(action.label));
   button.type = 'button';
   button.onclick = async (event) => {
     event.stopPropagation();
@@ -1218,7 +1260,7 @@ function cardAction(device, action) {
 }
 
 function cardSummary(device, profile) {
-  if (!device.online) return '设备离线';
+  if (!device.online) return uiText('设备离线');
   const summary = summarizeCardMetrics(
     profile,
     (def) => cardValue(device, def.siid, def.piid),
@@ -1230,16 +1272,16 @@ function cardSummary(device, profile) {
       const value = cardValue(device, range.siid, range.piid);
       const number = Number(value);
       if (value !== undefined && value !== null && Number.isFinite(number)) {
-        return `${range.label} ${number.toFixed(0)}${range.suffix || range.unit || ''}`;
+        return `${uiText(range.label)} ${number.toFixed(0)}${range.suffix || range.unit || ''}`;
       }
     }
   }
   const primary = profile.controls.find((item) => item.primary);
   if (primary) {
     const value = cardValue(device, primary.siid, primary.piid);
-    if (value !== undefined && value !== null) return value ? '已开启' : '已关闭';
+    if (value !== undefined && value !== null) return uiText(value ? '已开启' : '已关闭');
   }
-  return '在线';
+  return uiText('在线');
 }
 
 function deviceTone(kind) {
@@ -1263,7 +1305,7 @@ function inlineDeviceSwitch(device, def) {
   button.disabled = !device.online;
   button.setAttribute('role', 'switch');
   button.setAttribute('aria-checked', String(on));
-  button.setAttribute('aria-label', `${device.name}${def.label}`);
+  button.setAttribute('aria-label', `${device.name}${uiText(def.label)}`);
   button.onclick = async (event) => {
     event.stopPropagation();
     button.disabled = true;
@@ -1393,7 +1435,7 @@ function renderDeviceTableRow(device) {
   row.tabIndex = 0;
   row.setAttribute('role', 'button');
   row.dataset.did = device.did;
-  row.setAttribute('aria-label', `${device.name}，${roomName(device)}，${status.label}`);
+  row.setAttribute('aria-label', `${device.name}，${roomName(device)}，${uiText(status.label)}`);
 
   const identity = el('div', 'table-device');
   const glyph = el('span', 'device-icon');
@@ -1501,10 +1543,13 @@ function renderDevices() {
       .toLowerCase()
       .includes(query);
   });
-  $('#devicesEyebrow').textContent = `${state.devices.length} 台设备 · ${localCameras} 台本地摄像头可达`;
+  $('#devicesEyebrow').textContent = uiText('设备 {0} · 本地摄像头 {1}', [
+    state.devices.length,
+    localCameras,
+  ]);
   $('#devicesSubtitle').textContent = state.deviceFilter === 'all' && !query
     ? '点任意一行查看属性、连接路径与最近状态。'
-    : `当前筛选 ${target.length} 台设备；点击房间可回到总览继续按空间浏览。`;
+    : `当前筛选 ${target.length} 台设备；点击房间可回到总览继续按房间浏览。`;
   $('#devicePageCount').textContent = `${target.length} / ${state.devices.length}`;
   if (!target.length) {
     list.append(el('div', 'empty', '没有符合筛选条件的设备'));
@@ -1532,7 +1577,7 @@ function greeting() {
 }
 
 function todayLabel() {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(uiLocale(), {
     month: 'long',
     day: 'numeric',
     weekday: 'long',
@@ -1676,7 +1721,12 @@ function renderOverview(preserveScroll = false) {
     <div>
       <div class="eyebrow">${esc(todayLabel())} · ${esc(homeName)}</div>
       <h1 class="page-title">${esc(title)}</h1>
-      <p class="page-sub">${online}/${state.devices.length} 台设备在线，${localCameras} 台摄像头本地可达，${state.scenes.length} 个手动场景。</p>
+      <p class="page-sub">${uiText('设备在线 {0}/{1} · 本地摄像头 {2} · 手动场景 {3}', [
+        online,
+        state.devices.length,
+        localCameras,
+        state.scenes.length,
+      ])}</p>
     </div>
     <div class="head-actions">
       <button class="ghost-btn" data-overview-refresh>${uiIcon('history')} 刷新状态</button>
@@ -1730,7 +1780,7 @@ function renderOverview(preserveScroll = false) {
     const cams = el('section', 'overview-cams');
     const head = el('div', 'overview-cams-head');
     const copy = el('div');
-    copy.append(el('div', 'eyebrow', '实时监控'), el('h3', '', `${state.cameras.length} 台摄像头`));
+    copy.append(el('div', 'eyebrow', '实时监控'), el('h3', '', uiText('摄像头：{0}', [state.cameras.length])));
     const openAll = el('button', 'text-btn', '打开监控台');
     openAll.type = 'button';
     openAll.onclick = showCameras;
@@ -1816,7 +1866,7 @@ async function selectDevice(device) {
 
 function detailMetric(value, def) {
   const card = el('div', 'detail-metric');
-  card.append(el('span', 'detail-metric-label', def.label));
+  card.append(el('span', 'detail-metric-label', uiText(def.label)));
   card.append(el('strong', '', formatCardValue(value, def)));
   return card;
 }
@@ -1825,14 +1875,14 @@ function detailToggle(device, def) {
   const value = Boolean(cardValue(device, def.siid, def.piid));
   const row = el('div', `detail-control-row${def.primary ? ' primary' : ''}`);
   const copy = el('div', 'detail-control-copy');
-  copy.append(el('span', 'detail-control-label', def.label));
-  copy.append(el('small', 'detail-control-state', value ? '已开启' : '已关闭'));
+  copy.append(el('span', 'detail-control-label', uiText(def.label)));
+  copy.append(el('small', 'detail-control-state', uiText(value ? '已开启' : '已关闭')));
   const button = el('button', `detail-switch ${value ? 'on' : ''}`);
   button.type = 'button';
   button.disabled = !device.online;
   button.setAttribute('role', 'switch');
   button.setAttribute('aria-checked', String(value));
-  button.setAttribute('aria-label', `${def.label}${value ? '已开启' : '已关闭'}`);
+  button.setAttribute('aria-label', `${uiText(def.label)}${uiText(value ? '已开启' : '已关闭')}`);
   button.innerHTML = '<span></span>';
   button.onclick = async () => {
     button.disabled = true;
@@ -1852,7 +1902,7 @@ function detailRange(device, def) {
   const raw = cardValue(device, def.siid, def.piid);
   const row = el('label', 'detail-range');
   const head = el('div', 'detail-range-head');
-  head.append(el('span', 'detail-control-label', def.label));
+  head.append(el('span', 'detail-control-label', uiText(def.label)));
   const step = Number(def.step) > 0 ? Number(def.step) : 1;
   const digits = Number.isFinite(Number(def.digits))
     ? Number(def.digits)
@@ -1885,11 +1935,11 @@ function detailRange(device, def) {
 
 function detailSegments(device, def) {
   const row = el('div', 'detail-segments');
-  row.append(el('span', 'detail-control-label', def.label));
+  row.append(el('span', 'detail-control-label', uiText(def.label)));
   const group = el('div', 'detail-segment-group');
   const current = cardValue(device, def.siid, def.piid);
   for (const [value, label] of def.options) {
-    const button = el('button', `detail-segment${String(current) === String(value) ? ' active' : ''}`, label);
+    const button = el('button', `detail-segment${String(current) === String(value) ? ' active' : ''}`, uiText(label));
     button.type = 'button';
     button.disabled = !device.online;
     button.onclick = async () => {
@@ -1953,17 +2003,17 @@ function detailSpecActions(device, profile) {
   section.append(el('h4', '', '设备动作'));
   const list = el('div', 'detail-actions');
   for (const action of actions) {
-    const button = el('button', 'detail-action secondary', action.label);
+    const button = el('button', 'detail-action secondary', uiText(action.label));
     button.type = 'button';
     button.disabled = !device.online;
     button.onclick = async () => {
-      if (!confirm(`执行「${action.label}」？`)) return;
+      if (!confirm(MihomeI18n?.t('执行「{0}」？', uiText(action.label)) || `执行「${action.label}」？`)) return;
       button.disabled = true;
       try {
         await invoke('call_action', {
           did: device.did, siid: action.siid, aiid: action.aiid, params: [],
         });
-        toast(`已执行：${action.label}`);
+        toast(MihomeI18n?.t('已执行：{0}', uiText(action.label)) || `已执行：${action.label}`);
       } catch (error) {
         toast(`动作失败：${error}`, true);
       } finally {
@@ -2116,7 +2166,7 @@ function renderInspector(device, error, loading = false) {
   }
   for (const [name, items] of groups) {
     const section = el('section', 'detail-section');
-    section.append(el('h4', '', name));
+    section.append(el('h4', '', uiText(name)));
     for (const def of items) {
       const control = detailControl(device, def);
       if (control) section.append(control);
@@ -2248,7 +2298,7 @@ function renderAutomations() {
     box.innerHTML = '<div class="empty">还没有定时任务。选一个时间，绑一个手动场景。</div>';
     return;
   }
-  const dayNames = ['一', '二', '三', '四', '五', '六', '日'];
+  const dayNames = MihomeI18n?.weekdayNames?.() || ['一', '二', '三', '四', '五', '六', '日'];
   box.innerHTML = state.automations.map((item) => {
     const days = item.days.map((day) => dayNames[day - 1] || '').join('、');
     const sceneName = state.scenes.find((scene) => scene.id === item.scene_id)?.name || item.scene_id;
@@ -2299,6 +2349,644 @@ async function showSettings() {
   updateSettingsSelection();
 }
 
+function accessPlatformConfig(snapshot = state.access.snapshot) {
+  return snapshot?.settings?.[state.access.platform] || {};
+}
+
+function fillAccessHomes() {
+  const select = $('#pairHome');
+  if (!select) return;
+  const current = select.value || state.homeId;
+  select.innerHTML = state.homes.length
+    ? state.homes.map((home) => `<option value="${esc(home.id)}">${esc(home.name)}</option>`).join('')
+    : '<option value="">请先登录米家账号</option>';
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function setSignal(id, stateName, text) {
+  const node = $('#' + id);
+  if (!node) return;
+  node.classList.remove('good', 'warn', 'bad');
+  if (stateName) node.classList.add(stateName);
+  const label = node.querySelector('strong');
+  if (label) label.textContent = text;
+}
+
+const accessPlatforms = {
+  feishu: {
+    label: '飞书',
+    idLabel: 'App ID',
+    secretLabel: 'App Secret',
+    idPlaceholder: 'cli_xxxxxxxxxxxxxxxx',
+    secretPlaceholder: 'App Secret',
+    docs: 'https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case?lang=zh-CN',
+  },
+  wecom: {
+    label: '企业微信',
+    idLabel: 'Bot ID',
+    secretLabel: 'Bot Secret',
+    idPlaceholder: '企业微信智能机器人 Bot ID',
+    secretPlaceholder: '企业微信智能机器人 Secret',
+    docs: 'https://developer.work.weixin.qq.com/document/path/101463',
+  },
+  dingtalk: {
+    label: '钉钉',
+    idLabel: 'Client ID',
+    secretLabel: 'Client Secret',
+    idPlaceholder: '钉钉应用 Client ID（原 AppKey）',
+    secretPlaceholder: '钉钉应用 Client Secret（原 AppSecret）',
+    docs: 'https://open.dingtalk.com/document/orgapp/stream',
+  },
+};
+
+function accessPlatformLabel(platform) {
+  return accessPlatforms[platform]?.label || platform;
+}
+
+function renderAccessBindings(settings) {
+  const box = $('#accessBindings');
+  if (!box) return;
+  const bindings = Array.isArray(settings?.bindings) ? settings.bindings : [];
+  if (!bindings.length) {
+    box.innerHTML = '<div class="empty compact-empty">还没有已绑定的平台会话</div>';
+    return;
+  }
+  const homeNames = new Map(state.homes.map((home) => [home.id, home.name]));
+  box.innerHTML = bindings.map((binding) => {
+    const createdAt = binding.created_at
+      ? new Date(binding.created_at * 1000).toLocaleString(uiLocale(), { hour12: false })
+      : '未知';
+    return `<div class="binding-row">
+      <span class="binding-platform">${esc(uiText(accessPlatformLabel(binding.platform)))}</span>
+      <strong>${esc(homeNames.get(binding.home_id) || binding.home_id)}</strong>
+      <small>${esc(binding.chat_id_masked || '')} · ${esc(createdAt)}</small>
+      <button type="button" data-revoke-binding="${esc(binding.id)}">解除</button>
+    </div>`;
+  }).join('');
+}
+
+function renderAccessPairing(settings, hydrate) {
+  const platform = state.access.platform;
+  if (hydrate || !state.access.pairing) {
+    const active = (settings?.active_pairing_codes || [])
+      .find((pairing) => pairing.platform === platform);
+    state.access.pairing = active || state.access.pairing;
+    if (state.access.pairing?.platform !== platform) state.access.pairing = null;
+  }
+  const pairing = state.access.pairing;
+  const value = $('#pairCodeValue');
+  const command = $('#pairCommand');
+  const hint = $('#pairCodeHint');
+  if (!pairing) {
+    value.textContent = '------';
+    command.textContent = '配对 ------';
+    hint.textContent = '尚未生成配对码';
+    return;
+  }
+  value.textContent = pairing.code;
+  command.textContent = `配对 ${pairing.code}`;
+  updatePairingCountdown();
+}
+
+function updatePairingCountdown() {
+  const pairing = state.access.pairing;
+  if (!pairing) return;
+  const remaining = Math.max(0, Number(pairing.expires_at || 0) - Math.floor(Date.now() / 1000));
+  const hint = $('#pairCodeHint');
+  if (hint) {
+    hint.textContent = remaining > 0
+      ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')} 后过期 · 单次有效`
+      : '已过期，请重新生成';
+  }
+  if (remaining <= 0) {
+    state.access.pairing = null;
+    const value = $('#pairCodeValue');
+    const command = $('#pairCommand');
+    if (value) value.textContent = '------';
+    if (command) command.textContent = '配对 ------';
+  }
+}
+
+function renderAccess(snapshot, hydrate = false) {
+  if (snapshot) state.access.snapshot = snapshot;
+  snapshot = state.access.snapshot;
+  const settings = snapshot?.settings || {};
+  const gateway = snapshot?.gateway || {};
+  const connections = snapshot?.connections || {};
+  const platform = accessPlatformConfig(snapshot);
+  const platformName = uiText(accessPlatformLabel(state.access.platform));
+  const platformKey = state.access.platform;
+  const platformMeta = accessPlatforms[platformKey] || accessPlatforms.feishu;
+  const mode = state.access.draftMode || platform.mode || 'websocket';
+  const websocketMode = mode === 'websocket';
+  const connection = websocketMode ? (connections[`${platformKey}_ws`] || {}) : {};
+  const feishu = settings.feishu || {};
+  const wecom = settings.wecom || {};
+  const dingtalk = settings.dingtalk || {};
+  const stateLabels = {
+    connected: '已连接', connecting: '连接中', reconnecting: '重连中',
+    error: '连接失败', replaced: '已被新连接替换', stopped: '未启动',
+  };
+  const connectionState = connection.state || 'stopped';
+  const connectionLabel = stateLabels[connectionState] || connectionState;
+
+  $('#accessConnectionMode').value = mode;
+  $('#accessConnectionMode').querySelector('[value="webhook"]').disabled =
+    platformKey === 'wecom' || platformKey === 'dingtalk';
+  $('#accessVerificationTokenField').hidden = websocketMode;
+  $('#accessEncryptKeyField').hidden = websocketMode;
+  $('#accessAppIdLabel').textContent = platformMeta.idLabel;
+  $('#accessAppSecretLabel').textContent = platformMeta.secretLabel;
+  $('#platformModeHint').textContent = websocketMode
+    ? `${platformName} · ${uiText('长连接：保存后自动连接，不需要公网回调。')}`
+    : `${platformName} · ${uiText('Webhook：需要把公网 HTTPS 隧道映射到本机网关。')}`;
+  $('#accessCredentialState').textContent = platform.configured
+    ? `${platformName} · ${uiText('凭据已保存')}${uiText(platform.enabled ? '，平台已启用' : '，当前未启用')}`
+    : `${platformName} · ${uiText('尚未配置完整凭据')}`;
+  $('#accessCredentialState').style.color = platform.configured ? 'var(--green)' : '';
+  $('#accessAppId').placeholder = platform.app_id
+    ? `当前 ${platform.app_id}（留空不修改）`
+    : platformMeta.idPlaceholder;
+  $('#accessAppSecret').placeholder = platform.secret_configured
+    ? '已保存，留空表示不修改'
+    : platformMeta.secretPlaceholder;
+  $('#accessVerificationToken').placeholder = platform.verification_configured
+    ? '已保存，留空表示不修改'
+    : '事件订阅校验令牌';
+  $('#accessEncryptKey').placeholder = platform.encryption_configured
+    ? '已保存，留空表示不修改'
+    : '可选，建议启用';
+
+  if (hydrate) {
+    state.access.draftMode = null;
+    state.access.snapshot = snapshot;
+    $('#accessConnectionMode').value = platform.mode || 'websocket';
+    $('#accessPlatformEnabled').checked = Boolean(platform.enabled);
+    $('#accessGatewayEnabled').checked = Boolean(gateway.running);
+    $('#accessGatewayPort').value = String(gateway.port || settings.gateway_port || 17666);
+    $('#llmEnabled').checked = Boolean(settings.llm_enabled);
+    $('#llmBaseUrl').value = settings.llm_base_url || 'https://api.openai.com/v1';
+    $('#llmModel').value = settings.llm_model || '';
+    $('#llmApiKey').placeholder = settings.llm_key_configured ? '已保存，留空表示不修改' : 'API Key';
+    $('#asrEnabled').checked = settings.asr_enabled !== false;
+    $('#asrProvider').value = settings.asr_provider || 'whisper_cpp';
+    $('#asrCommand').value = settings.asr_command || 'whisper-cli';
+    $('#asrModelPath').value = settings.asr_model_path || '';
+    $('#asrBaseUrl').value = settings.asr_base_url || 'https://api.openai.com/v1';
+    $('#asrModel').value = settings.asr_model || 'whisper-1';
+    $('#asrLanguage').value = settings.asr_language || 'zh-CN';
+    $('#asrApiKey').placeholder = settings.asr_key_configured ? '已保存，留空表示不修改' : 'API Key';
+    updateAsrProviderFields();
+  }
+
+  const endpoint = gateway.base_url || `http://127.0.0.1:${gateway.port || settings.gateway_port || 17666}`;
+  $('#accessGatewayEndpoint').value = endpoint;
+  $('#accessGatewayState').textContent = gateway.running
+    ? `运行中 · ${Math.floor((gateway.uptime_seconds || 0) / 60)} 分钟`
+    : gateway.error || '未启动';
+  $('#accessGatewayState').classList.toggle('on', Boolean(gateway.running));
+  if (!state.access.token) {
+    $('#accessGatewayToken').textContent = settings.gateway_token_masked || '••••';
+  }
+  $('#revealGatewayToken').textContent = state.access.token ? '隐藏令牌' : '显示令牌';
+
+  const connectionNode = $('#accessConnectionState');
+  const connectionDetail = $('#accessConnectionDetail');
+  connectionNode.classList.remove('on', 'warn');
+  if (websocketMode) {
+    connectionNode.textContent = platform.enabled ? connectionLabel : '未启用';
+    connectionNode.classList.toggle('on', platform.enabled && connectionState === 'connected');
+    connectionNode.classList.toggle('warn', platform.enabled
+      && ['connecting', 'reconnecting', 'error', 'replaced'].includes(connectionState));
+    const seconds = Number(connection.connected_seconds || 0);
+    connectionDetail.textContent = !platform.enabled
+      ? '打开启用开关并保存后自动连接'
+      : connection.last_error
+        ? connection.last_error
+        : connectionState === 'connected'
+          ? `已稳定连接 ${Math.max(1, Math.floor(seconds / 60))} 分钟`
+          : '正在建立安全 WebSocket 连接';
+  } else {
+    const webhookReady = platform.enabled && platform.configured && gateway.running;
+    connectionNode.textContent = webhookReady ? '等待平台回调' : '未就绪';
+    connectionNode.classList.toggle('on', webhookReady);
+    connectionNode.classList.toggle('warn', platform.enabled && !webhookReady);
+    connectionDetail.textContent = !gateway.running
+      ? '先启动本地网关并配置公网隧道'
+      : !platform.configured
+        ? '先补齐应用凭据与事件校验信息'
+        : 'Webhook 已启用，等待平台事件';
+  }
+  const reconnectNode = $('#accessReconnect');
+  const canReconnect = websocketMode
+    && platform.enabled
+    && platform.configured
+    && ['error', 'replaced', 'stopped'].includes(connectionState);
+  reconnectNode.hidden = !canReconnect;
+  if (canReconnect) {
+    reconnectNode.disabled = false;
+    reconnectNode.textContent = '重新连接';
+  }
+
+  const webhookPath = `/v1/platform/${platformKey}`;
+  $('#accessWebhookLabel').textContent = websocketMode ? '当前接入' : `${platformName}回调路径`;
+  $('#accessWebhookPath').textContent = websocketMode ? '长连接' : webhookPath;
+  $('#accessWebhookHint').textContent = websocketMode ? '无需公网回调' : '需要公网 HTTPS 隧道';
+
+  const apiReady = websocketMode
+    ? platform.enabled && connectionState === 'connected'
+    : platform.enabled && platform.configured && gateway.running;
+  $('#generatePairCode').disabled = !apiReady;
+  $('#generatePairCode').title = apiReady ? '' : '等待平台连接就绪后再生成配对码';
+  setSignal('accessSignalAi', settings.llm_enabled ? 'good' : 'warn',
+    settings.llm_enabled ? (settings.llm_model || '已启用') : '本地规则');
+  setSignal('accessSignalPlatform', apiReady ? 'good' : (platform.configured ? 'warn' : ''),
+    websocketMode
+      ? `${platformName} · ${uiText(platform.enabled ? connectionLabel : '未启用')}`
+      : `${platformName} · ${uiText(apiReady ? '等待回调' : '未就绪')}`);
+  setSignal('accessSignalGateway', gateway.running ? 'good' : (gateway.error ? 'bad' : ''),
+    gateway.running ? `127.0.0.1:${gateway.port}` : (gateway.error ? '启动失败' : '未启动'));
+  const bindingCount = (settings.bindings || []).length;
+  setSignal('accessSignalBinding', bindingCount ? 'good' : '', `${bindingCount} 个会话`);
+
+  const platformRailText = (config, connectionStatus, label) => {
+    if (!config.configured) return '未配置';
+    if (!config.enabled) return '已保存';
+    if ((config.mode || 'websocket') === 'webhook') return 'Webhook';
+    return stateLabels[connectionStatus?.state] || label;
+  };
+  $('#railFeishuState').textContent = platformRailText(feishu, connections.feishu_ws, '未启动');
+  $('#railFeishuState').className = feishu.configured ? 'good' : '';
+  $('#railWecomState').textContent = platformRailText(wecom, connections.wecom_ws, '未启动');
+  $('#railWecomState').className = wecom.configured ? 'good' : '';
+  $('#railDingtalkState').textContent = platformRailText(dingtalk, connections.dingtalk_ws, '未启动');
+  $('#railDingtalkState').className = dingtalk.configured ? 'good' : '';
+  $('#railGatewayState').textContent = gateway.running ? '运行中' : (gateway.error ? '启动失败' : '未启动');
+  $('#railGatewayState').className = gateway.running ? 'good' : (gateway.error ? 'warn' : '');
+  $('#railLlmState').textContent = settings.llm_enabled ? (settings.llm_model || '已启用') : '规则解析';
+  $('#railLlmState').className = settings.llm_enabled ? 'good' : '';
+  const asrProviderLabels = {
+    whisper_cpp: 'Whisper.cpp',
+    openai_compatible: '云端 ASR',
+    apple: 'macOS 语音',
+  };
+  $('#railAsrState').textContent = settings.asr_enabled
+    ? (asrProviderLabels[settings.asr_provider] || '已启用')
+    : '已关闭';
+  $('#railAsrState').className = settings.asr_enabled ? 'good' : '';
+
+  $('#pairingInstruction').textContent = !platform.enabled
+    ? '先启用平台并保存连接设置。'
+    : websocketMode && connectionState !== 'connected'
+      ? '等待长连接建立后再生成配对码。'
+      : '生成后发送给机器人。10 分钟过期，只可认领一次。';
+  renderAccessBindings(settings);
+  renderAccessPairing(settings, hydrate);
+}
+
+async function loadAccess(hydrate = false) {
+  if (!invoke || state.access.loading) return;
+  state.access.loading = true;
+  try {
+    const snapshot = await invoke('integration_snapshot');
+    renderAccess(snapshot, hydrate);
+  } catch (error) {
+    if (hydrate) toast(`读取接入状态失败：${error}`, true);
+  } finally {
+    state.access.loading = false;
+  }
+}
+
+async function showAccess() {
+  await stopCamera();
+  fillAccessHomes();
+  showView('access');
+  await loadAccess(true);
+  if (state.access.pollTimer) clearInterval(state.access.pollTimer);
+  state.access.pollTimer = setInterval(() => {
+    if (state.page === 'access') loadAccess(false);
+  }, 5000);
+}
+
+async function copyText(text, label = '内容') {
+  if (!text) return toast(`没有可复制的${label}`, true);
+  if (invoke) {
+    try {
+      await invoke('copy_text', { text });
+      toast(`${label}已复制`);
+      return;
+    } catch (_) {}
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`${label}已复制`);
+  } catch (_) {
+    toast(`复制失败，请重试`, true);
+  }
+}
+
+async function saveAccessPlatform() {
+  const platform = state.access.platform;
+  const mode = $('#accessConnectionMode').value;
+  const appId = $('#accessAppId').value.trim();
+  const appSecret = $('#accessAppSecret').value.trim();
+  const verificationToken = $('#accessVerificationToken').value.trim();
+  const encryptKey = $('#accessEncryptKey').value.trim();
+  const enabled = $('#accessPlatformEnabled').checked;
+  try {
+    const snapshot = await invoke('integration_save_platform', {
+      platform,
+      enabled,
+      mode,
+      appId,
+      appSecret: appSecret || null,
+      verificationToken: verificationToken || null,
+      encryptKey: encryptKey || null,
+    });
+    $('#accessAppSecret').value = '';
+    $('#accessVerificationToken').value = '';
+    $('#accessEncryptKey').value = '';
+    $('#accessAppId').value = '';
+    state.access.draftMode = null;
+    renderAccess(snapshot, true);
+    toast(mode === 'websocket'
+      ? `${accessPlatformLabel(platform)}长连接配置已保存${enabled ? '，正在连接' : ''}`
+      : `${accessPlatformLabel(platform)} Webhook 配置已保存`);
+  } catch (error) {
+    toast(String(error), true);
+  }
+}
+
+async function testAccessPlatform() {
+  const button = $('#testPlatform');
+  button.disabled = true;
+  button.textContent = '测试中…';
+  try {
+    const platformTests = {
+      feishu: {
+        command: 'integration_test_feishu',
+        args: {
+          appId: $('#accessAppId').value.trim() || null,
+          appSecret: $('#accessAppSecret').value.trim() || null,
+        },
+      },
+      wecom: {
+        command: 'integration_test_wecom',
+        args: {
+          appId: $('#accessAppId').value.trim() || null,
+          appSecret: $('#accessAppSecret').value.trim() || null,
+        },
+      },
+      dingtalk: {
+        command: 'integration_test_dingtalk',
+        args: {
+          clientId: $('#accessAppId').value.trim() || null,
+          clientSecret: $('#accessAppSecret').value.trim() || null,
+        },
+      },
+    };
+    const test = platformTests[state.access.platform] || platformTests.feishu;
+    const message = await invoke(test.command, test.args);
+    toast(message);
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = '测试凭据';
+  }
+}
+
+async function toggleGateway() {
+  const enabled = $('#accessGatewayEnabled').checked;
+  const port = Number($('#accessGatewayPort').value);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    $('#accessGatewayEnabled').checked = !enabled;
+    return toast('端口需要在 1024–65535 之间', true);
+  }
+  try {
+    const snapshot = await invoke('integration_set_gateway', { enabled, port });
+    renderAccess(snapshot, true);
+    toast(enabled ? '本地控制网关已启动' : '本地控制网关已停止');
+  } catch (error) {
+    $('#accessGatewayEnabled').checked = !enabled;
+    toast(String(error), true);
+  }
+}
+
+async function revealGatewayToken() {
+  if (state.access.token) {
+    state.access.token = '';
+    $('#accessGatewayToken').textContent = state.access.snapshot?.settings?.gateway_token_masked || '••••';
+    $('#revealGatewayToken').textContent = '显示令牌';
+    return;
+  }
+  try {
+    state.access.token = await invoke('integration_reveal_gateway_token');
+    $('#accessGatewayToken').textContent = state.access.token;
+    $('#revealGatewayToken').textContent = '隐藏令牌';
+  } catch (error) {
+    toast(String(error), true);
+  }
+}
+
+async function generateAccessPairCode() {
+  const button = $('#generatePairCode');
+  button.disabled = true;
+  try {
+    const pairing = await invoke('integration_generate_pair_code', {
+      platform: state.access.platform,
+      homeId: $('#pairHome').value || state.homeId || null,
+    });
+    state.access.pairing = pairing;
+    renderAccessPairing(state.access.snapshot?.settings, false);
+    toast('配对码已生成，10 分钟内有效');
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderAssistantTest(response) {
+  const box = $('#assistantTestResult');
+  if (!box) return;
+  const failed = ['error', 'not_found'].includes(response?.status);
+  box.classList.toggle('error', failed);
+  const candidates = Array.isArray(response?.candidates) && response.candidates.length
+    ? response.candidates.map((item) =>
+      `<span class="candidate-line">${esc(item.home)} / ${esc(item.room)} / ${esc(item.device)}</span>`).join('')
+    : '';
+  box.innerHTML = `<span class="console-prompt">${esc(String(response?.status || 'unknown').toUpperCase())}</span>
+    <p>${esc(response?.reply || '没有返回结果')}${candidates}</p>`;
+}
+
+async function sendAssistantTest() {
+  const input = $('#assistantTestInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const button = $('#assistantTestSend');
+  button.disabled = true;
+  button.textContent = '执行中';
+  try {
+    const response = await invoke('assistant_command', {
+      request: {
+        text,
+        home_id: state.homeId || null,
+        source: 'desktop-test',
+        event_id: `desktop-${Date.now()}`,
+      },
+    });
+    renderAssistantTest(response);
+    input.select();
+  } catch (error) {
+    renderAssistantTest({ status: 'error', reply: String(error) });
+  } finally {
+    button.disabled = false;
+    button.textContent = '执行';
+  }
+}
+
+async function saveLlmSettings() {
+  const enabled = $('#llmEnabled').checked;
+  try {
+    const snapshot = await invoke('integration_save_llm', {
+      enabled,
+      baseUrl: $('#llmBaseUrl').value.trim(),
+      model: $('#llmModel').value.trim(),
+      apiKey: $('#llmApiKey').value.trim() || null,
+    });
+    $('#llmApiKey').value = '';
+    renderAccess(snapshot, true);
+    toast(enabled ? '大模型意图解析已启用' : '已切换为本地规则解析');
+  } catch (error) {
+    renderAccess(state.access.snapshot, true);
+    toast(String(error), true);
+  }
+}
+
+async function testLlmConnection() {
+  const button = $('#testLlm');
+  button.disabled = true;
+  button.textContent = '测试中…';
+  try {
+    const message = await invoke('integration_test_llm', {
+      baseUrl: $('#llmBaseUrl').value.trim() || null,
+      model: $('#llmModel').value.trim() || null,
+      apiKey: $('#llmApiKey').value.trim() || null,
+    });
+    toast(message);
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = '测试连接';
+  }
+}
+
+function updateAsrProviderFields() {
+  const provider = $('#asrProvider')?.value || 'whisper_cpp';
+  const local = provider === 'whisper_cpp';
+  const cloud = provider === 'openai_compatible';
+  $('#asrLocalFields').hidden = !local;
+  $('#asrCloudFields').hidden = !cloud;
+  $('#asrAppleHint').hidden = provider !== 'apple';
+}
+
+async function saveAsrSettings() {
+  const enabled = $('#asrEnabled').checked;
+  try {
+    const snapshot = await invoke('integration_save_asr', {
+      enabled,
+      provider: $('#asrProvider').value,
+      baseUrl: $('#asrBaseUrl').value.trim(),
+      model: $('#asrModel').value.trim(),
+      apiKey: $('#asrApiKey').value.trim() || null,
+      language: $('#asrLanguage').value.trim(),
+      command: $('#asrCommand').value.trim(),
+      modelPath: $('#asrModelPath').value.trim(),
+    });
+    $('#asrApiKey').value = '';
+    renderAccess(snapshot, true);
+    toast(enabled ? '语音识别设置已保存' : '语音识别已关闭');
+  } catch (error) {
+    renderAccess(state.access.snapshot, true);
+    toast(String(error), true);
+  }
+}
+
+async function testAsrConnection() {
+  const button = $('#testAsr');
+  button.disabled = true;
+  button.textContent = '测试中…';
+  try {
+    const message = await invoke('integration_test_asr', {
+      provider: $('#asrProvider').value,
+      baseUrl: $('#asrBaseUrl').value.trim() || null,
+      model: $('#asrModel').value.trim() || null,
+      apiKey: $('#asrApiKey').value.trim() || null,
+      language: $('#asrLanguage').value.trim() || null,
+      command: $('#asrCommand').value.trim() || null,
+      modelPath: $('#asrModelPath').value.trim() || null,
+    });
+    toast(message);
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    button.disabled = false;
+    button.textContent = '测试语音识别';
+  }
+}
+
+function adminChecklist() {
+  if (state.access.platform === 'wecom') {
+    return [
+      '企业微信接入清单',
+      '1. 使用企业管理员进入「应用管理 → 智能机器人」。',
+      '2. 创建智能机器人并开启 API 接收消息。',
+      '3. 记录 Bot ID 与 Bot Secret。',
+      '4. 在 MiHome Mac 选择「企业微信 → 长连接」，填写凭据并启用。',
+      '5. 看到连接状态为「已连接」后生成配对码。',
+      '6. 在机器人单聊或群里发送「配对 123456」。',
+    ].join('\n');
+  }
+  if (state.access.platform === 'dingtalk') {
+    return [
+      '钉钉接入清单',
+      '1. 管理员打开 open.dingtalk.com，进入「应用开发 → 企业内部应用」。',
+      '2. 创建应用并添加「机器人」能力，消息接收选择 Stream 模式。',
+      '3. 在凭证与基础信息页记录 Client ID（AppKey）和 Client Secret（AppSecret）。',
+      '4. 发布应用，并把可用范围设置为测试成员或目标部门。',
+      '5. 在 MiHome Mac 选择「钉钉 → 长连接」，填写凭据并启用。',
+      '6. 连接状态显示「已连接」后生成配对码。',
+      '7. 在机器人单聊发送「配对 123456」。',
+    ].join('\n');
+  }
+  return [
+    '飞书接入清单',
+    '1. 管理员打开 open.feishu.cn，创建「企业自建应用」。',
+    '2. 在凭证页记录 App ID 与 App Secret。',
+    '3. 开启机器人能力，并配置消息权限。',
+    '4. 事件订阅选择「长连接」，添加 im.message.receive_v1。',
+    '5. 发布应用并把可用范围设置为测试成员。',
+    '6. 打开 MiHome Mac → 接入，选择长连接、填写凭据并启用。',
+    '7. 生成配对码，在机器人会话发送「配对 123456」。',
+  ].join('\n');
+}
+
+function userOnboardingText() {
+  const platform = accessPlatformLabel(state.access.platform);
+  const code = state.access.pairing?.code || '在桌面端生成';
+  return [
+    `【MiHome Mac × ${platform} 内测接入】`,
+    `1. 打开 ${platform}，添加管理员发给你的智能机器人。`,
+    '2. 单聊机器人，或把它拉进家庭群。',
+    `3. 发送：配对 ${code}`,
+    '4. 配对成功后直接说：打开客厅灯 / 打开空调并调至24度 / 关闭所有灯，除了客厅灯 / 执行回家模式。',
+    '',
+    '注意：桌面端 MiHome Mac 需要保持运行并联网。',
+  ].join('\n');
+}
+
 async function loadCameras() {
   const request = ++state.camerasRequest;
   const list = $('#camList');
@@ -2331,8 +3019,8 @@ function renderCameras() {
   if (!state.cameras.length) {
     list.append(el('div', 'empty', '账号下没有识别到摄像头'));
     $('#camEmpty').textContent = '没有可用摄像头';
-    $('#camTitle').textContent = '监控台';
-    $('#camSubtitle').textContent = '账号下没有识别到摄像头';
+    $('#camTitle').textContent = uiText('监控台');
+    $('#camSubtitle').textContent = uiText('账号下没有识别到摄像头');
     $('#camSpec').textContent = '无可用通道';
     return;
   }
@@ -2406,7 +3094,9 @@ function updateCameraStage(camera, stream, remote) {
   if (!camera) return;
   $('#camTitle').textContent = camera.name;
   const cameraDevice = state.devices.find((device) => device.did === camera.did);
-  $('#camSubtitle').textContent = `${cameraDevice ? roomName(cameraDevice) : '摄像头'} · ${camera.model || '米家摄像头'}`;
+  const cameraFallback = MihomeI18n?.t('摄像头') || '摄像头';
+  const modelFallback = MihomeI18n?.t('米家摄像头') || '米家摄像头';
+  $('#camSubtitle').textContent = `${cameraDevice ? roomName(cameraDevice) : cameraFallback} · ${camera.model || modelFallback}`;
   $('#camSpec').textContent = camera.ip ? '局域网通道' : '远程通道';
   $('#camLatency').textContent = remote ? '远程' : camera.ip ? '本地' : '等待连接';
   $('#camTransport').textContent = stream ? '通道已建立' : '未连接';
@@ -2435,12 +3125,12 @@ function renderCameraTimeline() {
     && state.cameraStreams.some((stream) => stream.id === state.activeCamera.did),
   );
   const now = new Date();
-  const date = new Intl.DateTimeFormat('zh-CN', {
+  const date = new Intl.DateTimeFormat(uiLocale(), {
     month: 'long',
     day: 'numeric',
     weekday: 'long',
   }).format(now);
-  const clock = new Intl.DateTimeFormat('zh-CN', {
+  const clock = new Intl.DateTimeFormat(uiLocale(), {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -2448,7 +3138,7 @@ function renderCameraTimeline() {
   }).format(now);
   const playhead = ((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400) * 100;
   const started = state.cameraSessionStartedAt
-    ? new Intl.DateTimeFormat('zh-CN', {
+    ? new Intl.DateTimeFormat(uiLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -3156,6 +3846,7 @@ $('#devicesNav').onclick = showDevices;
 $('#cameraNav').onclick = showCameras;
 $('#sceneNav').onclick = showScenes;
 $('#automationNav').onclick = showAutomations;
+$('#accessNav').onclick = showAccess;
 $('#settingsNav').onclick = showSettings;
 $('#accountButton').onclick = (event) => {
   event.stopPropagation();
@@ -3166,6 +3857,98 @@ $('#settingsAccounts').onclick = (event) => {
   event.stopPropagation();
   openAccountPop();
 };
+$('#settingsAccess').onclick = showAccess;
+$('#accessRefresh').onclick = () => loadAccess(true);
+$('#accessReconnect').onclick = async () => {
+  const button = $('#accessReconnect');
+  button.disabled = true;
+  button.textContent = '重连中…';
+  try {
+    const snapshot = await invoke('integration_reconnect_platform', {
+      platform: state.access.platform,
+    });
+    renderAccess(snapshot, false);
+    toast('已发起重连');
+  } catch (error) {
+    toast(String(error), true);
+    button.disabled = false;
+    button.textContent = '重新连接';
+  }
+};
+document.querySelectorAll('[data-access-platform]').forEach((button) => {
+  button.onclick = () => {
+    state.access.platform = button.dataset.accessPlatform;
+    state.access.pairing = null;
+    state.access.draftMode = null;
+    document.querySelectorAll('[data-access-platform]').forEach((item) => {
+      item.classList.toggle('active', item === button);
+    });
+    renderAccess(state.access.snapshot, true);
+  };
+});
+$('#accessConnectionMode').onchange = () => {
+  state.access.draftMode = $('#accessConnectionMode').value;
+  renderAccess(state.access.snapshot, false);
+};
+$('#accessPlatformForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveAccessPlatform();
+});
+$('#testPlatform').onclick = testAccessPlatform;
+$('#accessGatewayEnabled').onchange = toggleGateway;
+$('#accessGatewayPort').onchange = () => {
+  if ($('#accessGatewayEnabled').checked) toggleGateway();
+};
+$('#revealGatewayToken').onclick = revealGatewayToken;
+$('#copyGatewayToken').onclick = async () => {
+  if (!state.access.token) {
+    try {
+      state.access.token = await invoke('integration_reveal_gateway_token');
+    } catch (error) {
+      return toast(String(error), true);
+    }
+  }
+  copyText(state.access.token, '网关令牌');
+};
+$('#copyGatewayEndpoint').onclick = () => copyText($('#accessGatewayEndpoint').value, '网关地址');
+$('#generatePairCode').onclick = generateAccessPairCode;
+$('#pairCommand').onclick = () => {
+  if (state.access.pairing) copyText(`配对 ${state.access.pairing.code}`, '配对命令');
+};
+$('#accessBindings').onclick = async (event) => {
+  const button = event.target.closest('[data-revoke-binding]');
+  if (!button) return;
+  try {
+    const snapshot = await invoke('integration_revoke_binding', { id: button.dataset.revokeBinding });
+    renderAccess(snapshot, true);
+    toast('已解除会话绑定');
+  } catch (error) {
+    toast(String(error), true);
+  }
+};
+$('#assistantTestSend').onclick = sendAssistantTest;
+$('#assistantTestInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing) sendAssistantTest();
+});
+$('#llmForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveLlmSettings();
+});
+$('#llmEnabled').onchange = () => saveLlmSettings();
+$('#testLlm').onclick = testLlmConnection;
+$('#asrForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveAsrSettings();
+});
+$('#asrProvider').onchange = updateAsrProviderFields;
+$('#asrEnabled').onchange = () => saveAsrSettings();
+$('#testAsr').onclick = testAsrConnection;
+$('#openPlatformDocs').onclick = () => {
+  const url = (accessPlatforms[state.access.platform] || accessPlatforms.feishu).docs;
+  invoke?.('open_external_url', { url }).catch((error) => toast(String(error), true));
+};
+$('#copyAdminChecklist').onclick = () => copyText(adminChecklist(), '管理员清单');
+$('#copyUserOnboarding').onclick = () => copyText(userOnboardingText(), '用户引导');
 $('#accountPopClose').onclick = closeAccountPop;
 $('#addAccountButton').onclick = (event) => {
   event.stopPropagation();
@@ -3502,8 +4285,8 @@ function renderQuickPanel() {
   const online = state.devices.filter((device) => device.online).length;
   $('#popEnv').textContent = Number.isFinite(temperature) ? `${temperature.toFixed(1)}°` : `${online}`;
   $('#popEnvSub').textContent = Number.isFinite(temperature)
-    ? `湿度 ${Number.isFinite(humidity) ? `${humidity.toFixed(0)}%` : '—'}\n${online}/${state.devices.length} 台在线`
-    : `台设备在线\n${state.devices.length} 台设备`;
+    ? `${uiText('湿度 {0}', [Number.isFinite(humidity) ? `${humidity.toFixed(0)}%` : '—'])}\n${uiText('在线 {0}/{1}', [online, state.devices.length])}`
+    : uiText('设备在线 {0}', [state.devices.length]);
 
   const grid = $('#popGrid');
   grid.replaceChildren();
@@ -3793,19 +4576,20 @@ document.addEventListener('keydown', (event) => {
 });
 
 async function boot() {
+  await window.__MIHOME_I18N_READY__;
   applyStaticIcons();
   applyTheme(state.theme);
   document.body.dataset.density = state.density;
   updateSettingsSelection();
   const updateClock = () => {
-    $('#statusClock').textContent = new Intl.DateTimeFormat('zh-CN', {
+    $('#statusClock').textContent = new Intl.DateTimeFormat(uiLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
     }).format(new Date());
     const popTime = $('#popTime');
     if (popTime) popTime.textContent = $('#statusClock').textContent;
-    $('#camClock').textContent = new Intl.DateTimeFormat('zh-CN', {
+    $('#camClock').textContent = new Intl.DateTimeFormat(uiLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -3819,6 +4603,10 @@ async function boot() {
   };
   updateClock();
   setInterval(updateClock, 1000);
+  setInterval(updatePairingCountdown, 1000);
+  setInterval(() => {
+    if (state.page === 'access' && !document.hidden) loadAccess(false);
+  }, 5000);
   setInterval(() => {
     if (state.loggedIn && !document.hidden) refreshDevicePresence();
   }, DEVICE_PRESENCE_REFRESH_MS);

@@ -14,8 +14,17 @@ fi
 SHA_FILE="$DMG.sha256"
 if [[ -f "$SHA_FILE" ]]; then
   DMG_NAME=$(basename "$DMG")
-  EXPECTED_SHA=$(awk -v name="$DMG_NAME" \
-    '$2 == name || $2 == "*" name { print $1; exit }' "$SHA_FILE")
+  EXPECTED_SHA=$(awk -v name="$DMG_NAME" '
+    {
+      file = $0
+      sub(/^[^[:space:]]+[[:space:]]+/, "", file)
+      sub(/^\*/, "", file)
+      if (file == name) {
+        print $1
+        exit
+      }
+    }
+  ' "$SHA_FILE")
   ACTUAL_SHA=$(shasum -a 256 "$DMG" | awk '{ print $1 }')
   if [[ ${#EXPECTED_SHA} -ne 64 || "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
     echo "DMG SHA256 校验失败：$DMG" >&2
@@ -134,16 +143,24 @@ if [[ " $FFMPEG_ARCHS " == *" $HOST_ARCH "* ]]; then
   FFMPEG_VERSION=$("$FFMPEG" -hide_banner -version 2>&1 | head -n 1)
   FFMPEG_ENCODERS=$("$FFMPEG" -hide_banner -encoders 2>/dev/null)
   FFMPEG_MUXERS=$("$FFMPEG" -hide_banner -muxers 2>/dev/null)
-  for encoder in libx264 h264_videotoolbox libopus pcm_alaw; do
+  FFMPEG_DEMUXERS=$("$FFMPEG" -hide_banner -demuxers 2>/dev/null)
+  for encoder in libx264 h264_videotoolbox libopus pcm_alaw pcm_s16le; do
     printf '%s\n' "$FFMPEG_ENCODERS" |
       grep -Eq "^[[:space:]]*[VAS][A-Z.]{5}[[:space:]]+${encoder}([[:space:]]|$)" || {
         echo "ffmpeg 缺少编码器：$encoder" >&2
         exit 1
       }
   done
-  printf '%s\n' "$FFMPEG_MUXERS" |
-    grep -Eq '^[[:space:]]*E[[:space:]]+rtsp([[:space:]]|$)' || {
-      echo "ffmpeg 缺少 RTSP muxer" >&2
+  for muxer in rtsp wav; do
+    printf '%s\n' "$FFMPEG_MUXERS" |
+      grep -Eq "^[[:space:]]*E[[:space:]]+${muxer}([[:space:]]|$)" || {
+        echo "ffmpeg 缺少 muxer：$muxer" >&2
+        exit 1
+      }
+  done
+  printf '%s\n' "$FFMPEG_DEMUXERS" |
+    grep -Eq '^[[:space:]]*D[[:space:]]+ogg([[:space:]]|$)' || {
+      echo "ffmpeg 缺少 Ogg demuxer" >&2
       exit 1
     }
 else

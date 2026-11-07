@@ -1,23 +1,37 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod asr;
+mod assistant_engine;
+mod dingtalk_ws;
+mod feishu_ws;
+mod gateway;
+mod platform_bridge;
+mod platform_recovery;
+mod platform_supervisor;
+mod wecom_ws;
+
+use assistant_engine::{AssistantRequest, AssistantResponse, AssistantRuntime};
 use chrono::Local;
+use gateway::GatewayRuntime;
 use mihome_core::automation::{Automation, AutomationStore};
 use mihome_core::camera::{self, CameraDevice, CameraDiagnostics, CameraStream, Go2Rtc};
 use mihome_core::logging::{self as app_log, Level};
 use mihome_core::remote_stream::RemoteStream;
 use mihome_core::{
-    account_storage_key, auth, AccountBook, AccountSummary, AuthStart, MiCloud, PendingLogin,
-    SpecBatch, SpecRegistry,
+    account_storage_key, auth, AccountBook, AccountSummary, AsrProvider, AuthStart, ConnectionMode,
+    IntegrationStore, MiCloud, PendingLogin, PlatformKind, SpecBatch, SpecRegistry,
 };
+use platform_bridge::PlatformEventDedup;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, State};
@@ -44,6 +58,13 @@ struct AppState {
     remote_camera_stops: Mutex<HashMap<String, u64>>,
     automations: Mutex<AutomationStore>,
     automation_tick: Mutex<chrono::DateTime<Local>>,
+    integrations: Mutex<IntegrationStore>,
+    assistant_runtime: Mutex<AssistantRuntime>,
+    platform_events: Mutex<PlatformEventDedup>,
+    gateway: Mutex<GatewayRuntime>,
+    feishu_ws: Mutex<feishu_ws::FeishuRuntime>,
+    wecom_ws: Mutex<wecom_ws::WecomRuntime>,
+    dingtalk_ws: Mutex<dingtalk_ws::DingtalkRuntime>,
     specs: SpecRegistry,
     started: Instant,
 }
@@ -127,6 +148,13 @@ impl Default for AppState {
             remote_camera_stops: Mutex::new(HashMap::new()),
             automations: Mutex::new(automation_store_for(active_user_id.as_deref())),
             automation_tick: Mutex::new(Local::now() - chrono::Duration::minutes(2)),
+            integrations: Mutex::new(IntegrationStore::load()),
+            assistant_runtime: Mutex::new(AssistantRuntime::default()),
+            platform_events: Mutex::new(PlatformEventDedup::default()),
+            gateway: Mutex::new(GatewayRuntime::default()),
+            feishu_ws: Mutex::new(feishu_ws::FeishuRuntime::default()),
+            wecom_ws: Mutex::new(wecom_ws::WecomRuntime::default()),
+            dingtalk_ws: Mutex::new(dingtalk_ws::DingtalkRuntime::default()),
             specs: SpecRegistry::default(),
             started: Instant::now(),
         }
@@ -156,6 +184,30 @@ fn error_text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+fn platform_display_name(platform: PlatformKind) -> &'static str {
+    match platform {
+        PlatformKind::Feishu => "飞书",
+        PlatformKind::Wecom => "企业微信",
+        PlatformKind::Dingtalk => "钉钉",
+    }
+}
+
+fn platform_id_label(platform: PlatformKind) -> &'static str {
+    match platform {
+        PlatformKind::Feishu => "App ID",
+        PlatformKind::Wecom => "Bot ID",
+        PlatformKind::Dingtalk => "Client ID",
+    }
+}
+
+fn platform_secret_label(platform: PlatformKind) -> &'static str {
+    match platform {
+        PlatformKind::Feishu => "App Secret",
+        PlatformKind::Wecom => "Bot Secret",
+        PlatformKind::Dingtalk => "Client Secret",
+    }
+}
+
 async fn install_active_session(
     state: &Arc<AppState>,
     session: auth::Session,
@@ -171,6 +223,8 @@ async fn install_active_session(
     *state.session_error.lock().await = None;
     *state.automations.lock().await = automation_store_for(Some(&user_id));
     *state.automation_tick.lock().await = Local::now() - chrono::Duration::minutes(2);
+    state.assistant_runtime.lock().await.clear_sensitive_state();
+    *state.platform_events.lock().await = PlatformEventDedup::default();
     state.account_epoch.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
@@ -186,6 +240,8 @@ async fn clear_active_session(state: &Arc<AppState>) {
     *state.session_error.lock().await = None;
     *state.automations.lock().await = automation_store_for(None);
     *state.automation_tick.lock().await = Local::now() - chrono::Duration::minutes(2);
+    state.assistant_runtime.lock().await.clear_sensitive_state();
+    *state.platform_events.lock().await = PlatformEventDedup::default();
     state.account_epoch.fetch_add(1, Ordering::SeqCst);
 }
 
@@ -1249,6 +1305,473 @@ async fn set_property(
 }
 
 #[tauri::command]
+async fn assistant_command(
+    state: State<'_, Arc<AppState>>,
+    request: AssistantRequest,
+) -> Result<AssistantResponse, String> {
+    Ok(assistant_engine::handle_request(&state, request).await)
+}
+
+#[tauri::command]
+async fn assistant_catalog(
+    state: State<'_, Arc<AppState>>,
+    home_id: Option<String>,
+) -> Result<Value, String> {
+    assistant_engine::catalog_snapshot(&state, home_id.as_deref())
+        .await
+        .map_err(error_text)
+}
+
+async fn integration_snapshot_value(state: &Arc<AppState>) -> Value {
+    let settings = state.integrations.lock().await.snapshot();
+    let gateway = gateway::status(state).await;
+    let feishu_ws = feishu_ws::status(state).await;
+    let wecom_ws = wecom_ws::status(state).await;
+    let dingtalk_ws = dingtalk_ws::status(state).await;
+    serde_json::json!({
+        "settings": settings,
+        "gateway": gateway,
+        "connections": {
+            "feishu_ws": feishu_ws,
+            "wecom_ws": wecom_ws,
+            "dingtalk_ws": dingtalk_ws,
+        },
+        "webhook": {
+            "feishu_path": "/v1/platform/feishu",
+            "wecom_path": "/v1/platform/wecom",
+            "dingtalk_mode": "stream",
+            "requires_public_tunnel": true,
+        },
+    })
+}
+
+#[tauri::command]
+async fn integration_snapshot(state: State<'_, Arc<AppState>>) -> Result<Value, String> {
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn integration_save_platform(
+    state: State<'_, Arc<AppState>>,
+    platform: PlatformKind,
+    enabled: bool,
+    mode: Option<ConnectionMode>,
+    app_id: String,
+    app_secret: Option<String>,
+    verification_token: Option<String>,
+    encrypt_key: Option<String>,
+) -> Result<Value, String> {
+    let effective_mode = {
+        let store = state.integrations.lock().await;
+        let current = store.settings().platform(platform);
+        let effective_mode = mode.unwrap_or_else(|| current.effective_mode(platform));
+        if platform == PlatformKind::Wecom && effective_mode == ConnectionMode::Webhook {
+            return Err("企业微信当前版本只支持长连接模式，请选择 WebSocket".to_string());
+        }
+        if platform == PlatformKind::Dingtalk && effective_mode == ConnectionMode::Webhook {
+            return Err("钉钉当前版本只支持 Stream 长连接模式，请选择 WebSocket".to_string());
+        }
+        if enabled {
+            let has_app_id = !app_id.trim().is_empty() || !current.app_id.trim().is_empty();
+            let has_secret = app_secret
+                .as_deref()
+                .is_some_and(|secret| !secret.trim().is_empty())
+                || !current.app_secret.trim().is_empty();
+            let has_webhook_secret = verification_token
+                .as_deref()
+                .is_some_and(|token| !token.trim().is_empty())
+                || !current.verification_token.trim().is_empty();
+            if !has_app_id {
+                return Err(format!(
+                    "启用{}前请填写{}",
+                    platform_display_name(platform),
+                    platform_id_label(platform)
+                ));
+            }
+            if !has_secret {
+                return Err(format!(
+                    "启用{}前请填写{}",
+                    platform_display_name(platform),
+                    platform_secret_label(platform)
+                ));
+            }
+            if effective_mode == ConnectionMode::Webhook && !has_webhook_secret {
+                return Err("启用 Webhook 前请填写 Verification Token".to_string());
+            }
+        }
+        effective_mode
+    };
+    state
+        .integrations
+        .lock()
+        .await
+        .save_platform(
+            platform,
+            enabled,
+            mode,
+            app_id,
+            app_secret,
+            verification_token,
+            encrypt_key,
+        )
+        .map_err(error_text)?;
+    match platform {
+        PlatformKind::Feishu => {
+            if enabled && effective_mode == ConnectionMode::Websocket {
+                feishu_ws::start(&state).await.map_err(error_text)?;
+            } else {
+                feishu_ws::stop(&state).await;
+            }
+        }
+        PlatformKind::Wecom => {
+            if enabled && effective_mode == ConnectionMode::Websocket {
+                wecom_ws::start(&state).await.map_err(error_text)?;
+            } else {
+                wecom_ws::stop(&state).await;
+            }
+        }
+        PlatformKind::Dingtalk => {
+            if enabled && effective_mode == ConnectionMode::Websocket {
+                dingtalk_ws::start(&state).await.map_err(error_text)?;
+            } else {
+                dingtalk_ws::stop(&state).await;
+            }
+        }
+    }
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+async fn integration_reconnect_platform(
+    state: State<'_, Arc<AppState>>,
+    platform: PlatformKind,
+) -> Result<Value, String> {
+    let config = state
+        .integrations
+        .lock()
+        .await
+        .settings()
+        .platform(platform)
+        .clone();
+    if !config.enabled {
+        return Err(format!("{}尚未启用", platform_display_name(platform)));
+    }
+    if config.effective_mode(platform) != ConnectionMode::Websocket {
+        return Err(format!(
+            "{}当前不是长连接模式，无法手动重连",
+            platform_display_name(platform)
+        ));
+    }
+    app_log::info(
+        "Integration",
+        format!("用户手动重连{}长连接", platform_display_name(platform)),
+    );
+    match platform {
+        PlatformKind::Feishu => {
+            feishu_ws::start(&state).await.map_err(error_text)?;
+        }
+        PlatformKind::Wecom => {
+            wecom_ws::start(&state).await.map_err(error_text)?;
+        }
+        PlatformKind::Dingtalk => {
+            dingtalk_ws::start(&state).await.map_err(error_text)?;
+        }
+    }
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+async fn integration_save_llm(
+    state: State<'_, Arc<AppState>>,
+    enabled: bool,
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+) -> Result<Value, String> {
+    if enabled && (base_url.trim().is_empty() || model.trim().is_empty()) {
+        return Err("启用大模型前请填写接口地址和模型名称".to_string());
+    }
+    state
+        .integrations
+        .lock()
+        .await
+        .save_llm(enabled, base_url, model, api_key)
+        .map_err(error_text)?;
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+async fn integration_generate_pair_code(
+    state: State<'_, Arc<AppState>>,
+    platform: PlatformKind,
+    home_id: Option<String>,
+) -> Result<Value, String> {
+    let pairing = state
+        .integrations
+        .lock()
+        .await
+        .generate_pair_code(platform, home_id)
+        .map_err(error_text)?;
+    serde_json::to_value(pairing).map_err(error_text)
+}
+
+#[tauri::command]
+async fn integration_revoke_binding(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<Value, String> {
+    state
+        .integrations
+        .lock()
+        .await
+        .revoke_binding(&id)
+        .map_err(error_text)?;
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+async fn integration_reveal_gateway_token(
+    state: State<'_, Arc<AppState>>,
+) -> Result<String, String> {
+    Ok(state.integrations.lock().await.gateway_token().to_string())
+}
+
+#[tauri::command]
+async fn integration_set_gateway(
+    state: State<'_, Arc<AppState>>,
+    enabled: bool,
+    port: u16,
+) -> Result<Value, String> {
+    state
+        .integrations
+        .lock()
+        .await
+        .set_gateway(enabled, port)
+        .map_err(error_text)?;
+    if enabled {
+        gateway::start(&state).await.map_err(error_text)?;
+    } else {
+        gateway::stop(&state).await;
+    }
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+async fn integration_test_feishu(
+    state: State<'_, Arc<AppState>>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
+) -> Result<String, String> {
+    let config = state.integrations.lock().await.settings().feishu.clone();
+    let app_id = app_id
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_id.clone());
+    let app_secret = app_secret
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_secret.clone());
+    gateway::test_feishu_connection(&app_id, &app_secret)
+        .await
+        .map_err(error_text)?;
+    Ok("飞书应用凭据有效，已成功获取 tenant_access_token。".to_string())
+}
+
+#[tauri::command]
+async fn integration_test_wecom(
+    state: State<'_, Arc<AppState>>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
+) -> Result<String, String> {
+    let config = state.integrations.lock().await.settings().wecom.clone();
+    let app_id = app_id
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_id.clone());
+    let app_secret = app_secret
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_secret.clone());
+    let current = wecom_ws::status(&state).await;
+    let testing_saved_credentials =
+        app_id.trim() == config.app_id.trim() && app_secret.trim() == config.app_secret.trim();
+    if current.running && !testing_saved_credentials {
+        return Err("企业微信长连接正在运行。请先关闭启用开关并保存，再测试新凭据".to_string());
+    }
+    if current.running && testing_saved_credentials {
+        return Ok(if current.state == "connected" {
+            "企业微信机器人长连接已在线，认证状态正常。".to_string()
+        } else {
+            format!("企业微信长连接当前状态：{}，请稍候", current.state)
+        });
+    }
+    wecom_ws::test_connection(&app_id, &app_secret)
+        .await
+        .map_err(error_text)?;
+    Ok("企业微信机器人认证成功，长连接可用。".to_string())
+}
+
+#[tauri::command]
+async fn integration_test_dingtalk(
+    state: State<'_, Arc<AppState>>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+) -> Result<String, String> {
+    let config = state.integrations.lock().await.settings().dingtalk.clone();
+    let client_id = client_id
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_id.clone());
+    let client_secret = client_secret
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| config.app_secret.clone());
+    let current = dingtalk_ws::status(&state).await;
+    let testing_saved_credentials = client_id.trim() == config.app_id.trim()
+        && client_secret.trim() == config.app_secret.trim();
+    if current.running && !testing_saved_credentials {
+        return Err("钉钉长连接正在运行。请先关闭启用开关并保存，再测试新凭据".to_string());
+    }
+    if current.running && testing_saved_credentials {
+        return Ok(if current.state == "connected" {
+            "钉钉 Stream 长连接已在线，认证状态正常。".to_string()
+        } else {
+            format!("钉钉 Stream 当前状态：{}，请稍候", current.state)
+        });
+    }
+    dingtalk_ws::test_connection(&client_id, &client_secret)
+        .await
+        .map_err(error_text)?;
+    Ok("钉钉 Client ID / Client Secret 有效，Stream 连接可用。".to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn integration_save_asr(
+    state: State<'_, Arc<AppState>>,
+    enabled: bool,
+    provider: AsrProvider,
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    language: String,
+    command: String,
+    model_path: String,
+) -> Result<Value, String> {
+    state
+        .integrations
+        .lock()
+        .await
+        .save_asr(
+            enabled, provider, base_url, model, api_key, language, command, model_path,
+        )
+        .map_err(error_text)?;
+    Ok(integration_snapshot_value(&state).await)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn integration_test_asr(
+    state: State<'_, Arc<AppState>>,
+    provider: Option<AsrProvider>,
+    base_url: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    language: Option<String>,
+    command: Option<String>,
+    model_path: Option<String>,
+) -> Result<String, String> {
+    let mut config = state.integrations.lock().await.settings().asr.clone();
+    if let Some(provider) = provider {
+        config.provider = provider;
+    }
+    if let Some(base_url) = base_url.filter(|value| !value.trim().is_empty()) {
+        config.base_url = base_url;
+    }
+    if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
+        config.model = model;
+    }
+    if let Some(api_key) = api_key.filter(|value| !value.trim().is_empty()) {
+        config.api_key = api_key;
+    }
+    if let Some(language) = language.filter(|value| !value.trim().is_empty()) {
+        config.language = language;
+    }
+    if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
+        config.command = command;
+    }
+    if let Some(model_path) = model_path.filter(|value| !value.trim().is_empty()) {
+        config.model_path = model_path;
+    }
+    asr::test_connection(&config).await.map_err(error_text)
+}
+
+#[tauri::command]
+async fn integration_test_llm(
+    state: State<'_, Arc<AppState>>,
+    base_url: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let config = state.integrations.lock().await.settings().llm.clone();
+    let base_url = base_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(config.base_url);
+    let model = model
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(config.model);
+    let api_key = api_key
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(config.api_key);
+    let parser =
+        mihome_core::OpenAiIntentParser::new(&base_url, &model, &api_key).map_err(error_text)?;
+    parser.test_connection().await.map_err(error_text)?;
+    Ok(format!("模型连接成功：{model}"))
+}
+
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), String> {
+    if text.is_empty() {
+        return Err("没有可复制的内容".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = Command::new("pbcopy")
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(error_text)?;
+        child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "无法写入剪贴板".to_string())?
+            .write_all(text.as_bytes())
+            .map_err(error_text)?;
+        let status = child.wait().map_err(error_text)?;
+        if !status.success() {
+            return Err("写入剪贴板失败".to_string());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("当前平台不支持内置剪贴板命令".to_string())
+    }
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let allowed = [
+        "https://open.feishu.cn/",
+        "https://www.feishu.cn/",
+        "https://developer.work.weixin.qq.com/",
+        "https://work.weixin.qq.com/",
+    ];
+    if !allowed.iter().any(|prefix| url.starts_with(prefix)) {
+        return Err("仅允许打开官方接入文档链接".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg(&url).spawn().map_err(error_text)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn log_frontend(level: String, tag: Option<String>, message: String) -> Result<(), String> {
     let level = match level.to_ascii_lowercase().as_str() {
         "debug" => Level::Debug,
@@ -1276,6 +1799,7 @@ fn log_export() -> Result<String, String> {
 }
 
 fn main() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     match app_log::install_default() {
         Ok(path) => app_log::info(
             "App",
@@ -1326,21 +1850,67 @@ fn main() {
                 tray.set_icon(Some(icon.clone()))?;
             }
             let state = app.state::<Arc<AppState>>().inner().clone();
+            let gateway_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                gateway::autostart(&gateway_state).await;
+            });
+            let feishu_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                feishu_ws::autostart(&feishu_state).await;
+            });
+            let wecom_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                wecom_ws::autostart(&wecom_state).await;
+            });
+            let dingtalk_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                dingtalk_ws::autostart(&dingtalk_state).await;
+            });
+            let automation_state = state.clone();
+            let wake_state = state.clone();
             tauri::async_runtime::spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_secs(30));
+                let mut network_recovery = platform_supervisor::NetworkRecovery::default();
+                let mut last_wall_second = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 loop {
                     ticker.tick().await;
-                    run_due_automations(&state).await;
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let resumed_after_sleep = now.saturating_sub(last_wall_second) >= 90;
+                    last_wall_second = now;
+                    if resumed_after_sleep {
+                        app_log::info("App", "检测到电脑从睡眠恢复，重建全部平台长连接");
+                        platform_supervisor::restart_after_resume(&wake_state).await;
+                        network_recovery = platform_supervisor::NetworkRecovery::default();
+                    }
+                    platform_supervisor::probe_and_recover_network(
+                        &wake_state,
+                        &mut network_recovery,
+                    )
+                    .await;
+                    run_due_automations(&automation_state).await;
                 }
             });
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
                 app_log::info("App", "主窗口已隐藏，定时任务继续运行");
             }
+            tauri::WindowEvent::Focused(true) => {
+                let state = window.app_handle().state::<Arc<AppState>>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    platform_supervisor::reconnect_disconnected(&state).await;
+                });
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             app_meta,
@@ -1374,6 +1944,24 @@ fn main() {
             get_property,
             get_properties,
             set_property,
+            assistant_command,
+            assistant_catalog,
+            integration_snapshot,
+            integration_save_platform,
+            integration_reconnect_platform,
+            integration_save_llm,
+            integration_generate_pair_code,
+            integration_revoke_binding,
+            integration_reveal_gateway_token,
+            integration_set_gateway,
+            integration_test_feishu,
+            integration_test_wecom,
+            integration_test_dingtalk,
+            integration_save_asr,
+            integration_test_asr,
+            integration_test_llm,
+            copy_text,
+            open_external_url,
             log_frontend,
             log_export
         ])

@@ -14,8 +14,11 @@ pub struct Home {
     pub id: String,
     pub name: String,
     pub uid: i64,
+    pub shared: bool,
     pub room_count: usize,
     pub rooms: Vec<Room>,
+    #[serde(skip_serializing, default)]
+    pub dids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,35 +97,13 @@ impl MiCloud {
                 json!({"fg": true, "fetch_share": true, "fetch_share_dev": true, "fetch_cariot": true, "limit": 300, "app_ver": 7, "plat_form": 0}),
             )
             .await?;
-        let list = result
-            .get("homelist")
-            .and_then(Value::as_array)
-            .ok_or_else(|| anyhow!("家庭列表格式异常"))?;
-        let homes = list
+        let has_home_list = ["homelist", "home_list", "share_home_list"]
             .iter()
-            .map(|home| Home {
-                id: value_text(&home["id"]),
-                name: home["name"].as_str().unwrap_or("我的家").to_string(),
-                uid: home["uid"].as_i64().unwrap_or(0),
-                room_count: home["roomlist"].as_array().map(Vec::len).unwrap_or(0),
-                rooms: home["roomlist"]
-                    .as_array()
-                    .map(|rooms| {
-                        rooms
-                            .iter()
-                            .map(|room| Room {
-                                id: value_text(&room["id"]),
-                                name: room["name"].as_str().unwrap_or("房间").to_string(),
-                                dids: room["dids"]
-                                    .as_array()
-                                    .map(|dids| dids.iter().map(value_text).collect())
-                                    .unwrap_or_default(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
-            .collect::<Vec<_>>();
+            .any(|key| result.get(*key).and_then(Value::as_array).is_some());
+        if !has_home_list {
+            return Err(anyhow!("家庭列表格式异常"));
+        }
+        let homes = parse_homes(&result);
         *self.homes_cache.lock().await = Some(CachedHomes {
             fetched_at: Instant::now(),
             homes: homes.clone(),
@@ -141,69 +122,161 @@ impl MiCloud {
         }
         let mut result = Vec::new();
         let mut seen_dids = std::collections::HashSet::new();
+        let mut contexts = std::collections::HashMap::new();
+        let mut request_succeeded = false;
+        let mut request_failures = 0usize;
         for home in targets {
-            let numeric_home_id: u64 = home
-                .id
-                .parse()
-                .with_context(|| format!("家庭 ID 不是数字: {}", home.id))?;
             let mut room_by_did = std::collections::HashMap::new();
             for room in &home.rooms {
                 for did in &room.dids {
                     room_by_did.insert(did.clone(), (room.id.clone(), room.name.clone()));
                 }
             }
-            let mut start_did = String::new();
-            let mut seen_cursors = std::collections::HashSet::new();
-            let mut pages = 0usize;
-            loop {
-                pages += 1;
-                if pages > 1000 {
-                    return Err(anyhow!("设备分页超过 1000 页，已停止请求"));
-                }
-                let data = self
-                    .session
-                    .request(
-                        "/home/home_device_list",
-                        json!({
-                            "home_owner": home.uid,
-                            "home_id": numeric_home_id,
-                            "limit": 200,
-                            "start_did": start_did,
-                            "get_split_device": true,
-                            "support_smart_home": true,
-                            "get_cariot_device": true,
-                            "get_third_device": true
-                        }),
-                    )
-                    .await?;
-                let info = data
-                    .get("device_info")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                for item in &info {
-                    let did = value_text(&item["did"]);
-                    if did.is_empty() || !seen_dids.insert(did.clone()) {
-                        continue;
+            for (did, fallback) in home_did_entries(home) {
+                contexts
+                    .entry(did)
+                    .or_insert_with(|| (home.id.clone(), fallback));
+            }
+            match self.home_devices(home).await {
+                Ok(info) => {
+                    request_succeeded = true;
+                    for item in info {
+                        let did = value_text(&item["did"]);
+                        if did.is_empty() || !seen_dids.insert(did.clone()) {
+                            continue;
+                        }
+                        let fallback = room_by_did.get(&did).cloned();
+                        result.push(map_device(&item, &home.id, fallback));
                     }
-                    let fallback = room_by_did.get(&did).cloned();
-                    result.push(map_device(item, &home.id, fallback));
                 }
-                let has_more = data
-                    .get("has_more")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                let max_did = value_text(&data["max_did"]);
-                if !has_more || max_did.is_empty() {
-                    break;
+                Err(error) => {
+                    request_failures += 1;
+                    crate::logging::warn(
+                        "Cloud",
+                        format!(
+                            "读取家庭「{}」设备失败，将继续尝试按 DID 补查：{error:#}",
+                            home.name
+                        ),
+                    );
                 }
-                if !seen_cursors.insert(max_did.clone()) {
-                    return Err(anyhow!("设备分页游标重复：{max_did}"));
-                }
-                start_did = max_did;
             }
         }
+
+        let mut missing: Vec<String> = contexts
+            .keys()
+            .filter(|did| !seen_dids.contains(*did))
+            .cloned()
+            .collect();
+        missing.sort();
+        for chunk in missing.chunks(150) {
+            match self
+                .query_paged_devices(
+                    "/v2/home/device_list_page",
+                    json!({
+                        "limit": 200,
+                        "get_split_device": true,
+                        "support_smart_home": true,
+                        "get_third_device": true,
+                        "dids": chunk
+                    }),
+                )
+                .await
+            {
+                Ok(info) => {
+                    request_succeeded = true;
+                    for item in info {
+                        let did = value_text(&item["did"]);
+                        if did.is_empty() || !seen_dids.insert(did.clone()) {
+                            continue;
+                        }
+                        let Some((home_id, fallback)) = contexts.get(&did) else {
+                            continue;
+                        };
+                        result.push(map_device(&item, home_id, fallback.clone()));
+                    }
+                }
+                Err(error) => {
+                    request_failures += 1;
+                    crate::logging::warn(
+                        "Cloud",
+                        format!(
+                            "共享设备按 DID 补查失败（{} 个），已跳过该批：{error:#}",
+                            chunk.len()
+                        ),
+                    );
+                }
+            }
+        }
+        let unresolved = contexts
+            .keys()
+            .filter(|did| !seen_dids.contains(*did))
+            .count();
+        if unresolved > 0 {
+            crate::logging::info(
+                "Cloud",
+                format!("有 {unresolved} 个房间 DID 未解析到设备，可能是红外遥控器或已移除设备"),
+            );
+        }
+        if !request_succeeded && request_failures > 0 {
+            return Err(anyhow!("读取设备失败，请查看诊断日志"));
+        }
         Ok(result)
+    }
+
+    async fn home_devices(&self, home: &Home) -> Result<Vec<Value>> {
+        let numeric_home_id: u64 = home
+            .id
+            .parse()
+            .with_context(|| format!("家庭 ID 不是数字: {}", home.id))?;
+        let owner_uid = if home.uid != 0 {
+            home.uid
+        } else {
+            self.session.user_id.parse().unwrap_or(0)
+        };
+        let body = json!({
+            "home_owner": owner_uid,
+            "home_id": numeric_home_id,
+            "limit": 200,
+            "get_split_device": true,
+            "support_smart_home": true,
+            "get_cariot_device": true,
+            "get_third_device": true
+        });
+        let mut last_error = None;
+        for endpoint in ["/home/home_device_list", "/v2/home/home_device_list"] {
+            match self.query_paged_devices(endpoint, body.clone()).await {
+                Ok(devices) => return Ok(devices),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("家庭设备接口不可用")))
+    }
+
+    async fn query_paged_devices(&self, endpoint: &str, mut body: Value) -> Result<Vec<Value>> {
+        let mut devices = Vec::new();
+        let mut start_did = String::new();
+        let mut seen_cursors = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            if !start_did.is_empty() {
+                body["start_did"] = Value::String(start_did.clone());
+            }
+            let data = self.session.request(endpoint, body.clone()).await?;
+            devices.extend(device_items(&data));
+            let has_more = data.get("has_more").map(value_bool).unwrap_or(false);
+            let next = ["next_start_did", "max_did"]
+                .iter()
+                .map(|key| value_text(&data[*key]))
+                .find(|value| !value.is_empty())
+                .unwrap_or_default();
+            if !has_more || next.is_empty() {
+                return Ok(devices);
+            }
+            if !seen_cursors.insert(next.clone()) {
+                return Err(anyhow!("设备分页游标重复"));
+            }
+            start_did = next;
+        }
+        Err(anyhow!("设备分页超过 1000 页，已停止请求"))
     }
 
     pub async fn scenes(&self, home_id: &str) -> Result<Vec<Scene>> {
@@ -500,6 +573,102 @@ fn map_device(item: &Value, home_id: &str, fallback_room: Option<(String, String
     }
 }
 
+fn parse_homes(result: &Value) -> Vec<Home> {
+    let mut homes = Vec::new();
+    let mut seen_homes = std::collections::HashSet::new();
+    for (key, shared) in [
+        ("homelist", false),
+        ("home_list", false),
+        ("share_home_list", true),
+    ] {
+        let Some(list) = result.get(key).and_then(Value::as_array) else {
+            continue;
+        };
+        for home in list {
+            let id = value_text(&home["id"]);
+            if id.is_empty() || !seen_homes.insert(id.clone()) {
+                continue;
+            }
+            let rooms: Vec<Room> = home["roomlist"]
+                .as_array()
+                .map(|rooms| {
+                    rooms
+                        .iter()
+                        .map(|room| Room {
+                            id: value_text(&room["id"]),
+                            name: room["name"].as_str().unwrap_or("房间").to_string(),
+                            dids: value_id_list(&room["dids"]),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            homes.push(Home {
+                id,
+                name: home["name"].as_str().unwrap_or("我的家").to_string(),
+                uid: ["uid", "owner_uid", "ownerUid"]
+                    .iter()
+                    .find_map(|key| value_i64(&home[*key]))
+                    .or_else(|| value_i64(&home["owner"]["uid"]))
+                    .unwrap_or(0),
+                shared,
+                room_count: rooms.len(),
+                rooms,
+                dids: value_id_list(&home["dids"]),
+            });
+        }
+    }
+    homes
+}
+
+fn home_did_entries(home: &Home) -> Vec<(String, Option<(String, String)>)> {
+    let mut entries = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for room in &home.rooms {
+        for did in &room.dids {
+            if !did.is_empty() && seen.insert(did.clone()) {
+                entries.push((did.clone(), Some((room.id.clone(), room.name.clone()))));
+            }
+        }
+    }
+    for did in &home.dids {
+        if !did.is_empty() && seen.insert(did.clone()) {
+            entries.push((did.clone(), None));
+        }
+    }
+    entries
+}
+
+fn device_items(data: &Value) -> Vec<Value> {
+    let mut items = Vec::new();
+    for key in ["device_info", "list"] {
+        if let Some(list) = data.get(key).and_then(Value::as_array) {
+            items.extend(list.iter().cloned());
+        }
+    }
+    items
+}
+
+fn value_id_list(value: &Value) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(value_text)
+                .filter(|item| !item.is_empty() && seen.insert(item.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn value_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+}
+
 fn value_bool(value: &Value) -> bool {
     value
         .as_bool()
@@ -523,6 +692,115 @@ fn value_text(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn homes_merge_owned_and_shared_and_deduplicate() {
+        let result = json!({
+            "homelist": [{
+                "id": 1001,
+                "name": "我的家",
+                "uid": "42",
+                "dids": ["unassigned-1", 77],
+                "roomlist": [{
+                    "id": 11,
+                    "name": "客厅",
+                    "dids": ["light-1", "light-1", 88]
+                }]
+            }],
+            "share_home_list": [{
+                "id": "2002",
+                "name": "爸妈家",
+                "owner_uid": "9009",
+                "roomlist": [{
+                    "id": "21",
+                    "name": "卧室",
+                    "dids": ["shared-light"]
+                }]
+            }, {
+                "id": 1001,
+                "name": "重复家庭",
+                "roomlist": []
+            }]
+        });
+
+        let homes = parse_homes(&result);
+        assert_eq!(homes.len(), 2);
+        assert_eq!(homes[0].id, "1001");
+        assert_eq!(homes[0].uid, 42);
+        assert!(!homes[0].shared);
+        assert_eq!(homes[0].dids, vec!["unassigned-1", "77"]);
+        assert_eq!(homes[0].rooms[0].dids, vec!["light-1", "88"]);
+        assert_eq!(homes[1].id, "2002");
+        assert_eq!(homes[1].uid, 9009);
+        assert!(homes[1].shared);
+        assert_eq!(homes[1].rooms[0].dids, vec!["shared-light"]);
+    }
+
+    #[test]
+    fn shared_only_account_still_gets_home_and_room_context() {
+        let result = json!({
+            "homelist": [],
+            "share_home_list": [{
+                "id": "3003",
+                "name": "共享的家",
+                "uid": 123,
+                "dids": ["home-device"],
+                "roomlist": [{
+                    "id": "31",
+                    "name": "书房",
+                    "dids": ["room-device"]
+                }]
+            }]
+        });
+
+        let homes = parse_homes(&result);
+        assert_eq!(homes.len(), 1);
+        assert_eq!(
+            home_did_entries(&homes[0]),
+            vec![
+                (
+                    "room-device".to_string(),
+                    Some(("31".to_string(), "书房".to_string()))
+                ),
+                ("home-device".to_string(), None)
+            ]
+        );
+    }
+
+    #[test]
+    fn device_items_support_both_cloud_response_shapes() {
+        let legacy = json!({
+            "device_info": [{"did": "one", "name": "One"}],
+            "list": [{"did": "duplicate", "name": "Duplicate"}]
+        });
+        let page = json!({
+            "list": [{"did": "two", "name": "Two"}]
+        });
+
+        assert_eq!(device_items(&legacy).len(), 2);
+        assert_eq!(device_items(&page)[0]["did"], "two");
+    }
+
+    #[test]
+    fn home_serialization_marks_shared_without_exposing_home_level_dids() {
+        let home = Home {
+            id: "2002".into(),
+            name: "共享的家".into(),
+            uid: 9009,
+            shared: true,
+            room_count: 1,
+            rooms: vec![Room {
+                id: "21".into(),
+                name: "卧室".into(),
+                dids: vec!["shared-light".into()],
+            }],
+            dids: vec!["home-level-device".into()],
+        };
+
+        let serialized = serde_json::to_value(home).unwrap();
+        assert_eq!(serialized["shared"], true);
+        assert!(serialized.get("dids").is_none());
+    }
 
     #[test]
     fn device_serialization_does_not_leak_raw_cloud_fields() {

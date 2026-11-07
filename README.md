@@ -3,7 +3,7 @@
 一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建本地核心，以 Tauri 2 提供桌面窗口，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.1.1-black)
+![Version](https://img.shields.io/badge/version-1.2.0-black)
 ![Platform](https://img.shields.io/badge/platform-macOS-black)
 ![Rust](https://img.shields.io/badge/Rust-1.90%2B-orange)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
@@ -18,20 +18,22 @@
 
 ## 下载
 
-macOS 1.1.1 提供两个独立安装包：
+macOS 1.2.0 提供两个独立安装包：
 
-- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.1.1/MiHome-Mac-1.1.1-arm64.dmg)
-- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.1.1/MiHome-Mac-1.1.1-x64.dmg)
-- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.1.1)
+- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.2.0/MiHome-Mac-1.2.0-arm64.dmg)
+- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.2.0/MiHome-Mac-1.2.0-x64.dmg)
+- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.2.0)
 
-两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.1.1 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.1.1)。
+两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.2.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.2.0)。
 
-### 1.1.1 更新
+### 1.2.0 更新
 
-- 安装包直接携带 FFmpeg 8.1.3、go2rtc 和许可证文件，不再要求普通用户安装外部转码器。
-- FFmpeg 只保留摄像头链路需要的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 和滤镜，而不是完整发行版。
-- x64 与 arm64 安装包已分别在 Intel macOS 和 Apple Silicon macOS 上完成 10 轮全新隔离安装与启动验证；每轮均验证版本、扫码二维码、内置 FFmpeg 8.1.3、动态依赖、日志和退出清理。
-- 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值、测试范围和体积说明见 [1.1.1 发布记录](docs/11-release-1.1.1.md)。
+- 接入中心支持飞书、企业微信和钉钉机器人长连接，不需要公网回调，并提供连接测试、配对和断线恢复。
+- 支持本地规则和 OpenAI 兼容模型解析组合、批量、排除范围、状态查询、场景执行等自然语言指令。
+- 飞书语音在本机通过 Whisper.cpp 转写；企业微信和钉钉优先使用平台语音转写。
+- 新增 35 个界面 locale、阿拉伯语/希伯来语 RTL 布局和设置页即时切换。
+- 修复共享设备不显示、401 后二维码卡住、同房间多灯误判、控制后状态回读延迟和睡眠后长连接失联。
+- 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值、测试范围和体积说明见 [1.2.0 发布记录](docs/14-release-1.2.0.md)。
 
 ## 功能
 
@@ -50,6 +52,8 @@ macOS 1.1.1 提供两个独立安装包：
 - 设备卡片提供常用指标、开关和快捷控制，摄像头设置按型号中文化
 - 设备在线状态自动同步，窗口重新聚焦或从后台恢复时立即刷新；路由器不会把指示灯状态误当成整机电源
 - 内置独立诊断日志，可导出脱敏汇总并定位取流失败
+- 支持 AI 意图解析、飞书/企业微信/钉钉长连接、语音转写、一次性配对绑定和本地受控执行
+- 支持 35 个国家和地区的界面语言、阿拉伯语/希伯来语 RTL 布局，以及设置页即时切换
 - 附带可离线打开、无需真实账号的设计目标原型（非当前应用界面）
 - 应用窗口内全局禁用文本选择、拖拽、复制、剪切和右键菜单
 
@@ -73,6 +77,8 @@ macOS 1.1.1 提供两个独立安装包：
 桌面端已经实现扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流链路。当前仓库的自动化测试、静态检查和离线交互回归已经通过；不同设备型号、固件和网络环境仍需要在真实环境中逐步建立兼容性清单。
 
 多账号登录凭据保存在当前 macOS 用户目录下的 `~/Library/Application Support/MiHome/accounts.json`，目录权限 `0700`、文件权限 `0600`；每个账号的本地自动化保存在 `automations/<sha256(user_id)>.json`。旧版单账号 `session.json` 会自动迁移，迁移成功后删除旧文件。未提供 Developer ID 的构建使用 ad-hoc 签名；当前不调用系统 Keychain，以避免升级二进制后反复出现钥匙串授权弹窗。这个方案不能防御同一 macOS 账号下的恶意进程；正式签名发行版应改用 Keychain 或等价保护。账号隔离实现和迁移边界见 [多账号与数据隔离](docs/09-multi-account.md)。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
+
+AI 指令和平台接入见 [AI 指令与飞书/企业微信/钉钉接入](docs/12-ai-platform-integration.md)，尚未开发的路线项见 [后续功能 TODO](docs/13-roadmap-todo.md)。当前桌面端支持自建应用长连接；面向普通用户的大众路径应是“共享官方机器人 + 一次性配对码”，该路径还需要部署云端多租户控制面。QQ 只能接入官方机器人，不能控制个人 QQ，暂不提供半成品入口。
 
 局域网摄像头要求 Mac 与摄像头处于同一网段；远程连接目前只覆盖已适配的小米摄像头，云台控制需要按型号验证。本地画面默认启动应用内置的 ffmpeg，将摄像头视频转成低延迟 H.264 WebRTC，避开部分 WebKit/VideoToolbox 组合的 HEVC 解码停滞；摄像头原始编码只在显式设置 `MIHOME_LOCAL_PREFER_NATIVE=1` / `MIHOME_LOCAL_TRANSPORT=native` 时作为视频源。默认 H.264 播放失败不会自动切回 HEVC，而是走 H.264 MSE，再按 HLS 兼容回退；原始流仍用于独立音频音轨。网络传输和摄像头转发无法做到绝对零延迟，项目目标是稳定在约 1 秒级并自动追赶延迟。关闭主窗口后应用会驻留菜单栏，本地定时自动化继续运行；需要完全退出时使用菜单栏的“退出 MiHome Mac”。不同型号的可写属性和支持范围请看 [产品设计](docs/02-product-design.md) 与 [摄像头通道设计](docs/06-camera-product-channel.md)。
 
@@ -179,7 +185,7 @@ npm --prefix desktop run dev
 universal 会同时包含两套主程序和两套 helper，体积约为单架构包的两倍。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构、内置 FFmpeg 版本和编码器：
 
 ```bash
-./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.1.1-universal.dmg universal
+./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.2.0-universal.dmg universal
 ```
 
 FFmpeg 不是完整发行版：构建时使用 `--disable-everything`，只保留摄像头链路实际使用的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 以及 scale/fps/aresample/format。实测未压缩体积为 Intel `9,492,896` 字节（约 `9.1 MiB`）、Apple Silicon `7,378,392` 字节（约 `7.0 MiB`）、universal `16,897,496` 字节（约 `16.1 MiB`）。单架构 go2rtc 未压缩约 `19.3–20.6 MiB`。DMG 压缩后的实际体积以构建产物为准。
@@ -187,6 +193,23 @@ FFmpeg 不是完整发行版：构建时使用 `--disable-everything`，只保�
 生成 DMG 不要求 Apple 证书。没有 Developer ID Application 证书时，构建脚本会使用 ad-hoc 签名，让 macOS 本地网络权限和成品包内测正常工作；Gatekeeper 跨设备放行仍要求 Developer ID 签名与 Apple 公证。ad-hoc DMG 可以生成、挂载和本地测试，但下载到其他 Mac 后仍会被 Gatekeeper 拒绝。CI 和本地默认构建都不包含 Developer ID 证书。
 
 仓库还提供 `.github/workflows/macos-dmg.yml`，可在 GitHub Actions 中手动运行，或在推送 `v*` 标签时分别生成 arm64、x64 ad-hoc 签名 DMG 构建产物。
+
+### 国际化
+
+界面支持 `en zh-Hans zh-Hant zh-HK ja ko de fr es pt-BR pt-PT it nl ru uk pl cs sk hu ro el tr ar he hi th vi id ms ca da fi nb sv sr` 共 35 个 locale。设备名、房间名、家庭名、场景名和账号名始终保留米家返回的原始文本，不做机器翻译。
+
+更新源文案或上下文术语后，重新生成词典并执行翻译检查：
+
+```bash
+NODE_USE_ENV_PROXY=1 npm --prefix desktop run generate:i18n
+npm --prefix desktop run check:i18n
+```
+
+全量 UI 回归会覆盖 35 个 locale、桌面与窄屏、LTR/RTL、控件截断、横向溢出、残留中文、动态节点和运行时错误：
+
+```bash
+UI_I18N_ALL=1 UI_REGRESSION_ROUNDS=3 npm --prefix desktop run test:ui
+```
 
 ## 项目结构
 

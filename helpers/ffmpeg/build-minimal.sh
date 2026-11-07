@@ -177,10 +177,10 @@ build_ffmpeg() {
       --enable-libx264 \
       --enable-libopus \
       --enable-videotoolbox \
-      --enable-demuxer=h264,hevc,rtsp,sdp \
+      --enable-demuxer=h264,hevc,rtsp,sdp,ogg \
       --enable-decoder=h264,hevc,opus \
-      --enable-encoder=libx264,h264_videotoolbox,libopus,pcm_alaw \
-      --enable-muxer=rtsp \
+      --enable-encoder=libx264,h264_videotoolbox,libopus,pcm_alaw,pcm_s16le \
+      --enable-muxer=rtsp,wav \
       --enable-filter=scale,fps,aresample,format \
       --enable-parser=h264,hevc,opus \
       --enable-protocol=file,pipe,tcp,udp,rtp,http
@@ -219,14 +219,22 @@ verify_binary() {
     }
 
     encoders=$("$binary" -hide_banner -encoders 2>/dev/null)
-    for encoder in libx264 h264_videotoolbox libopus pcm_alaw; do
+    for encoder in libx264 h264_videotoolbox libopus pcm_alaw pcm_s16le; do
       printf '%s\n' "$encoders" | grep -q " $encoder " || {
         echo "缺少编码器：$encoder" >&2
         exit 1
       }
     done
-    "$binary" -hide_banner -muxers 2>/dev/null | grep -q 'rtsp' || {
-      echo "缺少 RTSP muxer" >&2
+    muxers=$("$binary" -hide_banner -muxers 2>/dev/null)
+    for muxer in rtsp wav; do
+      printf '%s\n' "$muxers" | grep -q " $muxer " || {
+        echo "缺少 muxer：$muxer" >&2
+        exit 1
+      }
+    done
+    demuxers=$("$binary" -hide_banner -demuxers 2>/dev/null)
+    printf '%s\n' "$demuxers" | grep -q ' ogg ' || {
+      echo "缺少 Ogg demuxer" >&2
       exit 1
     }
   else
