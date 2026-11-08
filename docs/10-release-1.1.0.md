@@ -1,6 +1,6 @@
 # MiHome Mac 1.1.0 发布与回归记录
 
-状态：已发布。版本号、CHANGELOG、README 下载入口和发布素材均已更新到 1.1.0。
+状态：已发布。版本号、CHANGELOG 和 README 下载入口均已更新到 1.1.0。
 
 ## 发布范围
 
@@ -44,12 +44,6 @@ UI_REGRESSION_ROUNDS=10       通过
 
 截图位于 `desktop/tests/artifacts/`。截图使用离线 Mock 数据，只验证界面、交互、布局和状态流，不代表真实账号设备。
 
-## 发布素材
-
-- 四张 1080 × 1440 图片位于 `marketing/release-1.1.0/`。
-- 图片全部使用第 10 轮实际界面截图，并标注“实际界面 · 离线演示数据”。
-- 小红书与 X 文案位于 `marketing/release-1.1.0/publish-copy.md`。
-
 ## 发布结果
 
 - GitHub Release：[v1.1.0](https://github.com/Reign9201/mihome-mac/releases/tag/v1.1.0)
@@ -58,8 +52,6 @@ UI_REGRESSION_ROUNDS=10       通过
 - Apple Silicon DMG：`MiHome-Mac-1.1.0-arm64.dmg`，8,017,952 bytes
 - Intel DMG：`MiHome-Mac-1.1.0-x64.dmg`，9,618,628 bytes
 - 两个 DMG 均通过挂载、架构、ad-hoc 签名、许可证资源和内置 go2rtc 校验
-- 小红书：已发布「米家搬进Mac，1.1.0更新了什么」，笔记 ID `6aeb04010000000015004be0`
-- X：[发布帖子](https://x.com/reign9201/status/2117921953080389816)
 
 ## SHA256
 

@@ -16,3 +16,15 @@ helpers/ffmpeg/ffmpeg
 helpers/ffmpeg/ffmpeg-*-apple-darwin
 dist/
 desktop/.i18n-cache.json
+
+# Local-only marketing and social publishing workspace
+/marketing/
+/xhs/
+/social-publishing/
+**/publish-state.md
+**/publish-copy.md
+**/xhs-*
+**/*-xhs-*
+**/*xiaohongshu*
+**/*redbook*
+**/*小红书*

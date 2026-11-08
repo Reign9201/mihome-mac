@@ -13,6 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Reject local marketing and social publishing files
+        run: |
+          forbidden=$(git ls-files | grep -Ei \
+            '(^|/)(marketing|xhs|social-publishing)/|(^|/)(publish-state|publish-copy)(\.|-)|(^|/)xhs-|xiaohongshu|redbook|小红书' \
+            || true)
+          if [ -n "$forbidden" ]; then
+            echo "::error::Marketing and social publishing files must stay outside this repository."
+            printf '%s\n' "$forbidden"
+            exit 1
+          fi
+
   core:
     runs-on: macos-latest
     steps:
