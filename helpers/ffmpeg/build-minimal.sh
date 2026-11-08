@@ -66,14 +66,26 @@ download_checked() {
   url=$1
   expected=$2
   destination=$3
+  shift 3
   if [[ ! -f "$destination" ]]; then
-    curl -fL \
-      --connect-timeout 15 \
-      --max-time 180 \
-      --retry 6 \
-      --retry-all-errors \
-      --retry-delay 3 \
-      -o "$destination.tmp" "$url"
+    downloaded=0
+    for candidate in "$url" "$@"; do
+      if curl -fL \
+        --connect-timeout 15 \
+        --max-time 180 \
+        --retry 6 \
+        --retry-all-errors \
+        --retry-delay 3 \
+        -o "$destination.tmp" "$candidate"; then
+        downloaded=1
+        break
+      fi
+      echo "下载失败，尝试下一个镜像：$candidate" >&2
+    done
+    if [[ "$downloaded" != "1" ]]; then
+      echo "所有下载源均失败：$destination" >&2
+      exit 1
+    fi
     mv "$destination.tmp" "$destination"
   fi
   actual=$(shasum -a 256 "$destination" | awk '{ print $1 }')
@@ -266,7 +278,8 @@ download_checked \
 download_checked \
   "https://github.com/xiph/opus/releases/download/v${OPUS_VERSION}/opus-${OPUS_VERSION}.tar.gz" \
   "$OPUS_SHA256" \
-  "$CACHE_ROOT/downloads/opus-${OPUS_VERSION}.tar.gz"
+  "$CACHE_ROOT/downloads/opus-${OPUS_VERSION}.tar.gz" \
+  "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz"
 
 extract_checked "$CACHE_ROOT/downloads/ffmpeg-${FFMPEG_VERSION}.tar.gz" "$CACHE_ROOT/src/ffmpeg"
 extract_checked "$CACHE_ROOT/downloads/x264-${X264_COMMIT}.tar.gz" "$CACHE_ROOT/src/x264"
