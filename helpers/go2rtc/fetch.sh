@@ -44,13 +44,25 @@ download() {
   asset_arch=${asset#go2rtc_mac_}
   asset_arch=${asset_arch%.zip}
   url="https://github.com/AlexxIT/go2rtc/releases/download/v${VERSION}/${asset}"
-  curl -fsSL \
+  if ! curl -fsSL \
     --connect-timeout 15 \
     --max-time 180 \
     --retry 6 \
     --retry-all-errors \
     --retry-delay 3 \
-    -o "$TMP/$asset" "$url"
+    -o "$TMP/$asset" "$url"; then
+    if command -v gh >/dev/null 2>&1; then
+      echo "Release 下载失败，改用 GitHub API：$asset" >&2
+      gh release download "v${VERSION}" \
+        --repo AlexxIT/go2rtc \
+        --pattern "$asset" \
+        --dir "$TMP" \
+        --clobber
+    else
+      echo "下载失败且未找到 gh：$url" >&2
+      exit 1
+    fi
+  fi
   verify "$(checksum archive "$asset_arch")" "$TMP/$asset"
   unzip -p "$TMP/$asset" go2rtc > "$TMP/${asset%.zip}"
 }

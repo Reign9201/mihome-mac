@@ -72,6 +72,8 @@ jobs:
       - run: npm audit --audit-level=high
         working-directory: desktop
       - name: Download sidecars
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           helpers/go2rtc/fetch.sh
           helpers/ffmpeg/fetch.sh
