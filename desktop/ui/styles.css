@@ -2233,6 +2233,30 @@ body { -webkit-touch-callout: none; }
 .connection-line strong.warn { color: var(--accent); }
 .connection-line small { min-width: 0; margin-left: auto; color: var(--ink-3); overflow-wrap: anywhere; text-align: right; }
 .connection-line .connection-retry { flex: 0 0 auto; height: 24px; padding: 0 9px; font-size: 9.5px; }
+.connection-help {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--amber) 8%, var(--surface-3));
+}
+.connection-help[hidden] { display: none; }
+.connection-help-mark {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #fff;
+  font: 600 10px var(--mono);
+}
+.connection-help div { min-width: 0; }
+.connection-help strong { display: block; color: var(--ink-2); font-size: 10px; font-weight: 600; }
+.connection-help p { margin: 3px 0 0; color: var(--ink-3); font-size: 9.5px; line-height: 1.5; }
 
 .gateway-grid { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 8px; align-items: end; padding: 15px 18px 10px; }
 .compact-field input { height: 31px; }
@@ -2262,6 +2286,8 @@ body { -webkit-touch-callout: none; }
   color: var(--ink-2);
   font: 9.5px var(--mono);
 }
+.webhook-line code { min-width: 0; overflow-wrap: anywhere; }
+.webhook-line .text-btn { flex: 0 0 auto; color: var(--blue); font-size: 9.5px; }
 .webhook-line .fine { margin-left: auto; }
 
 .compact-select {

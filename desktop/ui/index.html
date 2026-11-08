@@ -349,6 +349,13 @@
                     <small id="accessConnectionDetail">保存凭据后自动连接</small>
                     <button type="button" class="ghost-btn connection-retry" id="accessReconnect" hidden>重新连接</button>
                   </div>
+                  <div class="connection-help span-2" id="accessConnectionHelp" hidden>
+                    <span class="connection-help-mark" aria-hidden="true">!</span>
+                    <div>
+                      <strong id="accessConnectionHelpTitle">连接需要检查</strong>
+                      <p id="accessConnectionHelpHint">按提示检查配置后重试。</p>
+                    </div>
+                  </div>
                   <div class="form-foot span-2">
                     <span class="fine" id="accessCredentialState">尚未配置</span>
                     <div class="form-actions">
@@ -391,6 +398,7 @@
                 <div class="webhook-line">
                   <span id="accessWebhookLabel">当前接入</span>
                   <code id="accessWebhookPath">长连接</code>
+                  <button class="text-btn" id="copyWebhookUrl" hidden>复制完整回调地址</button>
                   <span class="fine" id="accessWebhookHint">无需公网回调</span>
                 </div>
               </section>

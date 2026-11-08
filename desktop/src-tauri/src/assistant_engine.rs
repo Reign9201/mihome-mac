@@ -1342,7 +1342,7 @@ async fn adjust_property(
                 .map(Value::Number)
                 .unwrap_or_else(|| json!(snapped))
         };
-        let display = format!("{}{}", numeric, capability.unit.as_deref().unwrap_or(""));
+        let display = format_capability_value(capability, &numeric);
         (numeric, display)
     };
     let verb = match direction {
@@ -1417,9 +1417,39 @@ fn format_capability_value(capability: &CatalogCapability, value: &Value) -> Str
     capability
         .unit
         .as_deref()
-        .filter(|unit| !unit.is_empty())
+        .and_then(localized_property_unit)
         .map(|unit| format!("{formatted}{unit}"))
         .unwrap_or(formatted)
+}
+
+fn localized_property_unit(unit: &str) -> Option<String> {
+    let unit = unit.trim();
+    match unit.to_ascii_lowercase().as_str() {
+        "" | "none" => None,
+        "percentage" | "percent" => Some("%".to_string()),
+        "celsius" => Some("°C".to_string()),
+        "fahrenheit" => Some("°F".to_string()),
+        "kelvin" => Some("K".to_string()),
+        "arcdegrees" | "degrees" | "degree" => Some("°".to_string()),
+        "minutes" | "minute" => Some("分钟".to_string()),
+        "seconds" | "second" => Some("秒".to_string()),
+        "hours" | "hour" => Some("小时".to_string()),
+        "milliseconds" => Some("毫秒".to_string()),
+        "microseconds" => Some("微秒".to_string()),
+        "lux" => Some("lx".to_string()),
+        "mg/m3" => Some("mg/m³".to_string()),
+        "μg/m3" => Some("μg/m³".to_string()),
+        "ppm" => Some("ppm".to_string()),
+        "db" => Some("dB".to_string()),
+        _ if !unit.is_ascii()
+            || !unit
+                .chars()
+                .any(|character| character.is_ascii_alphabetic()) =>
+        {
+            Some(unit.to_string())
+        }
+        _ => None,
+    }
 }
 
 fn localized_enum(description: &str) -> &str {
@@ -1619,8 +1649,8 @@ fn audit_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        adjustment_delta, is_confirm, parse_local_command_chain, split_command_clauses,
-        unsupported_request_reason,
+        adjustment_delta, format_capability_value, is_confirm, localized_property_unit,
+        parse_local_command_chain, split_command_clauses, unsupported_request_reason,
     };
     use mihome_core::assistant::{
         AdjustmentUnit, CatalogCapability, DeviceCatalog, ResolveOutcome,
@@ -1679,6 +1709,25 @@ mod tests {
             adjustment_delta(&color, 2700.0, 6500.0, 1.0, None, AdjustmentUnit::Kelvin),
             500.0
         );
+    }
+
+    #[test]
+    fn formats_miot_units_for_user_facing_status() {
+        let mut temperature = capability("current_temperature", -20.0, 80.0, 0.1);
+        temperature.unit = Some("celsius".to_string());
+        assert_eq!(
+            format_capability_value(&temperature, &json!(19.4)),
+            "19.4°C"
+        );
+
+        let mut humidity = capability("relative_humidity", 0.0, 100.0, 1.0);
+        humidity.unit = Some("percentage".to_string());
+        assert_eq!(format_capability_value(&humidity, &json!(56)), "56%");
+
+        let mut vendor = capability("vendor_value", 0.0, 100.0, 1.0);
+        vendor.unit = Some("vendor_points".to_string());
+        assert_eq!(format_capability_value(&vendor, &json!(12)), "12");
+        assert_eq!(localized_property_unit("none"), None);
     }
 
     #[test]

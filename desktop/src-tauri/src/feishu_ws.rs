@@ -8,7 +8,8 @@ use lark_channel::lark_openapi::{
 use lark_channel::media::{DownloadedResource, ResourceType};
 use lark_channel::{
     ChannelConfig, ChannelEvent, EventLoop, EventLoopOptions, MessageChatType, MessageId,
-    MessageSender, MessageSenderType, OpenApiWebSocketEventConnector, WebSocketEndpointConnector,
+    MessageSender, MessageSenderType, OpenApiWebSocketEventConnector, Recipient,
+    WebSocketEndpointConnector,
 };
 use mihome_core::{ConnectionMode, PlatformConfig, PlatformKind};
 use std::sync::Arc;
@@ -253,6 +254,25 @@ async fn handle_event(
     sender: MessageSender<ReqwestOpenApiTransport>,
     event: lark_channel::ReceivedEvent,
 ) -> lark_channel::Result<WebSocketEventAck> {
+    if let Some(chat_id) = welcome_target(&event.event) {
+        if platform_bridge::claim_event(&state, format!("feishu:welcome:{chat_id}")).await {
+            let sender = sender.clone();
+            tokio::spawn(async move {
+                let welcome = "欢迎使用 MiHome Mac 智能管家。\n\
+如果尚未绑定家庭：打开 MiHome Mac → 接入中心，生成 6 位配对码后发送「配对 123456」。\n\
+绑定后可直接说：打开客厅灯 / 把空调调到 26 度 / 执行回家模式。\n\
+桌面端需要保持运行并联网。";
+                if let Err(error) = sender
+                    .text_message(Recipient::Chat(chat_id), welcome)
+                    .send()
+                    .await
+                {
+                    app_log::warn("Feishu", format!("发送飞书欢迎语失败：{error}"));
+                }
+            });
+        }
+        return Ok(WebSocketEventAck::ok());
+    }
     let ChannelEvent::Message(message) = event.event else {
         return Ok(WebSocketEventAck::ok());
     };
@@ -375,6 +395,29 @@ async fn handle_event(
         send_feishu_reply(&sender, &parent_message_id, &reply).await;
     });
     Ok(WebSocketEventAck::ok())
+}
+
+fn welcome_target(event: &ChannelEvent) -> Option<String> {
+    let ChannelEvent::Unknown { raw, .. } = event else {
+        return None;
+    };
+    let event_type = raw
+        .pointer("/header/event_type")
+        .and_then(serde_json::Value::as_str)?;
+    if !matches!(
+        event_type,
+        "im.chat.access_event.bot_p2p_chat_entered_v1" | "im.chat.member.bot.added_v1"
+    ) {
+        return None;
+    }
+    let chat_id = raw
+        .pointer("/event/chat_id")
+        .and_then(serde_json::Value::as_str)?
+        .trim();
+    if !chat_id.starts_with("oc_") {
+        return None;
+    }
+    Some(chat_id.to_owned())
 }
 
 async fn download_feishu_audio(
@@ -572,6 +615,7 @@ async fn set_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn exposes_feishu_resource_error_details() {
@@ -613,5 +657,42 @@ mod tests {
         assert_eq!(reconnect_delay(2), Duration::from_secs(4));
         assert_eq!(reconnect_delay(6), Duration::from_secs(60));
         assert_eq!(reconnect_delay(100), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn extracts_supported_feishu_welcome_targets() {
+        for event_type in [
+            "im.chat.access_event.bot_p2p_chat_entered_v1",
+            "im.chat.member.bot.added_v1",
+        ] {
+            let event = ChannelEvent::Unknown {
+                context: None,
+                raw: json!({
+                    "header": { "event_type": event_type },
+                    "event": { "chat_id": "oc_123" }
+                }),
+            };
+            assert_eq!(welcome_target(&event), Some("oc_123".to_string()));
+        }
+    }
+
+    #[test]
+    fn ignores_unrelated_or_invalid_feishu_welcome_events() {
+        let unrelated = ChannelEvent::Unknown {
+            context: None,
+            raw: json!({
+                "header": { "event_type": "im.chat.member.user.added_v1" },
+                "event": { "chat_id": "oc_123" }
+            }),
+        };
+        let invalid_chat = ChannelEvent::Unknown {
+            context: None,
+            raw: json!({
+                "header": { "event_type": "im.chat.access_event.bot_p2p_chat_entered_v1" },
+                "event": { "chat_id": "group-1" }
+            }),
+        };
+        assert_eq!(welcome_target(&unrelated), None);
+        assert_eq!(welcome_target(&invalid_chat), None);
     }
 }

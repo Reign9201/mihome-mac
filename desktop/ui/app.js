@@ -2403,6 +2403,85 @@ function accessPlatformLabel(platform) {
   return accessPlatforms[platform]?.label || platform;
 }
 
+function platformCredentialAdvice(platform) {
+  if (platform === 'wecom') {
+    return '确认 Bot ID 和 Bot Secret 属于同一个智能机器人，并在企业微信后台开启 API 接收消息。';
+  }
+  if (platform === 'dingtalk') {
+    return '确认 Client ID 和 Client Secret 属于同一个企业内部应用，机器人能力已添加，应用已发布且当前登录用户在可用范围内。';
+  }
+  return '确认 App ID 和 App Secret 属于同一个飞书应用，机器人能力与消息权限已发布，当前登录用户在应用可用范围内。';
+}
+
+function platformErrorAdvice(platform, error) {
+  const text = String(error || '').toLowerCase();
+  if (!text) return null;
+  if (/heartbeat|timed out|timeout|超时/.test(text)) {
+    return {
+      title: '长连接心跳超时',
+      hint: '电脑可能刚唤醒或网络已经切换。先检查网络和代理，再点“重新连接”；反复失败时重新保存一次凭据。',
+    };
+  }
+  if (/401|403|unauthorized|forbidden|invalid.*(app|credential|secret)|authentication|auth failed|认证失败|凭据/.test(text)) {
+    return {
+      title: '凭据或应用权限校验失败',
+      hint: platformCredentialAdvice(platform),
+    };
+  }
+  if (/permission|scope|not published|not available|权限|发布|可用范围/.test(text)) {
+    return {
+      title: '应用权限尚未生效',
+      hint: '检查事件订阅、机器人能力和消息权限是否已申请通过；修改权限后需要重新发布应用。',
+    };
+  }
+  if (/websocket|handshake|connection refused|network|dns|tls|certificate|connect|连接/.test(text)) {
+    return {
+      title: '暂时无法建立安全连接',
+      hint: '检查本机网络、DNS 和代理设置，确认没有拦截 WebSocket；恢复网络后再点“重新连接”。',
+    };
+  }
+  if (/replaced|替换/.test(text)) {
+    return {
+      title: '连接已被新会话替换',
+      hint: '同一套凭据可能正在另一台电脑上运行。关闭另一台电脑的连接，或在这里重新连接。',
+    };
+  }
+  return {
+    title: '平台连接未就绪',
+    hint: '保留上方原始错误，检查网络和应用配置后重新连接；仍失败时重新保存凭据以刷新连接。',
+  };
+}
+
+function accessConnectionGuidance({ platform, websocketMode, enabled, configured, gateway, connection }) {
+  if (!enabled) return null;
+  if (!websocketMode) {
+    if (!gateway?.running) {
+      return {
+        title: '本地网关未启动',
+        hint: '先启动本地网关，再把公网 HTTPS 隧道映射到同一个端口。',
+      };
+    }
+    if (!configured) {
+      return {
+        title: '应用凭据不完整',
+        hint: '补齐 App ID、Secret 和 Verification Token 后保存并启用。',
+      };
+    }
+    return null;
+  }
+  if (connection?.last_error) {
+    return platformErrorAdvice(platform, connection.last_error);
+  }
+  if (connection?.state === 'replaced') {
+    return platformErrorAdvice(platform, 'replaced');
+  }
+  return null;
+}
+
+function webhookCallbackUrl(baseUrl, platform) {
+  return `${String(baseUrl || '').replace(/\/+$/, '')}/v1/platform/${platform}`;
+}
+
 function renderAccessBindings(settings) {
   const box = $('#accessBindings');
   if (!box) return;
@@ -2588,10 +2667,30 @@ function renderAccess(snapshot, hydrate = false) {
     reconnectNode.textContent = '重新连接';
   }
 
+  const guidance = accessConnectionGuidance({
+    platform: platformKey,
+    websocketMode,
+    enabled: platform.enabled,
+    configured: platform.configured,
+    gateway,
+    connection,
+  });
+  const helpNode = $('#accessConnectionHelp');
+  helpNode.hidden = !guidance;
+  if (guidance) {
+    $('#accessConnectionHelpTitle').textContent = uiText(guidance.title);
+    $('#accessConnectionHelpHint').textContent = uiText(guidance.hint);
+  }
+
   const webhookPath = `/v1/platform/${platformKey}`;
+  const callbackUrl = webhookCallbackUrl(endpoint, platformKey);
   $('#accessWebhookLabel').textContent = websocketMode ? '当前接入' : `${platformName}回调路径`;
-  $('#accessWebhookPath').textContent = websocketMode ? '长连接' : webhookPath;
-  $('#accessWebhookHint').textContent = websocketMode ? '无需公网回调' : '需要公网 HTTPS 隧道';
+  $('#accessWebhookPath').textContent = websocketMode ? '长连接' : callbackUrl;
+  $('#accessWebhookPath').dataset.url = websocketMode ? '' : callbackUrl;
+  $('#copyWebhookUrl').hidden = websocketMode;
+  $('#accessWebhookHint').textContent = websocketMode
+    ? '无需公网回调'
+    : `本机回调；公网配置时请替换为 HTTPS 域名（路径 ${webhookPath}）`;
 
   const apiReady = websocketMode
     ? platform.enabled && connectionState === 'connected'
@@ -2749,7 +2848,8 @@ async function testAccessPlatform() {
     const message = await invoke(test.command, test.args);
     toast(message);
   } catch (error) {
-    toast(String(error), true);
+    const advice = platformErrorAdvice(state.access.platform, error);
+    toast(advice ? `${String(error)}。${uiText(advice.hint)}` : String(error), true);
   } finally {
     button.disabled = false;
     button.textContent = '测试凭据';
@@ -2961,14 +3061,21 @@ function adminChecklist() {
       '7. 在机器人单聊发送「配对 123456」。',
     ].join('\n');
   }
+  const feishuWebhook = $('#accessConnectionMode')?.value === 'webhook';
+  const feishuEventStep = feishuWebhook
+    ? '4. 事件订阅选择 Webhook，添加 im.message.receive_v1、im.chat.access_event.bot_p2p_chat_entered_v1 和 im.chat.member.bot.added_v1。'
+    : '4. 事件订阅选择「长连接」，添加 im.message.receive_v1、im.chat.access_event.bot_p2p_chat_entered_v1 和 im.chat.member.bot.added_v1。';
+  const feishuConnectionStep = feishuWebhook
+    ? '6. 把接入页复制的回调地址替换为公网 HTTPS 域名，填入飞书事件订阅。'
+    : '6. 打开 MiHome Mac → 接入，选择长连接、填写凭据并启用。';
   return [
     '飞书接入清单',
     '1. 管理员打开 open.feishu.cn，创建「企业自建应用」。',
     '2. 在凭证页记录 App ID 与 App Secret。',
-    '3. 开启机器人能力，并配置消息权限。',
-    '4. 事件订阅选择「长连接」，添加 im.message.receive_v1。',
+    '3. 开启机器人能力，并配置消息接收、发送和资源下载权限。',
+    feishuEventStep,
     '5. 发布应用并把可用范围设置为测试成员。',
-    '6. 打开 MiHome Mac → 接入，选择长连接、填写凭据并启用。',
+    feishuConnectionStep,
     '7. 生成配对码，在机器人会话发送「配对 123456」。',
   ].join('\n');
 }
@@ -3911,6 +4018,10 @@ $('#copyGatewayToken').onclick = async () => {
   copyText(state.access.token, '网关令牌');
 };
 $('#copyGatewayEndpoint').onclick = () => copyText($('#accessGatewayEndpoint').value, '网关地址');
+$('#copyWebhookUrl').onclick = () => {
+  const url = $('#accessWebhookPath').dataset.url;
+  copyText(url, '完整回调地址');
+};
 $('#generatePairCode').onclick = generateAccessPairCode;
 $('#pairCommand').onclick = () => {
   if (state.access.pairing) copyText(`配对 ${state.access.pairing.code}`, '配对命令');

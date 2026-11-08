@@ -824,6 +824,8 @@ try {
         && document.querySelector('#accessEncryptKeyField')?.hidden,
       connection: document.querySelector('#accessConnectionState')?.textContent,
       reconnectHidden: document.querySelector('#accessReconnect')?.hidden,
+      helpHidden: document.querySelector('#accessConnectionHelp')?.hidden,
+      copyWebhookHidden: document.querySelector('#copyWebhookUrl')?.hidden,
       hasUserGuide: Boolean(document.querySelector('#copyUserOnboarding')),
     })`);
     expect(accessPage.title === '接入中心', `round ${round}: access title ${accessPage.title}`);
@@ -831,6 +833,8 @@ try {
     expect(accessPage.webhookFieldsHidden, `round ${round}: websocket fields should hide webhook secrets`);
     expect(accessPage.connection === '已连接', `round ${round}: access connection ${accessPage.connection}`);
     expect(accessPage.reconnectHidden, `round ${round}: reconnect should be hidden while connected`);
+    expect(accessPage.helpHidden, `round ${round}: connection help should be hidden while connected`);
+    expect(accessPage.copyWebhookHidden, `round ${round}: callback copy should be hidden in websocket mode`);
     expect(accessPage.hasUserGuide, `round ${round}: user onboarding guide missing`);
 
     await pageEval(cdp, `window.__MOCK_SET_CONNECTION__('feishu_ws', {
@@ -845,14 +849,27 @@ try {
     const reconnectVisible = await pageEval(cdp, `({
       label: document.querySelector('#accessReconnect')?.textContent,
       disabled: document.querySelector('#accessReconnect')?.disabled,
+      helpVisible: !document.querySelector('#accessConnectionHelp')?.hidden,
+      helpTitle: document.querySelector('#accessConnectionHelpTitle')?.textContent,
+      helpHint: document.querySelector('#accessConnectionHelpHint')?.textContent,
     })`);
     expect(reconnectVisible.label === '重新连接',
       `round ${round}: reconnect label ${reconnectVisible.label}`);
     expect(reconnectVisible.disabled === false,
       `round ${round}: reconnect should be enabled`);
+    expect(reconnectVisible.helpVisible,
+      `round ${round}: connection help should be visible after a websocket error`);
+    expect(reconnectVisible.helpTitle === '长连接心跳超时',
+      `round ${round}: unexpected connection help title ${reconnectVisible.helpTitle}`);
+    expect((reconnectVisible.helpHint || '').includes('重新连接'),
+      `round ${round}: connection help does not explain recovery`);
     await click('#accessReconnect');
     await waitFor(() => pageEval(cdp,
       `document.querySelector('#accessConnectionState')?.textContent === '已连接'`));
+    expect(
+      await pageEval(cdp, `document.querySelector('#accessConnectionHelp')?.hidden === true`),
+      `round ${round}: connection help did not clear after reconnect`,
+    );
 
     await pageEval(cdp, `document.querySelector('[data-access-platform="wecom"]').click(); true`);
     const wecomAccess = await pageEval(cdp, `({
@@ -886,9 +903,21 @@ try {
       mode: document.querySelector('#accessConnectionMode')?.value,
       fieldsVisible: !document.querySelector('#accessVerificationTokenField')?.hidden
         && !document.querySelector('#accessEncryptKeyField')?.hidden,
+      callback: document.querySelector('#accessWebhookPath')?.textContent,
+      callbackUrl: document.querySelector('#accessWebhookPath')?.dataset.url,
+      copyVisible: !document.querySelector('#copyWebhookUrl')?.hidden,
+      helpTitle: document.querySelector('#accessConnectionHelpTitle')?.textContent,
     })`);
     expect(webhookAccess.mode === 'webhook' && webhookAccess.fieldsVisible,
       `round ${round}: webhook mode did not reveal verification fields`);
+    expect(webhookAccess.callback === 'http://127.0.0.1:17666/v1/platform/feishu',
+      `round ${round}: unexpected webhook callback ${webhookAccess.callback}`);
+    expect(webhookAccess.callbackUrl === webhookAccess.callback,
+      `round ${round}: callback copy value is inconsistent`);
+    expect(webhookAccess.copyVisible,
+      `round ${round}: callback copy button should be visible in webhook mode`);
+    expect(webhookAccess.helpTitle === '本地网关未启动',
+      `round ${round}: webhook mode should explain the stopped gateway, got ${webhookAccess.helpTitle}`);
 
     await click('#devicesNav');
     const devicesPage = await pageEval(cdp, `({

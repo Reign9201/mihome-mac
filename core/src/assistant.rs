@@ -775,6 +775,7 @@ fn kind_suffix(kind: &str) -> &str {
 fn semantic_capability_name(kind: &str) -> String {
     match kind {
         "target-temperature" => "target_temperature".to_string(),
+        "temperature" => "current_temperature".to_string(),
         "fan-level" => "fan_level".to_string(),
         "current-temperature" => "current_temperature".to_string(),
         "relative-humidity" => "relative_humidity".to_string(),
@@ -816,6 +817,36 @@ fn capability_label(name: &str, service_kind: &str) -> String {
         other => other,
     }
     .to_string()
+}
+
+fn localized_property_unit(unit: &str) -> Option<String> {
+    let unit = unit.trim();
+    match unit.to_ascii_lowercase().as_str() {
+        "" | "none" => None,
+        "percentage" | "percent" => Some("%".to_string()),
+        "celsius" => Some("°C".to_string()),
+        "fahrenheit" => Some("°F".to_string()),
+        "kelvin" => Some("K".to_string()),
+        "arcdegrees" | "degrees" | "degree" => Some("°".to_string()),
+        "minutes" | "minute" => Some("分钟".to_string()),
+        "seconds" | "second" => Some("秒".to_string()),
+        "hours" | "hour" => Some("小时".to_string()),
+        "milliseconds" => Some("毫秒".to_string()),
+        "microseconds" => Some("微秒".to_string()),
+        "lux" => Some("lx".to_string()),
+        "mg/m3" => Some("mg/m³".to_string()),
+        "μg/m3" => Some("μg/m³".to_string()),
+        "ppm" => Some("ppm".to_string()),
+        "db" => Some("dB".to_string()),
+        _ if !unit.is_ascii()
+            || !unit
+                .chars()
+                .any(|character| character.is_ascii_alphabetic()) =>
+        {
+            Some(unit.to_string())
+        }
+        _ => None,
+    }
 }
 
 fn service_kind_matches_category(service_kind: &str, category: &str) -> bool {
@@ -4299,7 +4330,11 @@ fn coerce_value(capability: &CatalogCapability, value: &Value) -> Result<Value> 
                         capability.label,
                         range.min,
                         range.max,
-                        capability.unit.as_deref().unwrap_or("")
+                        capability
+                            .unit
+                            .as_deref()
+                            .and_then(localized_property_unit)
+                            .unwrap_or_default()
                     ));
                 }
                 if range.step > 0.0 {
@@ -4576,7 +4611,15 @@ fn display_intent_value(capability: &CatalogCapability, value: &Value) -> String
     match value {
         Value::Bool(true) => "开启".to_string(),
         Value::Bool(false) => "关闭".to_string(),
-        Value::Number(number) => format!("{}{}", number, capability.unit.as_deref().unwrap_or("")),
+        Value::Number(number) => format!(
+            "{}{}",
+            number,
+            capability
+                .unit
+                .as_deref()
+                .and_then(localized_property_unit)
+                .unwrap_or_default()
+        ),
         _ => value.to_string(),
     }
 }
@@ -6101,5 +6144,18 @@ mod tests {
             normalize_base_url("https://api.example.com/"),
             "https://api.example.com/v1"
         );
+    }
+
+    #[test]
+    fn localizes_standard_miot_properties_and_units() {
+        assert_eq!(
+            semantic_capability_name("temperature"),
+            "current_temperature"
+        );
+        assert_eq!(capability_label("current_temperature", ""), "当前温度");
+        assert_eq!(localized_property_unit("celsius").as_deref(), Some("°C"));
+        assert_eq!(localized_property_unit("percentage").as_deref(), Some("%"));
+        assert_eq!(localized_property_unit("none"), None);
+        assert_eq!(localized_property_unit("vendor_points"), None);
     }
 }
