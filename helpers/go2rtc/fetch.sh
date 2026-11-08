@@ -44,7 +44,13 @@ download() {
   asset_arch=${asset#go2rtc_mac_}
   asset_arch=${asset_arch%.zip}
   url="https://github.com/AlexxIT/go2rtc/releases/download/v${VERSION}/${asset}"
-  curl -fsSL --retry 3 --retry-delay 2 -o "$TMP/$asset" "$url"
+  curl -fsSL \
+    --connect-timeout 15 \
+    --max-time 180 \
+    --retry 6 \
+    --retry-all-errors \
+    --retry-delay 3 \
+    -o "$TMP/$asset" "$url"
   verify "$(checksum archive "$asset_arch")" "$TMP/$asset"
   unzip -p "$TMP/$asset" go2rtc > "$TMP/${asset%.zip}"
 }

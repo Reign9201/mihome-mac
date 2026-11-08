@@ -67,7 +67,13 @@ download_checked() {
   expected=$2
   destination=$3
   if [[ ! -f "$destination" ]]; then
-    curl -fL --retry 3 --retry-delay 2 -o "$destination.tmp" "$url"
+    curl -fL \
+      --connect-timeout 15 \
+      --max-time 180 \
+      --retry 6 \
+      --retry-all-errors \
+      --retry-delay 3 \
+      -o "$destination.tmp" "$url"
     mv "$destination.tmp" "$destination"
   fi
   actual=$(shasum -a 256 "$destination" | awk '{ print $1 }')
