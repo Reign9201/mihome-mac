@@ -8,6 +8,20 @@ use tokio::sync::Mutex;
 use crate::auth::Session;
 
 const HOMES_CACHE_TTL: Duration = Duration::from_secs(30);
+// LAN addresses from `/home/device_list` change rarely. Remote-only cameras
+// have no address, so without a cache every camera-page visit re-downloaded
+// the whole account device list. A stale address only costs one local attempt
+// before the UI falls back to the remote channel.
+const NETWORK_CACHE_TTL: Duration = Duration::from_secs(300);
+
+type DeviceNetwork = std::collections::HashMap<String, (String, Option<String>)>;
+// At startup the device list and the camera list are read at the same time and
+// both page through every home's devices. Concurrent callers for one home wait
+// for a single fetch, and its result is reused for a few seconds; the 15 s
+// presence sync still always sees fresh data.
+const HOME_DEVICES_CACHE_TTL: Duration = Duration::from_secs(3);
+
+type HomeDevicesSlot = Arc<Mutex<Option<(Instant, Vec<Value>)>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Home {
@@ -56,6 +70,8 @@ pub struct Device {
 pub struct MiCloud {
     session: Session,
     homes_cache: Arc<Mutex<Option<CachedHomes>>>,
+    network_cache: Arc<Mutex<Option<(Instant, DeviceNetwork)>>>,
+    home_devices_cache: Arc<Mutex<std::collections::HashMap<String, HomeDevicesSlot>>>,
 }
 
 struct CachedHomes {
@@ -77,6 +93,8 @@ impl MiCloud {
         Self {
             session,
             homes_cache: Arc::new(Mutex::new(None)),
+            network_cache: Arc::new(Mutex::new(None)),
+            home_devices_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -224,6 +242,25 @@ impl MiCloud {
     }
 
     async fn home_devices(&self, home: &Home) -> Result<Vec<Value>> {
+        let slot = self
+            .home_devices_cache
+            .lock()
+            .await
+            .entry(home.id.clone())
+            .or_default()
+            .clone();
+        let mut cached = slot.lock().await;
+        if let Some((fetched_at, devices)) = cached.as_ref() {
+            if fetched_at.elapsed() < HOME_DEVICES_CACHE_TTL {
+                return Ok(devices.clone());
+            }
+        }
+        let devices = self.fetch_home_devices(home).await?;
+        *cached = Some((Instant::now(), devices.clone()));
+        Ok(devices)
+    }
+
+    async fn fetch_home_devices(&self, home: &Home) -> Result<Vec<Value>> {
         let numeric_home_id: u64 = home
             .id
             .parse()
@@ -348,7 +385,7 @@ impl MiCloud {
                     .unwrap_or(true)
         });
         let network = if needs_network {
-            self.device_network().await.unwrap_or_default()
+            self.cached_device_network().await
         } else {
             std::collections::HashMap::new()
         };
@@ -380,9 +417,30 @@ impl MiCloud {
             .collect())
     }
 
-    async fn device_network(
-        &self,
-    ) -> Result<std::collections::HashMap<String, (String, Option<String>)>> {
+    async fn cached_device_network(&self) -> DeviceNetwork {
+        if let Some((fetched_at, network)) = self.network_cache.lock().await.as_ref() {
+            if fetched_at.elapsed() < NETWORK_CACHE_TTL {
+                return network.clone();
+            }
+        }
+        match self.device_network().await {
+            Ok(network) => {
+                *self.network_cache.lock().await = Some((Instant::now(), network.clone()));
+                network
+            }
+            Err(error) => {
+                crate::logging::warn("Cloud", format!("读取设备网络信息失败：{error:#}"));
+                self.network_cache
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|(_, network)| network.clone())
+                    .unwrap_or_default()
+            }
+        }
+    }
+
+    async fn device_network(&self) -> Result<DeviceNetwork> {
         let result = self
             .session
             .request("/home/device_list", json!({"get_extra": true}))
