@@ -152,7 +152,22 @@ function miIncludes(text, words) {
   return words.some((word) => text.includes(word));
 }
 
+// Device kind depends only on name and model, and every render asks for it
+// several times per device. Cache by those two strings.
+const miKindCache = new Map();
+
 function miDeviceKind(device) {
+  const key = `${device?.name || ''}\u0000${device?.model || ''}`;
+  let kind = miKindCache.get(key);
+  if (kind === undefined) {
+    if (miKindCache.size > 4096) miKindCache.clear();
+    kind = miDeviceKindUncached(device);
+    miKindCache.set(key, kind);
+  }
+  return kind;
+}
+
+function miDeviceKindUncached(device) {
   const name = String(device?.name || '');
   const model = String(device?.model || '').toLowerCase();
   const text = `${name} ${model}`.toLowerCase();

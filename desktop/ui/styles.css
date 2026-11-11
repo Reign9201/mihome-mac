@@ -243,6 +243,17 @@ kbd {
   font-size: 9px;
 }
 .topnav .nav-item.active .nav-count { background: var(--accent); color: var(--surface); }
+/* Set by fitTopnav() when the tab labels would run into the brand or the
+   environment capsule (narrow windows, long locales). Inactive tabs keep only
+   the icon; the label stays in the accessibility tree. */
+.topnav.compact-tabs .nav-item:not(.active) { padding: 0 9px; }
+.topnav.compact-tabs .nav-item:not(.active) > span:not(.nav-icon):not(.nav-count),
+.topnav.compact-all .nav-item > span:not(.nav-icon):not(.nav-count) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.topnav.compact-all .nav-item { padding: 0 9px; }
+.topnav.compact-caption .topnav-caption,
+.topnav.compact-brand .topnav-brand .brand-text { display: none; }
 .topnav-context { position: relative; justify-self: end; display: flex; align-items: center; gap: 11px; min-width: 0; }
 .topnav-caption { font-size: 10px; color: var(--ink-3); white-space: nowrap; }
 .env-wrap { position: relative; min-width: 0; }
@@ -485,6 +496,14 @@ kbd {
 .page-title { margin: 0; font-family: var(--display); font-size: 31px; font-weight: 500; letter-spacing: -.02em; line-height: 1.05; }
 .page-sub { margin: 7px 0 0; font-size: 12px; color: var(--ink-2); line-height: 1.5; }
 .head-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; }
+.head-actions > .primary-btn,
+.head-actions > .ghost-btn { flex-shrink: 0; white-space: nowrap; }
+.primary-btn > .ic { width: 14px; height: 14px; flex: 0 0 14px; }
+.cam-grid-pager { display: inline-flex; align-items: center; gap: 6px; }
+.cam-grid-pager[hidden] { display: none; }
+.cam-grid-pager .ghost-btn { padding: 5px 7px; }
+.cam-grid-pager span { min-width: 44px; text-align: center; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+[dir="rtl"] .cam-grid-pager .ic { transform: scaleX(-1); }
 
 .ghost-btn {
   min-height: 29px; white-space: normal; padding: 5px 11px; border: 1px solid var(--line); border-radius: 7px;
@@ -1162,6 +1181,29 @@ input[type="range"].temp-track::-webkit-slider-thumb { margin-top: -4px; }
 .cam-card-info { padding: 6px 3px 1px; }
 .cam-card-info strong { display: block; font-size: 10.5px; font-weight: 550; }
 .cam-card-info span { display: block; margin-top: 2px; font-size: 8.5px; color: var(--ink-3); }
+/* Long camera lists scroll inside the side panel instead of stretching the
+   page; above 12 cameras the cards drop the placeholder art. */
+@media (min-width: 1181px) {
+  .camera-side { position: sticky; top: 12px; display: flex; flex-direction: column; max-height: max(360px, calc(100vh - 300px)); }
+  .camera-side .cam-side-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .camera-side > :not(.cam-side-list) { flex: 0 0 auto; }
+}
+.cam-search {
+  display: block; width: calc(100% - 16px); height: 26px; margin: 8px; padding: 0 9px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 10.5px; outline: none;
+  -webkit-appearance: none; appearance: none;
+}
+.cam-search[hidden] { display: none; }
+.cam-search::placeholder { color: var(--ink-3); }
+.cam-search:focus { border-color: var(--accent); }
+.cam-side-list.compact .cam-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; padding: 6px 7px; }
+.cam-side-list.compact .cam-thumb-art { display: none; }
+.cam-card[hidden] { display: none !important; }
+.cam-side-list.compact .cam-card-info { padding: 0 2px; }
+.cam-side-list.compact .cam-card-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-side-list.compact .cam-actions { padding: 0; }
+.cam-side-list.compact .cam-card.offline .cam-card-info { opacity: .5; }
+.cam-side-empty { padding: 14px 12px; font-size: 10px; color: var(--ink-3); }
 .cam-side-note {
   display: flex; gap: 6px; padding: 10px 11px; border-top: 1px solid var(--line);
   font-size: 8.5px; line-height: 1.5; color: var(--ink-3);
@@ -1351,7 +1393,7 @@ input[type="range"].temp-track::-webkit-slider-thumb { margin-top: -4px; }
 @media (max-width: 1180px) {
   .camera-layout { grid-template-columns: 1fr; }
   .camera-side { margin-top: 2px; }
-  .camera-side .cam-side-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .camera-side .cam-side-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 420px; overflow-y: auto; }
   .camera-side .cam-card { border-bottom: 0; border-right: 1px solid var(--line); }
   .camera-side .cam-card:last-child { border-right: 0; }
   .camera-side .cam-side-note { border-top: 1px solid var(--line); }
@@ -1985,6 +2027,15 @@ html, body { overflow: hidden; }
 .cam-range-wrap { display: flex; align-items: center; gap: 5px; }
 .cam-control-note { grid-column: 1 / -1; margin: 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 9.5px; }
 .camera-wall { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 15px; }
+@media (min-width: 1100px) {
+  /* Three 16:9 rows fit under the page header, so a 3×3 page is visible
+     without scrolling: row height = (viewport - header - gaps) / 3. */
+  .camera-wall[data-dense] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: max(720px, calc((100vh - 300px) / 3 * 16 / 9 * 3 + 20px));
+    margin-inline: auto;
+  }
+}
 .cam-tile {
   position: relative;
   aspect-ratio: 16 / 9;
@@ -1996,6 +2047,12 @@ html, body { overflow: hidden; }
 .cam-tile video { width: 100%; height: 100%; object-fit: contain; }
 .cam-tile-title { position: absolute; left: 9px; top: 8px; z-index: 1; padding: 3px 6px; border-radius: 4px; background: rgba(0,0,0,.55); color: #eee; font-size: 9px; }
 .cam-tile-status { position: absolute; inset: 0; display: grid; place-items: center; background: #08090b; color: rgba(255,255,255,.5); font-size: 10px; }
+.cam-tile.openable { cursor: pointer; }
+.cam-tile.openable:hover .cam-tile-title,
+.cam-tile.openable:focus-visible .cam-tile-title { background: var(--accent); color: #fff; }
+.cam-tile.openable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.cam-tile-status { width: 100%; border: 0; font: inherit; font-size: 10px; cursor: pointer; }
+button.cam-tile-status:hover { color: rgba(255,255,255,.85); }
 
 @media (max-width: 1180px) {
   .inspector.open { width: min(var(--inspector), 44vw); }
@@ -3132,6 +3189,10 @@ button,
   position: relative;
   height: 97px;
   min-height: 97px;
+  /* Classic overview lays out every device card at once; skip layout and
+     paint for cards outside the viewport (fixed height keeps scroll exact). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 97px;
   padding: 8px 10px 7px;
   border: 1px solid rgba(255, 255, 255, 0.66);
   border-radius: 16px;

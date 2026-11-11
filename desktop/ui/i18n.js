@@ -187,6 +187,9 @@
   }
 
   function translateSubtree(root) {
+    // Source strings are Simplified Chinese, so there is nothing to do; this
+    // also spares the per-text-node closest() check on every render.
+    if (currentCode === 'zh-Hans') return;
     const target = root.nodeType === Node.TEXT_NODE ? root : root;
     if (target.nodeType === Node.TEXT_NODE) {
       if (shouldSkip(target)) return;
@@ -281,7 +284,10 @@
         }
       }
       translateSubtree(document.body);
-      startObserver();
+      // Changing the language reloads the page, so a zh-Hans page never needs
+      // to translate nodes added later. Rendering 279 device cards otherwise
+      // spent about a third of its time in this observer.
+      if (currentCode !== 'zh-Hans') startObserver();
       populateLanguageSelect();
     } finally {
       document.documentElement.classList.remove('i18n-loading');
