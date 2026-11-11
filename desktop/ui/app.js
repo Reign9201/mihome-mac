@@ -75,6 +75,7 @@ const state = {
   homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
   page: 'overview', theme: localStorage.getItem('mihome-theme') || 'light',
   density: localStorage.getItem('mihome-density') || 'comfortable',
+  style: localStorage.getItem('mihome-style') === 'classic' ? 'classic' : 'modern',
   overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
   sensorSeries: [], paletteIndex: 0, paletteItems: [],
   polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
@@ -85,6 +86,8 @@ const state = {
   cameraStopSequence: 0,
   cameraQueue: Promise.resolve(),
   restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
+  environmentValues: new Map(), environmentRequest: 0, environmentRevision: 0,
+  environmentRefreshing: false, environmentSyncAt: 0,
   remoteAudio: new Map(),
   videoPlayers: new WeakMap(), streamCleanups: new Set(),
   hydratedCards: new Set(), cardObserver: null, cardHydrationQueue: new Map(),
@@ -417,6 +420,11 @@ async function resetAccountScopedState(reason) {
   state.cardHydrationQueue.clear();
   state.hydratedCards.clear();
   state.cardProps = new Map();
+  state.environmentValues = new Map();
+  state.environmentRequest += 1;
+  state.environmentRevision += 1;
+  state.environmentRefreshing = false;
+  state.environmentSyncAt = 0;
   state.overviewSensorLoading.clear();
   state.overviewSensorHydrated.clear();
   state.sensorSeries = [];
@@ -661,6 +669,7 @@ function updateChrome() {
       statusSync.textContent = '等待首次同步';
     }
   }
+  updateEnvironmentCapsule();
   updateSettingsSelection();
 }
 
@@ -773,6 +782,9 @@ async function loadDevices() {
     state.lastPresenceSyncAt = Date.now();
     state.presenceSyncFailed = false;
     state.cardProps = new Map();
+    state.environmentValues = new Map();
+    state.environmentRevision += 1;
+    state.environmentSyncAt = 0;
     state.hydratedCards = new Set();
     state.overviewSensorHydrated.clear();
     state.sensorSeries = [];
@@ -783,6 +795,7 @@ async function loadDevices() {
     renderOverview();
     updateChrome();
     loadDeviceSpecs(devices);
+    refreshEnvironmentStatus();
   } catch (error) {
     if (request !== state.devicesRequest || homeId !== state.homeId) return;
     $('#deviceList').replaceChildren(el('div', 'empty error', `读取设备失败：${error}`));
@@ -841,6 +854,7 @@ async function refreshDevicePresence() {
     else if ($('#inspector').classList.contains('open')) closeInspector();
     updateChrome();
     if ($('#menubarPop').classList.contains('open')) renderQuickPanel();
+    refreshEnvironmentStatus();
     for (const device of onlineChanged) {
       if (device.online) queueCardHydration(device);
     }
@@ -911,7 +925,10 @@ function cardProfile(device) {
 async function loadDeviceSpecs(devices) {
   const types = [...new Set(devices.map((device) => device.spec_type).filter(Boolean))];
   const missing = types.filter((type) => !state.specs.has(type) && !state.specPending.has(type));
-  if (!missing.length) return;
+  if (!missing.length) {
+    refreshEnvironmentStatus();
+    return;
+  }
   state.specLoading = true;
   for (const type of missing) state.specPending.add(type);
   let failedBatches = 0;
@@ -951,6 +968,7 @@ async function loadDeviceSpecs(devices) {
       const selected = state.devices.find((device) => device.did === state.selected.did);
       if (selected) selectDevice(selected);
     }
+    refreshEnvironmentStatus();
   }
 }
 
@@ -1011,6 +1029,7 @@ async function flushCardHydration() {
     state.hydratedCards.add(device.did);
     refreshDeviceCard(device);
   }
+  updateChrome();
 }
 
 function formatCardValue(value, def) {
@@ -1055,7 +1074,10 @@ async function setCardProp(device, siid, piid, value) {
   const item = Array.isArray(result) ? result[0] : result;
   if (item?.code && item.code !== 0) throw new Error(`code ${item.code}`);
   state.cardProps.set(propKey(device.did, siid, piid), value);
+  state.environmentValues.set(propKey(device.did, siid, piid), value);
+  state.environmentRevision += 1;
   refreshDeviceCard(device);
+  updateChrome();
 }
 
 function cardReboot(device) {
@@ -1330,6 +1352,68 @@ function openCameraDevice(device) {
   }
 }
 
+function cardCameraView(device) {
+  const button = el('button', 'card-power card-camera');
+  button.type = 'button';
+  button.title = uiText('查看监控');
+  button.setAttribute('aria-label', `${uiText('查看监控')}：${device.name}`);
+  button.innerHTML = uiIcon('play');
+  button.onclick = (event) => {
+    event.stopPropagation();
+    openCameraDevice(device);
+  };
+  return button;
+}
+
+function renderDeviceCard(device) {
+  const profile = cardProfile(device);
+  const kind = deviceKind(device);
+  const family = window.MiIcons.familyFor(kind);
+  const card = el(
+    'article',
+    `device-card ${state.selected?.did === device.did ? 'active' : ''} ${device.online ? '' : 'offline'}`,
+  );
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `${device.name}，${roomName(device)}`);
+  card.dataset.family = family;
+  card.dataset.did = device.did;
+
+  const top = el('div', 'device-card-top');
+  const glyph = el('span', 'device-glyph');
+  glyph.dataset.kind = kind;
+  glyph.dataset.family = family;
+  glyph.innerHTML = deviceGlyph(device);
+  top.append(glyph);
+
+  const topActions = el('div', 'card-top-actions');
+  const primary = profile.controls.find((item) => item.primary);
+  if (primary) topActions.append(cardPower(device, primary));
+  else if (profile.action?.kind === 'tv-power') topActions.append(cardTvPower(device));
+  else if (profile.action?.kind === 'reboot') topActions.append(cardReboot(device));
+  else if (profile.action?.kind === 'camera') topActions.append(cardCameraView(device));
+  top.append(topActions);
+  card.append(top);
+
+  const title = el('div', 'device-card-title');
+  title.append(el('strong', 'device-card-name', device.name));
+  const subline = el('div', 'card-subline');
+  subline.append(el('span', 'device-room', roomName(device)));
+  subline.append(el('span', 'card-subline-sep', '·'));
+  subline.append(el('span', 'card-summary', cardSummary(device, profile)));
+  title.append(subline);
+  card.append(title);
+
+  card.onclick = () => selectDevice(device);
+  card.onkeydown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectDevice(device);
+    }
+  };
+  return card;
+}
+
 function renderDeviceRow(device) {
   const profile = cardProfile(device);
   const kind = deviceKind(device);
@@ -1353,7 +1437,12 @@ function renderDeviceRow(device) {
     const camera = state.cameras.find((item) => item.did === device.did);
     name.append(el('span', camera?.ip ? 'tag lan' : 'tag cloud', camera?.ip ? '本地' : '远程'));
   }
-  copy.append(name, el('div', 'device-meta', cardSummary(device, profile)));
+  const meta = el('div', 'device-meta');
+  if (document.body.dataset.style === 'classic') {
+    meta.append(el('span', 'device-room-label', roomName(device)), el('span', 'device-meta-separator', ' · '));
+  }
+  meta.append(document.createTextNode(cardSummary(device, profile)));
+  copy.append(name, meta);
   row.append(copy);
 
   const controls = el('div', 'device-control');
@@ -1484,13 +1573,15 @@ function renderDeviceTableRow(device) {
 }
 
 function refreshDeviceCard(device) {
-  const rows = [...document.querySelectorAll('.device-row, .table-row')]
+  const rows = [...document.querySelectorAll('.device-card, .device-row, .table-row')]
     .filter((node) => node.dataset.did === device.did);
   for (const old of rows) {
     state.cardObserver?.unobserve(old);
-    const replacement = old.classList.contains('table-row')
-      ? renderDeviceTableRow(device)
-      : renderDeviceRow(device);
+    const replacement = old.classList.contains('device-card')
+      ? renderDeviceCard(device)
+      : old.classList.contains('table-row')
+        ? renderDeviceTableRow(device)
+        : renderDeviceRow(device);
     old.replaceWith(replacement);
     observeDeviceCard(replacement, device);
   }
@@ -1592,9 +1683,195 @@ function overviewSensorValues(sensor) {
   const temperatureDef = findMetric(/温度|temperature/i);
   const humidityDef = findMetric(/湿度|humidity/i);
   return {
-    temperature: temperatureDef ? cardValue(sensor, temperatureDef.siid, temperatureDef.piid) : null,
-    humidity: humidityDef ? cardValue(sensor, humidityDef.siid, humidityDef.piid) : null,
+    temperature: temperatureDef ? environmentValue(sensor, temperatureDef) : null,
+    humidity: humidityDef ? environmentValue(sensor, humidityDef) : null,
   };
+}
+
+function overviewSensorDevice() {
+  const sensors = state.devices.filter((device) =>
+    deviceKind(device) === 'temp-humidity'
+    || ['motion-sensor', 'sensor'].includes(deviceKind(device)));
+  return sensors.find((device) => device.online) || sensors[0] || null;
+}
+
+function environmentValue(device, item) {
+  if (!device || !item) return undefined;
+  const key = propKey(device.did, item.siid, item.piid);
+  return state.environmentValues.has(key)
+    ? state.environmentValues.get(key)
+    : cardValue(device, item.siid, item.piid);
+}
+
+const CONSUMABLE_PATTERN = /filter-life|filter-remaining|remaining-filter|cartridge|consumable|滤芯|耗材/i;
+
+function deviceConsumables(device) {
+  const profile = cardProfile(device);
+  const seen = new Set();
+  return [...profile.metrics, ...profile.controls].filter((item) => {
+    const key = `${item.siid}:${item.piid}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return item.readable !== false
+      && CONSUMABLE_PATTERN.test(`${item.suffix || ''} ${item.label || ''}`);
+  });
+}
+
+function consumableIsLow(item, value) {
+  const numeric = typeof value === 'boolean' ? Number(value) : Number(value);
+  if (!Number.isFinite(numeric)) return false;
+  const max = Number(item?.max);
+  const threshold = Number.isFinite(max)
+    ? (max <= 1 ? 0.2 : Math.max(1, max * 0.2))
+    : (item?.unit === '%' ? 20 : 20);
+  return numeric <= threshold;
+}
+
+function environmentSnapshot() {
+  const sensor = overviewSensorDevice();
+  const sensorValues = overviewSensorValues(sensor);
+  const online = state.devices.filter((device) => device.online).length;
+  let powered = 0;
+  let powerKnown = 0;
+  let powerCapable = 0;
+  let consumableTotal = 0;
+  let consumableKnown = 0;
+  let consumableLow = 0;
+
+  for (const device of state.devices) {
+    if (!device.online) continue;
+    const primary = cardProfile(device).controls.find((item) => item.primary);
+    if (primary) {
+      powerCapable += 1;
+      const value = environmentValue(device, primary);
+      if (value !== undefined && value !== null) {
+        powerKnown += 1;
+        if (value === true) powered += 1;
+      }
+    }
+    for (const item of deviceConsumables(device)) {
+      const value = environmentValue(device, item);
+      consumableTotal += 1;
+      if (value === undefined || value === null) continue;
+      consumableKnown += 1;
+      if (consumableIsLow(item, value)) consumableLow += 1;
+    }
+  }
+
+  return {
+    sensor,
+    temperature: Number(sensorValues.temperature),
+    humidity: Number(sensorValues.humidity),
+    online,
+    total: state.devices.length,
+    powered,
+    powerKnown,
+    powerCapable,
+    consumableTotal,
+    consumableKnown,
+    consumableLow,
+    syncAt: state.environmentSyncAt,
+  };
+}
+
+function updateEnvironmentCapsule() {
+  const capsule = $('#envCapsule');
+  if (!capsule) return;
+  const data = environmentSnapshot();
+  const temperature = Number.isFinite(data.temperature) ? data.temperature : null;
+  const humidity = Number.isFinite(data.humidity) ? data.humidity : null;
+  const powered = data.powerKnown ? String(data.powered) : '—';
+  const consumable = data.consumableKnown
+    ? String(data.consumableLow)
+    : data.consumableTotal ? '—' : '0';
+
+  $('#envTempValue').textContent = temperature === null ? '—' : `${temperature.toFixed(1)}°`;
+  $('#envHumidityValue').textContent = humidity === null ? '—' : `${humidity.toFixed(0)}%`;
+  $('#envPoweredValue').textContent = powered;
+  $('#envConsumableValue').textContent = consumable;
+
+  $('#envTemperature').title = uiText('温度');
+  $('#envHumidity').title = uiText('湿度');
+  $('#envPowered').title = `${uiText('已开启')} ${powered} · ${uiText('在线 {0}/{1}', [
+    data.online,
+    data.total,
+  ])}`;
+  $('#envConsumable').title = `${uiText('耗材不足')} ${consumable}`;
+  $('#envConsumable').classList.toggle('attention', data.consumableLow > 0);
+  $('#envPopConsumableItem').classList.toggle('attention', data.consumableLow > 0);
+
+  $('#envPopTemp').textContent = temperature === null ? '—' : `${temperature.toFixed(1)} °C`;
+  $('#envPopHumidity').textContent = humidity === null ? '—' : `${humidity.toFixed(0)}%`;
+  $('#envPopPowered').textContent = data.powerKnown
+    ? `${data.powered} / ${data.powerCapable}`
+    : '—';
+  $('#envPopOnline').textContent = `${data.online} / ${data.total}`;
+  $('#envPopConsumable').textContent = data.consumableKnown
+    ? `${data.consumableLow} / ${data.consumableTotal}`
+    : data.consumableTotal ? '—' : '0';
+  $('#envPopSource').textContent = data.sensor
+    ? `${roomName(data.sensor)} · ${data.sensor.name}`
+    : uiText('家庭环境');
+}
+
+async function refreshEnvironmentStatus() {
+  if (!invoke || !state.loggedIn || !state.homeId || state.environmentRefreshing) return false;
+  const sensor = overviewSensorDevice();
+  const requests = [];
+  const seen = new Set();
+  const addRequest = (device, item) => {
+    if (!device || !item || item.readable === false) return;
+    const key = propKey(device.did, item.siid, item.piid);
+    if (seen.has(key)) return;
+    seen.add(key);
+    requests.push({ did: device.did, siid: item.siid, piid: item.piid });
+  };
+
+  if (sensor) {
+    for (const item of cardProfile(sensor).metrics) addRequest(sensor, item);
+  }
+  for (const device of state.devices) {
+    if (!device.online) continue;
+    const primary = cardProfile(device).controls.find((item) => item.primary);
+    addRequest(device, primary);
+    for (const item of deviceConsumables(device)) addRequest(device, item);
+  }
+  if (!requests.length) {
+    state.environmentSyncAt = Date.now();
+    updateEnvironmentCapsule();
+    return true;
+  }
+
+  const homeId = state.homeId;
+  const generation = state.accountGeneration;
+  const revision = state.environmentRevision;
+  const request = ++state.environmentRequest;
+  state.environmentRefreshing = true;
+  try {
+    const result = await invoke('get_properties', { requests });
+    if (
+      request !== state.environmentRequest
+      || homeId !== state.homeId
+      || generation !== state.accountGeneration
+      || revision !== state.environmentRevision
+    ) return false;
+    const values = new Map(state.environmentValues);
+    for (const item of Array.isArray(result) ? result : []) {
+      if (!item || !item.did || (item.code && item.code !== 0)) continue;
+      values.set(propKey(item.did, item.siid, item.piid), item.value);
+    }
+    state.environmentValues = values;
+    state.environmentSyncAt = Date.now();
+    return true;
+  } catch (error) {
+    log.debug('Overview', `读取设备状态失败：${error}`);
+    return false;
+  } finally {
+    if (request === state.environmentRequest) {
+      state.environmentRefreshing = false;
+      updateChrome();
+    }
+  }
 }
 
 function sparkline(values, key = 'spark') {
@@ -1637,7 +1914,9 @@ async function hydrateOverviewSensor(sensor) {
     if (generation !== state.accountGeneration || homeId !== state.homeId) return;
     for (const item of Array.isArray(result) ? result : []) {
       if (!item || item.did !== sensor.did || (item.code && item.code !== 0)) continue;
-      state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
+      const key = propKey(item.did, item.siid, item.piid);
+      state.cardProps.set(key, item.value);
+      state.environmentValues.set(key, item.value);
     }
     const values = overviewSensorValues(sensor);
     if (Number.isFinite(Number(values.temperature))) {
@@ -1650,6 +1929,7 @@ async function hydrateOverviewSensor(sensor) {
     state.overviewSensorLoading.delete(sensor.did);
     if (generation === state.accountGeneration && homeId === state.homeId) {
       state.overviewSensorHydrated.add(sensor.did);
+      updateChrome();
       if (state.page === 'overview') renderOverview(true);
     }
   }
@@ -1800,20 +2080,32 @@ function renderOverview(preserveScroll = false) {
   if (!visibleRooms.length) {
     box.append(el('div', 'empty', '这个家庭还没有可显示的房间与设备'));
   }
-  for (const room of visibleRooms) {
-    const section = el('section', 'room-block');
-    const head = el('div', 'room-head');
-    head.append(el('span', 'room-title', room.name), el('span', 'room-count', `${room.devices.length} 台`), el('span', 'line'));
+  const renderRoomDevices = (devices, renderer = renderDeviceRow) => {
     const list = el('div', 'device-list');
     const fragment = document.createDocumentFragment();
-    for (const device of room.devices) {
-      const row = renderDeviceRow(device);
+    for (const device of devices) {
+      const row = renderer(device);
       fragment.append(row);
       observeDeviceCard(row, device);
     }
     list.append(fragment);
-    section.append(head, list);
+    return list;
+  };
+  if (document.body.dataset.style === 'classic') {
+    const section = el('section', 'room-block classic-room-block');
+    section.append(renderRoomDevices(
+      visibleRooms.flatMap((room) => room.devices),
+      renderDeviceCard,
+    ));
     box.append(section);
+  } else {
+    for (const room of visibleRooms) {
+      const section = el('section', 'room-block');
+      const head = el('div', 'room-head');
+      head.append(el('span', 'room-title', room.name), el('span', 'room-count', `${room.devices.length} 台`), el('span', 'line'));
+      section.append(head, renderRoomDevices(room.devices));
+      box.append(section);
+    }
   }
   if (sensor) hydrateOverviewSensor(sensor);
   $('#main').scrollTop = scroll;
@@ -4354,19 +4646,50 @@ function applyTheme(theme) {
   updateSettingsSelection();
 }
 
+function applyStyle(style) {
+  state.style = style === 'classic' ? 'classic' : 'modern';
+  document.body.dataset.style = state.style;
+  localStorage.setItem('mihome-style', state.style);
+  updateSettingsSelection();
+  if (state.page === 'overview' && $('#overviewView .device-row')) renderOverview(true);
+}
+
 function updateSettingsSelection() {
   document.querySelectorAll('[data-theme-set]').forEach((button) => {
     button.classList.toggle('active', button.dataset.themeSet === state.theme);
+  });
+  document.querySelectorAll('[data-style-set]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.styleSet === state.style);
   });
   document.querySelectorAll('[data-density-set]').forEach((button) => {
     button.classList.toggle('active', button.dataset.densitySet === state.density);
   });
 }
 
+function toggleEnvironmentPopover(force) {
+  const capsule = $('#envCapsule');
+  const popover = $('#envPopover');
+  if (!capsule || !popover) return;
+  const open = force ?? popover.hidden;
+  popover.hidden = !open;
+  capsule.setAttribute('aria-expanded', String(open));
+}
+
 document.addEventListener('click', (event) => {
+  const environmentCapsule = event.target.closest('#envCapsule');
+  if (environmentCapsule) {
+    toggleEnvironmentPopover();
+    return;
+  }
+  if (!event.target.closest('#envWrap')) toggleEnvironmentPopover(false);
   const themeButton = event.target.closest('[data-theme-set]');
   if (themeButton) {
     applyTheme(themeButton.dataset.themeSet);
+    return;
+  }
+  const styleButton = event.target.closest('[data-style-set]');
+  if (styleButton) {
+    applyStyle(styleButton.dataset.styleSet);
     return;
   }
   const densityButton = event.target.closest('[data-density-set]');
@@ -4683,12 +5006,14 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     closeAccountPop();
     closeInspector();
+    toggleEnvironmentPopover(false);
   }
 });
 
 async function boot() {
   await window.__MIHOME_I18N_READY__;
   applyStaticIcons();
+  applyStyle(state.style);
   applyTheme(state.theme);
   document.body.dataset.density = state.density;
   updateSettingsSelection();

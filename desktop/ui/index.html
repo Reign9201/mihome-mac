@@ -14,7 +14,7 @@
   <script src="camera-player.js"></script>
   <script src="i18n.js"></script>
 </head>
-<body data-theme="light" data-density="comfortable">
+<body data-theme="light" data-density="comfortable" data-style="modern">
   <div class="app-window native" id="appWindow">
     <header class="titlebar native-titlebar" id="titlebar" data-tauri-drag-region>
       <span class="titlebar-spacer" aria-hidden="true"></span>
@@ -71,6 +71,51 @@
       </div>
 
       <div class="topnav-context">
+        <div class="env-wrap" id="envWrap">
+          <button class="env-capsule" id="envCapsule" type="button" aria-label="家庭环境" aria-expanded="false" aria-controls="envPopover">
+            <span class="env-metric env-temperature" id="envTemperature">
+              <span data-icon="thermometer"></span><b id="envTempValue">--</b>
+            </span>
+            <span class="env-metric env-humidity" id="envHumidity">
+              <span data-icon="drop"></span><b id="envHumidityValue">--</b>
+            </span>
+            <span class="env-divider" aria-hidden="true"></span>
+            <span class="env-metric env-powered" id="envPowered">
+              <span data-icon="power"></span><b id="envPoweredValue">--</b>
+            </span>
+            <span class="env-metric env-consumable" id="envConsumable">
+              <span data-icon="purifier"></span><b id="envConsumableValue">--</b>
+            </span>
+          </button>
+          <div class="env-popover" id="envPopover" hidden>
+            <div class="env-pop-head">
+              <strong>家庭环境</strong>
+              <span id="envPopSource">--</span>
+            </div>
+            <div class="env-pop-grid">
+              <div class="env-pop-item">
+                <span data-icon="thermometer"></span>
+                <div><small>温度</small><strong id="envPopTemp">--</strong></div>
+              </div>
+              <div class="env-pop-item">
+                <span data-icon="drop"></span>
+                <div><small>湿度</small><strong id="envPopHumidity">--</strong></div>
+              </div>
+              <div class="env-pop-item">
+                <span data-icon="power"></span>
+                <div><small>已开启</small><strong id="envPopPowered">--</strong></div>
+              </div>
+              <div class="env-pop-item">
+                <span data-icon="grid"></span>
+                <div><small>在线设备</small><strong id="envPopOnline">--</strong></div>
+              </div>
+              <div class="env-pop-item env-pop-consumable" id="envPopConsumableItem">
+                <span data-icon="purifier"></span>
+                <div><small>耗材不足</small><strong id="envPopConsumable">--</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
         <span class="topnav-caption" id="topnavCaption">本地优先 · 云端兜底</span>
         <label class="home-chip" title="切换家庭">
           <span class="home-chip-dot"></span>
@@ -543,6 +588,13 @@
                 <div class="segmented" id="themeSetting">
                   <button data-theme-set="light">浅色</button>
                   <button data-theme-set="dark">深色</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label"><strong>界面风格</strong><small>现代列表与经典设备卡片可随时切换</small></div>
+                <div class="segmented" id="styleSetting">
+                  <button data-style-set="modern">现代</button>
+                  <button data-style-set="classic">经典</button>
                 </div>
               </div>
               <div class="setting-row">

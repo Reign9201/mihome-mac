@@ -2,13 +2,16 @@ use anyhow::{anyhow, Context, Result};
 use mihome_core::{AsrConfig, AsrProvider};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 
 const MAX_AUDIO_BYTES: usize = 20 * 1024 * 1024;
 const LOCAL_TIMEOUT: Duration = Duration::from_secs(90);
 const CLOUD_TIMEOUT: Duration = Duration::from_secs(60);
+const WHISPER_DECODE_ARGS: [&str; 7] = ["-t", "4", "-bs", "1", "-bo", "1", "-ng"];
 const SMART_HOME_PROMPT: &str = "以下是普通话智能家居控制指令。常用设备和说法：客厅灯、卧室灯、台灯、空调、风扇、窗帘、客厅、卧室、主卧、次卧、打开、关闭、调到、温度、亮度。示例：打开客厅灯。关闭卧室灯。把主卧空调调到26度。客厅温度多少。";
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 pub(crate) async fn transcribe(
     config: &AsrConfig,
@@ -21,13 +24,30 @@ pub(crate) async fn transcribe(
     if audio.len() > MAX_AUDIO_BYTES {
         return Err(anyhow!("语音文件超过 20 MB，已拒绝处理"));
     }
+    let audio_bytes = audio.len();
     let temp = TempAudio::create(&audio, extension)?;
+    let transcode_started = Instant::now();
     let wav = transcode_to_wav(&temp.path).await?;
-    let text = match config.provider {
+    let transcode_ms = transcode_started.elapsed().as_millis();
+    let recognition_started = Instant::now();
+    let recognition = match config.provider {
         AsrProvider::WhisperCpp => transcribe_whisper_cpp(config, &wav.path).await,
         AsrProvider::Apple => transcribe_apple(&wav.path).await,
         AsrProvider::OpenaiCompatible => transcribe_openai(config, &wav.path).await,
-    }?;
+    };
+    let recognition_ms = recognition_started.elapsed().as_millis();
+    mihome_core::logging::info(
+        "ASR",
+        format!(
+            "语音识别完成：provider={:?}，audio={}KB，转码={}ms，识别={}ms，ok={}",
+            config.provider,
+            audio_bytes / 1024,
+            transcode_ms,
+            recognition_ms,
+            recognition.is_ok()
+        ),
+    );
+    let text = recognition?;
     let text = clean_transcript(&text);
     if text.is_empty() {
         return Err(anyhow!("没有识别到语音内容，请靠近麦克风后重试"));
@@ -73,8 +93,11 @@ async fn transcribe_whisper_cpp(config: &AsrConfig, wav: &Path) -> Result<String
         .arg("-of")
         .arg(&output_prefix)
         .arg("-nt")
-        .arg("-np")
-        .arg("-ng")
+        .arg("-np");
+    for argument in WHISPER_DECODE_ARGS {
+        process.arg(argument);
+    }
+    process
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -151,7 +174,7 @@ async fn transcribe_openai(config: &AsrConfig, wav: &Path) -> Result<String> {
     }
     let response = tokio::time::timeout(
         CLOUD_TIMEOUT,
-        reqwest::Client::new()
+        shared_http_client()?
             .post(endpoint)
             .bearer_auth(config.api_key.trim())
             .multipart(form)
@@ -174,7 +197,7 @@ async fn test_openai(config: &AsrConfig) -> Result<String> {
         .text("model", config.model.clone());
     let response = tokio::time::timeout(
         CLOUD_TIMEOUT,
-        reqwest::Client::new()
+        shared_http_client()?
             .post(endpoint)
             .bearer_auth(config.api_key.trim())
             .multipart(form)
@@ -215,6 +238,21 @@ fn transcription_endpoint(base_url: &str) -> Result<String> {
     } else {
         Ok(format!("{base}/audio/transcriptions"))
     }
+}
+
+fn shared_http_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(CLOUD_TIMEOUT)
+        .build()
+        .context("创建语音识别客户端失败")?;
+    let _ = HTTP_CLIENT.set(client);
+    HTTP_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("创建语音识别客户端失败"))
 }
 
 async fn transcode_to_wav(source: &Path) -> Result<TempAudio> {
@@ -586,6 +624,17 @@ mod tests {
         assert_eq!(whisper_language("auto"), "auto");
         assert!(transcription_prompt("zh").is_some());
         assert!(transcription_prompt("en").is_none());
+    }
+
+    #[test]
+    fn uses_low_latency_cpu_whisper_decoding() {
+        assert!(WHISPER_DECODE_ARGS
+            .windows(2)
+            .any(|args| args == ["-bs", "1"]));
+        assert!(WHISPER_DECODE_ARGS
+            .windows(2)
+            .any(|args| args == ["-bo", "1"]));
+        assert!(WHISPER_DECODE_ARGS.contains(&"-ng"));
     }
 
     #[test]

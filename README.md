@@ -112,6 +112,20 @@ MIHOME_LOG_LEVEL=debug npm --prefix desktop run dev
 
 可用 `MIHOME_LOG_DIR=/path/to/logs` 修改日志目录，用 `MIHOME_DIAGNOSTICS_DIR=/path/to/export` 修改导出目录。日志模块不依赖 Tauri，接入方式和轮转边界见 [诊断日志设计](docs/07-diagnostic-log.md)。
 
+## 开发清理
+
+项目中的 Rust `target`、UI 回归截图、i18n 缓存和 FFmpeg 构建缓存都可以重新生成。清理脚本默认只做 dry-run：
+
+```bash
+# 查看将删除的测试和临时文件
+./scripts/clean-artifacts.sh
+
+# 清理测试残留、临时文件、Rust target、回归 DMG 和 FFmpeg 旧缓存
+./scripts/clean-artifacts.sh --apply --build --ffmpeg-cache --ffmpeg-sources
+```
+
+脚本不会删除源码、`.git`、应用配置、米家账号、模型、工具，或 `dist/macos` 中已发布的 DMG/SHA256。
+
 ## 快速开始
 
 ### 交互原型

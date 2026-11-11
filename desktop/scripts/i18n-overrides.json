@@ -3,6 +3,7 @@
     "设备": "Device",
     "全部设备": "All devices",
     "在线设备": "Online devices",
+    "耗材不足": "Consumables low",
     "设备动作": "Device actions",
     "设备离线": "Device is offline",
     "账号": "User account",
@@ -191,7 +192,11 @@
     "路由状态": "Routing status",
     "本地直连": "Local direct connection",
     "本地优先": "Local first",
-    "本机定时": "Local schedule"
+    "本机定时": "Local schedule",
+    "界面风格": "Interface style",
+    "现代列表与经典设备卡片可随时切换": "Switch anytime between the modern list and classic device cards",
+    "现代": "Modern",
+    "经典": "Classic"
   },
   "zh-Hant": {
     "设备": "裝置",
@@ -430,7 +435,12 @@
     "路由状态": "路由狀態",
     "本地直连": "本機直連",
     "本地优先": "本機優先",
-    "本机定时": "本機排程"
+    "本机定时": "本機排程",
+    "界面风格": "介面風格",
+    "现代列表与经典设备卡片可随时切换": "可隨時切換現代清單與經典裝置卡片",
+    "现代": "現代",
+    "经典": "經典",
+    "耗材不足": "耗材不足"
   },
   "zh-HK": {
     "设备": "裝置",
@@ -669,7 +679,12 @@
     "路由状态": "路由狀態",
     "本地直连": "本機直連",
     "本地优先": "本機優先",
-    "本机定时": "本機排程"
+    "本机定时": "本機排程",
+    "界面风格": "介面風格",
+    "现代列表与经典设备卡片可随时切换": "可隨時切換現代清單與經典裝置卡片",
+    "现代": "現代",
+    "经典": "經典",
+    "耗材不足": "耗材不足"
   },
   "ja": {
     "设备": "デバイス",
@@ -863,7 +878,12 @@
     "路由状态": "ルーティングステータス",
     "本地直连": "ローカルダイレクト接続",
     "本地优先": "ローカルファースト",
-    "本机定时": "現地スケジュール"
+    "本机定时": "現地スケジュール",
+    "界面风格": "表示スタイル",
+    "现代列表与经典设备卡片可随时切换": "モダンなリストとクラシックなデバイスカードをいつでも切り替えられます",
+    "现代": "モダン",
+    "经典": "クラシック",
+    "耗材不足": "消耗品不足"
   },
   "ko": {
     "设备": "장치",
@@ -1057,7 +1077,12 @@
     "路由状态": "라우팅 상태",
     "本地直连": "로컬 직접 연결",
     "本地优先": "지역 우선",
-    "本机定时": "현지 일정"
+    "本机定时": "현지 일정",
+    "界面风格": "인터페이스 스타일",
+    "现代列表与经典设备卡片可随时切换": "모던 목록과 클래식 기기 카드를 언제든 전환할 수 있습니다",
+    "现代": "모던",
+    "经典": "클래식",
+    "耗材不足": "소모품 부족"
   },
   "de": {
     "设备": "Gerät",
@@ -1251,7 +1276,12 @@
     "路由状态": "Routing-Status",
     "本地直连": "Lokale Direktverbindung",
     "本地优先": "Lokal zuerst",
-    "本机定时": "Lokaler Zeitplan"
+    "本机定时": "Lokaler Zeitplan",
+    "界面风格": "Oberflächenstil",
+    "现代列表与经典设备卡片可随时切换": "Jederzeit zwischen moderner Liste und klassischen Gerätekarten wechseln",
+    "现代": "Modern",
+    "经典": "Klassisch",
+    "耗材不足": "Verbrauchsmaterial niedrig"
   },
   "fr": {
     "设备": "Appareil",
@@ -1445,7 +1475,12 @@
     "路由状态": "État du routage",
     "本地直连": "Connexion directe locale",
     "本地优先": "Local d’abord",
-    "本机定时": "Horaire local"
+    "本机定时": "Horaire local",
+    "界面风格": "Style de l’interface",
+    "现代列表与经典设备卡片可随时切换": "Passez à tout moment de la liste moderne aux cartes d’appareil classiques",
+    "现代": "Moderne",
+    "经典": "Classique",
+    "耗材不足": "Consommables faibles"
   },
   "es": {
     "设备": "Dispositivo",
@@ -1639,7 +1674,12 @@
     "路由状态": "Estado de ruta",
     "本地直连": "Conexión local directa",
     "本地优先": "Local primero",
-    "本机定时": "Horario local"
+    "本机定时": "Horario local",
+    "界面风格": "Estilo de interfaz",
+    "现代列表与经典设备卡片可随时切换": "Cambia en cualquier momento entre la lista moderna y las tarjetas clásicas de dispositivos",
+    "现代": "Moderno",
+    "经典": "Clásico",
+    "耗材不足": "Consumibles bajos"
   },
   "pt-BR": {
     "设备": "Dispositivo",
@@ -1833,7 +1873,12 @@
     "路由状态": "Status de roteamento",
     "本地直连": "Conexão direta local",
     "本地优先": "Local primeiro",
-    "本机定时": "Programação local"
+    "本机定时": "Programação local",
+    "界面风格": "Estilo da interface",
+    "现代列表与经典设备卡片可随时切换": "Alterne a qualquer momento entre a lista moderna e os cartões clássicos de dispositivos",
+    "现代": "Moderno",
+    "经典": "Clássico",
+    "耗材不足": "Consumíveis baixos"
   },
   "pt-PT": {
     "设备": "Dispositivo",
@@ -2027,7 +2072,12 @@
     "路由状态": "Estado de roteamento",
     "本地直连": "Ligação direta local",
     "本地优先": "Local primeiro",
-    "本机定时": "Programação local"
+    "本机定时": "Programação local",
+    "界面风格": "Estilo da interface",
+    "现代列表与经典设备卡片可随时切换": "Alterne a qualquer momento entre a lista moderna e os cartões clássicos de dispositivos",
+    "现代": "Moderno",
+    "经典": "Clássico",
+    "耗材不足": "Consumíveis baixos"
   },
   "it": {
     "设备": "Dispositivo",
@@ -2221,7 +2271,12 @@
     "路由状态": "Stato del percorso",
     "本地直连": "Collegamento diretto locale",
     "本地优先": "Prima il locale",
-    "本机定时": "Programma locale"
+    "本机定时": "Programma locale",
+    "界面风格": "Stile dell’interfaccia",
+    "现代列表与经典设备卡片可随时切换": "Passa in qualsiasi momento dall’elenco moderno alle schede classiche dei dispositivi",
+    "现代": "Moderno",
+    "经典": "Classico",
+    "耗材不足": "Consumabili bassi"
   },
   "nl": {
     "设备": "Apparaat",
@@ -2415,7 +2470,12 @@
     "路由状态": "Routeringsstatus",
     "本地直连": "Lokale directe verbinding",
     "本地优先": "Lokaal eerst",
-    "本机定时": "Lokaal schema"
+    "本机定时": "Lokaal schema",
+    "界面风格": "Interfacestijl",
+    "现代列表与经典设备卡片可随时切换": "Schakel op elk moment tussen de moderne lijst en klassieke apparaatkaarten",
+    "现代": "Modern",
+    "经典": "Klassiek",
+    "耗材不足": "Verbruiksartikelen laag"
   },
   "ru": {
     "设备": "Устройство",
@@ -2609,7 +2669,12 @@
     "路由状态": "Статус маршрутизации",
     "本地直连": "Местное прямое соединение",
     "本地优先": "Сначала местный",
-    "本机定时": "Местное расписание"
+    "本机定时": "Местное расписание",
+    "界面风格": "Стиль интерфейса",
+    "现代列表与经典设备卡片可随时切换": "В любой момент переключайтесь между современным списком и классическими карточками устройств",
+    "现代": "Современный",
+    "经典": "Классический",
+    "耗材不足": "Мало расходных материалов"
   },
   "uk": {
     "设备": "пристрій",
@@ -2803,7 +2868,12 @@
     "路由状态": "Статус маршрутизації",
     "本地直连": "Пряме локальне підключення",
     "本地优先": "Перш за все місцеве",
-    "本机定时": "Місцевий розклад"
+    "本机定时": "Місцевий розклад",
+    "界面风格": "Стиль інтерфейсу",
+    "现代列表与经典设备卡片可随时切换": "Будь-коли перемикайтеся між сучасним списком і класичними картками пристроїв",
+    "现代": "Сучасний",
+    "经典": "Класичний",
+    "耗材不足": "Мало витратних матеріалів"
   },
   "pl": {
     "设备": "Urządzenie",
@@ -2997,7 +3067,12 @@
     "路由状态": "Stan routingu",
     "本地直连": "Lokalne bezpośrednie połączenie",
     "本地优先": "Najpierw lokalnie",
-    "本机定时": "Harmonogram lokalny"
+    "本机定时": "Harmonogram lokalny",
+    "界面风格": "Styl interfejsu",
+    "现代列表与经典设备卡片可随时切换": "W dowolnym momencie przełączaj nowoczesną listę i klasyczne karty urządzeń",
+    "现代": "Nowoczesny",
+    "经典": "Klasyczny",
+    "耗材不足": "Mało materiałów eksploatacyjnych"
   },
   "cs": {
     "设备": "Zařízení",
@@ -3191,7 +3266,12 @@
     "路由状态": "Stav směrování",
     "本地直连": "Místní přímé spojení",
     "本地优先": "Nejprve místní",
-    "本机定时": "Místní jízdní řád"
+    "本机定时": "Místní jízdní řád",
+    "界面风格": "Styl rozhraní",
+    "现代列表与经典设备卡片可随时切换": "Kdykoli přepínejte mezi moderním seznamem a klasickými kartami zařízení",
+    "现代": "Moderní",
+    "经典": "Klasický",
+    "耗材不足": "Nedostatek spotřebního materiálu"
   },
   "sk": {
     "设备": "Zariadenie",
@@ -3385,7 +3465,12 @@
     "路由状态": "Stav smerovania",
     "本地直连": "Miestne priame spojenie",
     "本地优先": "Najprv miestne",
-    "本机定时": "Miestny rozvrh"
+    "本机定时": "Miestny rozvrh",
+    "界面风格": "Štýl rozhrania",
+    "现代列表与经典设备卡片可随时切换": "Kedykoľvek prepínajte medzi moderným zoznamom a klasickými kartami zariadení",
+    "现代": "Moderný",
+    "经典": "Klasický",
+    "耗材不足": "Nedostatok spotrebného materiálu"
   },
   "hu": {
     "设备": "Eszköz",
@@ -3579,7 +3664,12 @@
     "路由状态": "Útválasztás állapota",
     "本地直连": "Helyi közvetlen kapcsolat",
     "本地优先": "Először a helyi",
-    "本机定时": "Helyi menetrend"
+    "本机定时": "Helyi menetrend",
+    "界面风格": "Felületstílus",
+    "现代列表与经典设备卡片可随时切换": "Bármikor válthat a modern lista és a klasszikus eszközkártyák között",
+    "现代": "Modern",
+    "经典": "Klasszikus",
+    "耗材不足": "Alacsony fogyóanyag"
   },
   "ro": {
     "设备": "Dispozitiv",
@@ -3773,7 +3863,12 @@
     "路由状态": "Starea de rutare",
     "本地直连": "Conexiune locală directă",
     "本地优先": "Local în primul rând",
-    "本机定时": "Program local"
+    "本机定时": "Program local",
+    "界面风格": "Stil interfață",
+    "现代列表与经典设备卡片可随时切换": "Comutați oricând între lista modernă și cardurile clasice pentru dispozitive",
+    "现代": "Modern",
+    "经典": "Clasic",
+    "耗材不足": "Consumabile reduse"
   },
   "el": {
     "设备": "Συσκευή",
@@ -3967,7 +4062,12 @@
     "路由状态": "Κατάσταση δρομολόγησης",
     "本地直连": "Τοπική απευθείας σύνδεση",
     "本地优先": "Τοπικά πρώτα",
-    "本机定时": "Τοπικό πρόγραμμα"
+    "本机定时": "Τοπικό πρόγραμμα",
+    "界面风格": "Στυλ διεπαφής",
+    "现代列表与经典设备卡片可随时切换": "Εναλλαγή ανά πάσα στιγμή μεταξύ σύγχρονης λίστας και κλασικών καρτών συσκευών",
+    "现代": "Σύγχρονο",
+    "经典": "Κλασικό",
+    "耗材不足": "Χαμηλά αναλώσιμα"
   },
   "tr": {
     "设备": "Cihaz",
@@ -4161,7 +4261,12 @@
     "路由状态": "Yönlendirme durumu",
     "本地直连": "Yerel doğrudan bağlantı",
     "本地优先": "Önce yerel",
-    "本机定时": "Yerel program"
+    "本机定时": "Yerel program",
+    "界面风格": "Arayüz stili",
+    "现代列表与经典设备卡片可随时切换": "Modern liste ile klasik cihaz kartları arasında istediğiniz zaman geçiş yapın",
+    "现代": "Modern",
+    "经典": "Klasik",
+    "耗材不足": "Sarf malzemesi az"
   },
   "ar": {
     "设备": "الجهاز",
@@ -4355,7 +4460,12 @@
     "路由状态": "حالة التوجيه",
     "本地直连": "اتصال محلي مباشر",
     "本地优先": "المحلية أولا",
-    "本机定时": "الجدول الزمني المحلي"
+    "本机定时": "الجدول الزمني المحلي",
+    "界面风格": "نمط الواجهة",
+    "现代列表与经典设备卡片可随时切换": "بدّل في أي وقت بين القائمة الحديثة وبطاقات الأجهزة الكلاسيكية",
+    "现代": "حديث",
+    "经典": "كلاسيكي",
+    "耗材不足": "مستهلكات منخفضة"
   },
   "he": {
     "设备": "מכשיר",
@@ -4560,7 +4670,12 @@
     "路由状态": "מצב ניתוב",
     "本地直连": "חיבור ישיר מקומי",
     "本地优先": "מקומי קודם",
-    "本机定时": "לוח זמנים מקומי"
+    "本机定时": "לוח זמנים מקומי",
+    "界面风格": "סגנון ממשק",
+    "现代列表与经典设备卡片可随时切换": "החלף בכל עת בין רשימה מודרנית לכרטיסי מכשיר קלאסיים",
+    "现代": "מודרני",
+    "经典": "קלאסי",
+    "耗材不足": "מתכלים נמוכים"
   },
   "hi": {
     "设备": "युक्ति",
@@ -4754,7 +4869,12 @@
     "路由状态": "रूटिंग स्थिति",
     "本地直连": "स्थानीय सीधा कनेक्शन",
     "本地优先": "स्थानीय पहले",
-    "本机定时": "स्थानीय कार्यक्रम"
+    "本机定时": "स्थानीय कार्यक्रम",
+    "界面风格": "इंटरफ़ेस शैली",
+    "现代列表与经典设备卡片可随时切换": "आधुनिक सूची और क्लासिक डिवाइस कार्ड के बीच कभी भी बदलें",
+    "现代": "आधुनिक",
+    "经典": "क्लासिक",
+    "耗材不足": "उपभोग्य सामग्री कम"
   },
   "th": {
     "设备": "อุปกรณ์",
@@ -4948,7 +5068,12 @@
     "路由状态": "สถานะเส้นทาง",
     "本地直连": "การเชื่อมต่อโดยตรงในท้องถิ่น",
     "本地优先": "ท้องถิ่นก่อน",
-    "本机定时": "กำหนดการท้องถิ่น"
+    "本机定时": "กำหนดการท้องถิ่น",
+    "界面风格": "สไตล์อินเทอร์เฟซ",
+    "现代列表与经典设备卡片可随时切换": "สลับระหว่างรายการสมัยใหม่และการ์ดอุปกรณ์คลาสสิกได้ทุกเมื่อ",
+    "现代": "สมัยใหม่",
+    "经典": "คลาสสิก",
+    "耗材不足": "วัสดุสิ้นเปลืองต่ำ"
   },
   "vi": {
     "设备": "Thiết bị",
@@ -5142,7 +5267,12 @@
     "路由状态": "Trạng thái định tuyến",
     "本地直连": "Kết nối trực tiếp cục bộ",
     "本地优先": "Địa phương đầu tiên",
-    "本机定时": "Lịch trình địa phương"
+    "本机定时": "Lịch trình địa phương",
+    "界面风格": "Kiểu giao diện",
+    "现代列表与经典设备卡片可随时切换": "Chuyển đổi bất cứ lúc nào giữa danh sách hiện đại và thẻ thiết bị cổ điển",
+    "现代": "Hiện đại",
+    "经典": "Cổ điển",
+    "耗材不足": "Vật tư tiêu hao thấp"
   },
   "id": {
     "设备": "Perangkat",
@@ -5336,7 +5466,12 @@
     "路由状态": "Status perutean",
     "本地直连": "Koneksi langsung lokal",
     "本地优先": "Lokal dulu",
-    "本机定时": "Jadwal lokal"
+    "本机定时": "Jadwal lokal",
+    "界面风格": "Gaya antarmuka",
+    "现代列表与经典设备卡片可随时切换": "Beralih kapan saja antara daftar modern dan kartu perangkat klasik",
+    "现代": "Modern",
+    "经典": "Klasik",
+    "耗材不足": "Bahan habis pakai rendah"
   },
   "ms": {
     "设备": "Peranti",
@@ -5530,7 +5665,12 @@
     "路由状态": "Status penghalaan",
     "本地直连": "Sambungan langsung tempatan",
     "本地优先": "Tempatan dahulu",
-    "本机定时": "Jadual tempatan"
+    "本机定时": "Jadual tempatan",
+    "界面风格": "Gaya antara muka",
+    "现代列表与经典设备卡片可随时切换": "Tukar pada bila-bila masa antara senarai moden dan kad peranti klasik",
+    "现代": "Moden",
+    "经典": "Klasik",
+    "耗材不足": "Bahan guna habis rendah"
   },
   "ca": {
     "设备": "Dispositiu",
@@ -5724,7 +5864,12 @@
     "路由状态": "Estat de ruta",
     "本地直连": "Connexió local directa",
     "本地优先": "Primer local",
-    "本机定时": "Horari local"
+    "本机定时": "Horari local",
+    "界面风格": "Estil d’interfície",
+    "现代列表与经典设备卡片可随时切换": "Canvia en qualsevol moment entre la llista moderna i les targetes clàssiques de dispositius",
+    "现代": "Modern",
+    "经典": "Clàssic",
+    "耗材不足": "Consumibles baixos"
   },
   "da": {
     "设备": "Enhed",
@@ -5918,7 +6063,12 @@
     "路由状态": "Routing status",
     "本地直连": "Lokal direkte forbindelse",
     "本地优先": "Lokal først",
-    "本机定时": "Lokal tidsplan"
+    "本机定时": "Lokal tidsplan",
+    "界面风格": "Grænsefladestil",
+    "现代列表与经典设备卡片可随时切换": "Skift når som helst mellem den moderne liste og klassiske enhedskort",
+    "现代": "Moderne",
+    "经典": "Klassisk",
+    "耗材不足": "Forbrugsstoffer lav"
   },
   "fi": {
     "设备": "Laite",
@@ -6112,7 +6262,12 @@
     "路由状态": "Reitityksen tila",
     "本地直连": "Paikallinen suora yhteys",
     "本地优先": "Paikallinen ensin",
-    "本机定时": "Paikallinen aikataulu"
+    "本机定时": "Paikallinen aikataulu",
+    "界面风格": "Käyttöliittymän tyyli",
+    "现代列表与经典设备卡片可随时切换": "Vaihda milloin tahansa modernin luettelon ja klassisten laitekorttien välillä",
+    "现代": "Moderni",
+    "经典": "Klassinen",
+    "耗材不足": "Kulutustarvikkeet vähissä"
   },
   "nb": {
     "设备": "Enhet",
@@ -6306,7 +6461,12 @@
     "路由状态": "Ruting status",
     "本地直连": "Lokal direkte forbindelse",
     "本地优先": "Lokal først",
-    "本机定时": "Lokal tidsplan"
+    "本机定时": "Lokal tidsplan",
+    "界面风格": "Grensesnittstil",
+    "现代列表与经典设备卡片可随时切换": "Bytt når som helst mellom moderne liste og klassiske enhetskort",
+    "现代": "Moderne",
+    "经典": "Klassisk",
+    "耗材不足": "Forbruksmateriell lavt"
   },
   "sv": {
     "设备": "Enhet",
@@ -6500,7 +6660,12 @@
     "路由状态": "Routningsstatus",
     "本地直连": "Lokal direktanslutning",
     "本地优先": "Lokalt först",
-    "本机定时": "Lokalt schema"
+    "本机定时": "Lokalt schema",
+    "界面风格": "Gränssnittsstil",
+    "现代列表与经典设备卡片可随时切换": "Växla när som helst mellan modern lista och klassiska enhetskort",
+    "现代": "Modern",
+    "经典": "Klassisk",
+    "耗材不足": "Förbrukningsmaterial lågt"
   },
   "sr": {
     "设备": "Уређај",
@@ -6694,6 +6859,18 @@
     "路由状态": "Статус рутирања",
     "本地直连": "Локална директна веза",
     "本地优先": "Прво локално",
-    "本机定时": "Локални распоред"
+    "本机定时": "Локални распоред",
+    "界面风格": "Стил интерфејса",
+    "现代列表与经典设备卡片可随时切换": "Пребацујте у било ком тренутку између модерне листе и класичних картица уређаја",
+    "现代": "Модеран",
+    "经典": "Класичан",
+    "耗材不足": "Мало потрошног материјала"
+  },
+  "zh-Hans": {
+    "界面风格": "界面风格",
+    "现代列表与经典设备卡片可随时切换": "现代列表与经典设备卡片可随时切换",
+    "现代": "现代",
+    "经典": "经典",
+    "耗材不足": "耗材不足"
   }
 }

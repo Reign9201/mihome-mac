@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LANGUAGES } from '../scripts/i18n-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,34 +15,7 @@ const rounds = Number(process.env.UI_REGRESSION_ROUNDS || 10);
 const screenshots = process.env.UI_REGRESSION_SCREENSHOTS !== '0';
 const outputDir = process.env.UI_REGRESSION_OUTPUT
   || path.join(here, 'artifacts');
-
-const mime = new Map([
-  ['.html', 'text/html; charset=utf-8'],
-  ['.css', 'text/css; charset=utf-8'],
-  ['.js', 'text/javascript; charset=utf-8'],
-  ['.mjs', 'text/javascript; charset=utf-8'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.svg', 'image/svg+xml'],
-  ['.png', 'image/png'],
-]);
-
-const server = createServer(async (request, response) => {
-  try {
-    const url = new URL(request.url || '/', 'http://127.0.0.1');
-    const file = path.resolve(repo, `.${decodeURIComponent(url.pathname)}`);
-    if (!file.startsWith(repo)) throw new Error('forbidden');
-    const body = await readFile(file);
-    response.writeHead(200, { 'content-type': mime.get(path.extname(file)) || 'application/octet-stream' });
-    response.end(body);
-  } catch {
-    response.writeHead(404);
-    response.end('not found');
-  }
-});
-
-const listen = () => new Promise((resolve) => {
-  server.listen(0, '127.0.0.1', () => resolve(server.address().port));
-});
+const uiUrl = pathToFileURL(path.join(repo, 'desktop/ui/index.html')).href;
 
 class Cdp {
   constructor(ws) {
@@ -68,7 +40,20 @@ class Cdp {
   send(method, params = {}) {
     const id = this.next++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP timeout: ${method}`));
+      }, 20000);
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -100,6 +85,7 @@ const mockSource = String.raw`
           { iid: 1, type: 'urn:miot-spec-v2:property:temperature:00000020:mock:1', description: 'Temperature', format: 'float', access: ['read'], unit: 'celsius' },
           { iid: 2, type: 'urn:miot-spec-v2:property:relative-humidity:00000021:mock:1', description: 'Relative Humidity', format: 'uint8', access: ['read'], unit: 'percentage' },
           { iid: 3, type: 'urn:miot-spec-v2:property:battery-level:0000000A:mock:1', description: 'Battery Level', format: 'uint8', access: ['read'], unit: 'percentage' },
+          { iid: 4, type: 'urn:miot-spec-v2:property:filter-life-level:000000A1:mock:1', description: 'Filter Life Level', format: 'uint8', access: ['read'], unit: 'percentage', 'value-range': [0, 100, 1] },
         ],
       }],
     },
@@ -158,6 +144,7 @@ const mockSource = String.raw`
         iid: 2,
         type: 'urn:miot-spec-v2:service:router:00007864:mock:1',
         description: 'Router',
+        actions: [{ iid: 1, type: 'urn:miot-spec-v2:action:reboot:00002801:mock:1' }],
         properties: [
           { iid: 3, type: 'urn:miot-spec-v2:property:connected-device-number:000000A0:mock:1', description: 'Connected Device Number', format: 'uint16', access: ['read', 'notify'] },
         ],
@@ -175,6 +162,7 @@ const mockSource = String.raw`
     'sensor1:2:1': 23.6,
     'sensor1:2:2': 51,
     'sensor1:2:3': 86,
+    'sensor1:2:4': 12,
     'light1:2:1': true,
     'light1:2:2': 68,
     'light1:2:3': 4200,
@@ -556,12 +544,18 @@ const mockSource = String.raw`
 `;
 
 const pageEval = async (cdp, expression) => {
-  const result = await cdp.send('Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-    userGesture: true,
-  });
+  let result;
+  try {
+    result = await cdp.send('Runtime.evaluate', {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+      userGesture: true,
+    });
+  } catch (error) {
+    const preview = expression.replace(/\s+/g, ' ').slice(0, 360);
+    throw new Error(`${error.message}: ${preview}`);
+  }
   if (result.exceptionDetails) {
     throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
   }
@@ -581,10 +575,8 @@ const waitForSelector = (selector) => waitFor(() =>
 let cdp;
 let browser;
 let profileDir;
-let serverPort;
 
 try {
-  serverPort = await listen();
   profileDir = await mkdtemp(path.join(tmpdir(), 'mihome-ui-'));
   const debugPort = 9222 + Math.floor(Math.random() * 800);
   browser = spawn(chromeBin, [
@@ -593,9 +585,12 @@ try {
     '--hide-scrollbars',
     '--no-first-run',
     '--no-default-browser-check',
+    '--use-mock-keychain',
+    '--allow-file-access-from-files',
+    '--disable-web-security',
     `--user-data-dir=${profileDir}`,
     `--remote-debugging-port=${debugPort}`,
-    'about:blank',
+    uiUrl,
   ], { stdio: 'ignore' });
 
   const version = await waitFor(async () => {
@@ -641,15 +636,41 @@ try {
   });
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: mockSource });
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `(() => {
+      let entries = [];
+      try { entries = JSON.parse(window.name || '[]'); } catch {}
+      const values = new Map(Array.isArray(entries) ? entries : []);
+      const persist = () => { window.name = JSON.stringify([...values]); };
+      const storage = {
+        getItem: (key) => values.has(String(key)) ? values.get(String(key)) : null,
+        setItem: (key, value) => { values.set(String(key), String(value)); persist(); },
+        removeItem: (key) => { values.delete(String(key)); persist(); },
+        clear: () => { values.clear(); persist(); },
+        key: (index) => [...values.keys()][index] ?? null,
+        get length() { return values.size; },
+      };
+      Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
+    })();`,
+  });
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
     source: `if (!localStorage.getItem('mihome.language')) localStorage.setItem('mihome.language', 'zh-Hans');`,
   });
-  await cdp.send('Page.navigate', {
-    url: `http://127.0.0.1:${serverPort}/desktop/ui/index.html`,
-  });
-  await waitFor(() => pageEval(cdp, `document.readyState === 'complete'`));
   await pageEval(cdp, `window.__MIHOME_RELOAD_PROBE__ = 1; localStorage.setItem('mihome.language', 'zh-Hans'); location.reload(); true`);
   await waitFor(() => pageEval(cdp, `document.readyState === 'complete' && window.__MIHOME_RELOAD_PROBE__ === undefined`));
-  await waitForSelector('#overviewView .page-head');
+  try {
+    await waitForSelector('#overviewView .page-head');
+  } catch (error) {
+    const bootState = await pageEval(cdp, `(() => ({
+      readyState: document.readyState,
+      htmlClass: document.documentElement.className,
+      loginDisplay: document.querySelector('#loginLayer')?.style.display,
+      bodyText: document.body.innerText.slice(0, 240),
+      hasI18n: Boolean(window.MihomeI18n),
+      hasInvoke: Boolean(window.__MIHOME_TAURI__?.invoke),
+      calls: (window.__MOCK_CALLS__ || []).map((item) => item.command),
+    }))()`);
+    throw new Error(`${error.message}: boot state ${JSON.stringify(bootState)}; runtime errors ${runtimeErrors.slice(0, 3).join(' | ')}`);
+  }
 
   const failures = [];
   const timings = [];
@@ -676,14 +697,14 @@ try {
     screenshotFiles.push({ name, file, width, height, bytes: buffer.length });
   };
 
-  const actionTime = async (expression) => {
+  const actionTime = async (expression, label) => {
     const result = await pageEval(cdp, `(async () => {
       const start = performance.now();
       ${expression}
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       return performance.now() - start;
     })()`);
-    timings.push(result);
+    timings.push({ label, ms: result });
     return result;
   };
 
@@ -733,6 +754,45 @@ try {
       !/已关闭|离线/.test(routerCard.meta || ''),
       `round ${round}: router card shows the wrong state: ${routerCard.meta}`,
     );
+    await waitFor(() => pageEval(
+      cdp,
+      `document.querySelector('#envTempValue')?.textContent.includes('23.6')`,
+    ));
+    const environment = await pageEval(cdp, `({
+      temperature: document.querySelector('#envTempValue')?.textContent,
+      humidity: document.querySelector('#envHumidityValue')?.textContent,
+      powered: document.querySelector('#envPoweredValue')?.textContent,
+      consumable: document.querySelector('#envConsumableValue')?.textContent,
+      attention: document.querySelector('#envConsumable')?.classList.contains('attention'),
+      capsuleWidth: document.querySelector('#envCapsule')?.getBoundingClientRect().width,
+      capsuleRight: document.querySelector('#envCapsule')?.getBoundingClientRect().right,
+    })`);
+    expect(environment.temperature === '23.6°', `round ${round}: top temperature ${environment.temperature}`);
+    expect(environment.humidity === '51%', `round ${round}: top humidity ${environment.humidity}`);
+    expect(environment.powered === '5', `round ${round}: top powered count ${environment.powered}`);
+    expect(environment.consumable === '1', `round ${round}: top consumable count ${environment.consumable}`);
+    expect(environment.attention, `round ${round}: low consumable is not highlighted`);
+    expect(
+      environment.capsuleWidth > 0 && environment.capsuleRight <= viewportWidth,
+      `round ${round}: top environment capsule is clipped`,
+    );
+    await click('#envCapsule');
+    const environmentPopover = await pageEval(cdp, `({
+      open: !document.querySelector('#envPopover')?.hidden,
+      expanded: document.querySelector('#envCapsule')?.getAttribute('aria-expanded'),
+      temp: document.querySelector('#envPopTemp')?.textContent,
+      online: document.querySelector('#envPopOnline')?.textContent,
+      consumable: document.querySelector('#envPopConsumable')?.textContent,
+      inside: document.querySelector('#envPopover')?.getBoundingClientRect().right <= innerWidth,
+    })`);
+    expect(environmentPopover.open, `round ${round}: environment details did not open`);
+    expect(environmentPopover.expanded === 'true', `round ${round}: environment aria-expanded missing`);
+    expect(environmentPopover.temp === '23.6 °C', `round ${round}: environment detail temperature ${environmentPopover.temp}`);
+    expect(environmentPopover.online === '8 / 9', `round ${round}: environment detail online ${environmentPopover.online}`);
+    expect(environmentPopover.consumable === '1 / 1', `round ${round}: environment detail consumable ${environmentPopover.consumable}`);
+    expect(environmentPopover.inside, `round ${round}: environment details are clipped`);
+    await screenshot(`r${round}-01b-environment-details`);
+    await click('#envCapsule');
     await screenshot(`r${round}-01-overview`);
 
     await click('#btnMenuBar');
@@ -787,7 +847,7 @@ try {
     );
     await screenshot(`r${round}-04-device-online-recovered`);
 
-    await actionTime(`document.querySelector('[data-room="living"]')?.click()`);
+    await actionTime(`document.querySelector('[data-room="living"]')?.click()`, 'room-filter');
     const room = await pageEval(cdp, `({
       title: document.querySelector('#overviewView .page-title')?.textContent,
       rows: document.querySelectorAll('#overviewView .device-row').length,
@@ -805,7 +865,7 @@ try {
       ['#devicesNav', '#devicesView'],
       ['#overviewNav', '#overviewView'],
     ]) {
-      await actionTime(`document.querySelector(${JSON.stringify(nav)}).click()`);
+      await actionTime(`document.querySelector(${JSON.stringify(nav)}).click()`, `nav-${nav.replace(/^#/, '')}`);
       const visible = await pageEval(cdp, `({
         view: !document.querySelector(${JSON.stringify(view)}).hidden,
         active: document.querySelector(${JSON.stringify(nav)}).classList.contains('active'),
@@ -1059,6 +1119,63 @@ try {
     expect(await pageEval(cdp, `document.body.dataset.density === 'compact'`), `round ${round}: compact density failed`);
     await screenshot(`r${round}-15-settings-compact`);
     await click('[data-density-set="comfortable"]');
+    await click('[data-style-set="classic"]');
+    expect(await pageEval(cdp, `document.body.dataset.style === 'classic'`), `round ${round}: classic style failed`);
+    await click('#overviewNav');
+    await waitForSelector('#overviewView .page-head');
+    const classicLayout = await pageEval(cdp, `(() => {
+      const list = document.querySelector('#overviewView .device-list');
+      const card = document.querySelector('#overviewView .device-card');
+      const style = list ? getComputedStyle(list) : null;
+      const cardStyle = card ? getComputedStyle(card) : null;
+      const cards = [...document.querySelectorAll('#overviewView .device-card')];
+      return {
+        display: style?.display,
+        borderRadius: cardStyle?.borderRadius,
+        columns: new Set(cards.map((card) => card.getBoundingClientRect().left)).size,
+        cardWidth: cards[0]?.getBoundingClientRect().width || 0,
+        heroHidden: getComputedStyle(document.querySelector('#overviewView .hero')).display === 'none',
+        singleGrid: document.querySelectorAll('#overviewView .device-list').length === 1,
+        roomHeads: document.querySelectorAll('#overviewView .room-head').length,
+        roomLabels: cards.every((card) => {
+          const label = card.querySelector('.device-room');
+          return Boolean(label?.textContent.trim()) && label.offsetParent !== null;
+        }),
+        controlsFit: cards.every((card) => {
+          const control = card.querySelector('.card-top-actions');
+          if (!control) return true;
+          const cardRect = card.getBoundingClientRect();
+          const controlRect = control.getBoundingClientRect();
+          return controlRect.left >= cardRect.left - 1 && controlRect.right <= cardRect.right + 1;
+        }),
+        topActions: document.querySelectorAll('#overviewView .device-card .card-top-actions > button').length,
+        lightPower: Boolean(document.querySelector(
+          '#overviewView .device-card[data-did="light1"] .card-top-actions .card-power:not(:disabled)',
+        )),
+        routerReboot: Boolean(document.querySelector(
+          '#overviewView .device-card[data-did="router1"] .card-top-actions .card-reboot',
+        )),
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
+    })()`);
+    expect(classicLayout.display === 'grid', `round ${round}: classic device list is not a grid`);
+    expect(classicLayout.borderRadius !== '0px', `round ${round}: classic device cards are not rounded`);
+    expect(classicLayout.columns === 4, `round ${round}: classic overview should use 4 columns at 1440px`);
+    expect(classicLayout.cardWidth <= 211, `round ${round}: classic cards are too wide (${classicLayout.cardWidth}px)`);
+    expect(classicLayout.heroHidden, `round ${round}: classic style did not prioritize device cards`);
+    expect(classicLayout.singleGrid, `round ${round}: classic devices are split into multiple grids`);
+    expect(classicLayout.roomHeads === 0, `round ${round}: classic style still shows room section headings`);
+    expect(classicLayout.roomLabels, `round ${round}: classic cards do not show their room label`);
+    expect(classicLayout.controlsFit, `round ${round}: classic card controls overflow their cards`);
+    expect(classicLayout.topActions >= 8, `round ${round}: classic card quick actions are missing`);
+    expect(classicLayout.lightPower, `round ${round}: classic light card lost its top-right power button`);
+    expect(classicLayout.routerReboot, `round ${round}: classic router card lost its reboot button`);
+    expect(classicLayout.overflow === false, `round ${round}: horizontal overflow in classic style`);
+    await pageEval(cdp, `document.querySelector('#overviewView .device-card[data-did="light1"] .card-top-actions .card-power').click(); true`);
+    await waitFor(() => pageEval(cdp, `window.__MOCK_CALLS__.some((call) => call.command === 'set_property' && call.args.did === 'light1')`));
+    await screenshot(`r${round}-15b-settings-classic`);
+    await click('#settingsNav');
+    await click('[data-style-set="modern"]');
 
     await pageEval(cdp, `document.querySelector('#btnPalette').click(); true`);
     expect(await pageEval(cdp, `document.querySelector('#palette').classList.contains('open')`), `round ${round}: command palette did not open`);
@@ -1637,6 +1754,58 @@ try {
           );
         }
       }
+      for (const [width, height] of [[1440, 900], [720, 900]]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        viewportWidth = width;
+        viewportHeight = height;
+        await click('#settingsNav');
+        await click('[data-style-set="classic"]');
+        await click('#overviewNav');
+        await waitForSelector('#overviewView .page-head');
+        const classic = await pageEval(cdp, `(() => {
+          const list = document.querySelector('#overviewView .device-list');
+          const card = document.querySelector('#overviewView .device-card');
+          return {
+            style: document.body.dataset.style,
+            display: list ? getComputedStyle(list).display : null,
+            rounded: card ? getComputedStyle(card).borderRadius !== '0px' : false,
+            columns: new Set([...document.querySelectorAll('#overviewView .device-card')]
+              .map((row) => row.getBoundingClientRect().left)).size,
+            cardWidth: card?.getBoundingClientRect().width || 0,
+            singleGrid: document.querySelectorAll('#overviewView .device-list').length === 1,
+            roomLabels: [...document.querySelectorAll('#overviewView .device-card')].every((row) => (
+              Boolean(row.querySelector('.device-room')?.textContent.trim())
+            )),
+            topActions: document.querySelectorAll('#overviewView .device-card .card-top-actions > button').length,
+            overflow: document.documentElement.scrollWidth > innerWidth + 1,
+          };
+        })()`);
+        expect(classic.style === 'classic', `i18n ${code}, ${width}px: classic style did not stick`);
+        expect(classic.display === 'grid', `i18n ${code}, ${width}px: classic cards are not in a grid`);
+        expect(classic.rounded, `i18n ${code}, ${width}px: classic cards lost their radius`);
+        expect(
+          classic.columns === (width >= 1000 ? 4 : 2),
+          `i18n ${code}, ${width}px: classic overview columns were ${classic.columns}`,
+        );
+        if (width >= 1000) {
+          expect(
+            classic.cardWidth <= 211,
+            `i18n ${code}, ${width}px: classic cards are too wide (${classic.cardWidth}px)`,
+          );
+        }
+        expect(classic.singleGrid, `i18n ${code}, ${width}px: classic cards are split into multiple grids`);
+        expect(classic.roomLabels, `i18n ${code}, ${width}px: classic cards lost their room labels`);
+        expect(classic.topActions >= 8, `i18n ${code}, ${width}px: classic card quick actions are missing`);
+        expect(!classic.overflow, `i18n ${code}, ${width}px: classic style overflows horizontally`);
+        await screenshot(`i18n-${code}-classic-${width}`);
+        await click('#settingsNav');
+        await click('[data-style-set="modern"]');
+      }
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 1440,
         height: 900,
@@ -1654,11 +1823,15 @@ try {
 
   const heap = await pageEval(cdp, `performance.memory ? performance.memory.usedJSHeapSize : 0`);
   const dom = await pageEval(cdp, `document.querySelectorAll('*').length`);
-  const maxTiming = timings.length ? Math.max(...timings) : 0;
+  const slowestInteraction = timings.reduce(
+    (slowest, current) => current.ms > slowest.ms ? current : slowest,
+    { label: 'none', ms: 0 },
+  );
+  const maxTiming = slowestInteraction.ms;
   const interactionBudget = screenshots ? 600 : 350;
   expect(
     maxTiming < interactionBudget,
-    `performance: max interaction wait ${maxTiming.toFixed(1)}ms (budget ${interactionBudget}ms)`,
+    `performance: ${slowestInteraction.label} interaction wait ${maxTiming.toFixed(1)}ms (budget ${interactionBudget}ms)`,
   );
   expect(runtimeErrors.length === 0, `runtime errors: ${runtimeErrors.slice(0, 5).join(' | ')}`);
   if (screenshots) {
@@ -1689,6 +1862,5 @@ try {
 } finally {
   try { cdp?.ws?.close(); } catch {}
   try { browser?.kill('SIGTERM'); } catch {}
-  try { server.close(); } catch {}
   if (profileDir) await rm(profileDir, { recursive: true, force: true }).catch(() => {});
 }

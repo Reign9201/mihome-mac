@@ -12,11 +12,12 @@ use lark_channel::{
     WebSocketEndpointConnector,
 };
 use mihome_core::{ConnectionMode, PlatformConfig, PlatformKind};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 const MAX_AUTO_RECONNECT_ATTEMPTS: u32 = 5;
+static FEISHU_DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 #[derive(Default)]
 pub(crate) struct FeishuRuntime {
@@ -314,6 +315,7 @@ async fn handle_event(
         .cloned();
     let text = if is_text { message.text } else { String::new() };
     tokio::spawn(async move {
+        let voice_started = Instant::now();
         let (text, is_voice) =
             if is_voice {
                 let Some(resource) = voice_resource else {
@@ -351,6 +353,7 @@ async fn handle_event(
                             return;
                         }
                     };
+                let download_ms = voice_started.elapsed().as_millis();
                 let config = state.integrations.lock().await.settings().asr.clone();
                 if !config.enabled {
                     send_feishu_reply(
@@ -365,9 +368,20 @@ async fn handle_event(
                     resource.file_name.as_deref(),
                     downloaded.content_type.as_deref(),
                 );
+                let asr_started = Instant::now();
                 let transcribed = asr::transcribe(&config, downloaded.bytes, extension).await;
                 match transcribed {
-                    Ok(text) => (text, true),
+                    Ok(text) => {
+                        let asr_ms = asr_started.elapsed().as_millis();
+                        app_log::info(
+                            "Feishu",
+                            format!(
+                                "飞书语音链路：下载={}ms，语音识别={}ms",
+                                download_ms, asr_ms
+                            ),
+                        );
+                        (text, true)
+                    }
                     Err(error) => {
                         app_log::warn("Feishu", format!("飞书语音识别失败：{error}"));
                         send_feishu_reply(
@@ -382,6 +396,7 @@ async fn handle_event(
             } else {
                 (text, false)
             };
+        let intent_started = Instant::now();
         let reply = platform_bridge::handle_platform_message_with_voice(
             &state,
             PlatformKind::Feishu,
@@ -392,7 +407,20 @@ async fn handle_event(
             is_voice,
         )
         .await;
+        let intent_ms = intent_started.elapsed().as_millis();
+        let reply_started = Instant::now();
         send_feishu_reply(&sender, &parent_message_id, &reply).await;
+        if is_voice {
+            app_log::info(
+                "Feishu",
+                format!(
+                    "飞书语音处理完成：意图与执行={}ms，发送回复={}ms，总计={}ms",
+                    intent_ms,
+                    reply_started.elapsed().as_millis(),
+                    voice_started.elapsed().as_millis()
+                ),
+            );
+        }
     });
     Ok(WebSocketEventAck::ok())
 }
@@ -430,11 +458,7 @@ async fn download_feishu_audio(
         .await
         .context("获取飞书 tenant_access_token 失败")?;
     let url = build_feishu_audio_url(&client.config().base_url(), message_id, file_key)?;
-    let response = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(60))
-        .build()
-        .context("创建飞书资源下载客户端失败")?
+    let response = feishu_download_client()?
         .get(url)
         .bearer_auth(token)
         .send()
@@ -469,6 +493,21 @@ async fn download_feishu_audio(
         content_type,
         content_disposition,
     })
+}
+
+fn feishu_download_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = FEISHU_DOWNLOAD_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .build()
+        .context("创建飞书资源下载客户端失败")?;
+    let _ = FEISHU_DOWNLOAD_CLIENT.set(client);
+    FEISHU_DOWNLOAD_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("创建飞书资源下载客户端失败"))
 }
 
 fn build_feishu_audio_url(
