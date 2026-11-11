@@ -1,6 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const SPEC_BATCH_SIZE = 128;
 const MAX_REMOTE_STREAMS = 6;
+// Every local grid tile runs its own go2rtc + ffmpeg transcode, so large
+// accounts page through cameras instead of opening every stream at once.
+const MAX_LOCAL_GRID_STREAMS = 9;
 const MAX_REMOTE_START_CONCURRENCY = 3;
 const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
 const CAMERA_STALL_INTERVALS = 3;
@@ -78,14 +81,14 @@ const state = {
   style: localStorage.getItem('mihome-style') === 'classic' ? 'classic' : 'modern',
   overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
   sensorSeries: [], paletteIndex: 0, paletteItems: [],
-  polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false,
+  polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, cameraGridPage: 0,
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
-  deviceFilter: 'all', deviceQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
+  deviceFilter: 'all', deviceQuery: '', cameraQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
   remoteWatch: null, remoteWatches: [], cameraWatches: new Map(),
   cameraGeneration: 0, cameraControlsRequest: 0,
   cameraStopSequence: 0,
   cameraQueue: Promise.resolve(),
-  restartingCameras: new Set(), restartTimers: new Map(), cardProps: new Map(),
+  restartingCameras: new Set(), restartTimers: new Map(), restartAttempts: new Map(), cardProps: new Map(),
   environmentValues: new Map(), environmentRequest: 0, environmentRevision: 0,
   environmentRefreshing: false, environmentSyncAt: 0,
   remoteAudio: new Map(),
@@ -439,6 +442,8 @@ async function resetAccountScopedState(reason) {
   state.roomFilter = 'all';
   state.deviceFilter = 'all';
   state.deviceQuery = '';
+  state.cameraQuery = '';
+  if ($('#camSearch')) $('#camSearch').value = '';
   state.lastPresenceSyncAt = 0;
   state.presenceSyncFailed = false;
   state.presenceRefreshing = false;
@@ -649,7 +654,7 @@ function updateChrome() {
     : uiText('等待连接');
   setNavCount('devicesCount', state.devices.length);
   setNavCount('cameraCountNav', state.cameras.length);
-  $('#camSideCount').textContent = String(state.cameras.length);
+  updateCameraCount();
   $('#topnavCaption').textContent = localCameras
     ? uiText('本地摄像头可达：{0}', [localCameras])
     : uiText('本地优先 · 云端兜底');
@@ -671,6 +676,51 @@ function updateChrome() {
   }
   updateEnvironmentCapsule();
   updateSettingsSelection();
+  scheduleFitTopnav();
+}
+
+function rectsOverlap(a, b, gap = 8) {
+  return a.width > 0 && b.width > 0 && a.left < b.right + gap && b.left < a.right + gap;
+}
+
+// Collapses inactive top tabs to icons when their labels would collide with
+// the brand or the context area. Driven by measurement instead of a fixed
+// breakpoint because label width depends on the UI language.
+function fitTopnav() {
+  const nav = $('#mainNav');
+  const tabs = nav?.querySelector('.topnav-tabs');
+  if (!tabs) return;
+  const levels = ['compact-caption', 'compact-tabs', 'compact-brand', 'compact-all'];
+  nav.classList.remove(...levels);
+  const collides = () => {
+    const tabRect = tabs.getBoundingClientRect();
+    return [
+      nav.querySelector('.topnav-brand .brand-mark'),
+      nav.querySelector('.topnav-brand .brand-text'),
+      nav.querySelector('.topnav-context'),
+    ].filter((node) => node?.offsetWidth)
+      .some((node) => rectsOverlap(tabRect, node.getBoundingClientRect()));
+  };
+  // Each level is kept and the next one added until nothing collides. The
+  // caption goes first: the status bar already shows the same camera count.
+  for (const level of levels) {
+    if (!collides()) return;
+    nav.classList.add(level);
+  }
+}
+
+let fitTopnavFrame = 0;
+
+// Measuring forces layout, so run it once per frame after renders settle.
+function scheduleFitTopnav() {
+  cancelAnimationFrame(fitTopnavFrame);
+  fitTopnavFrame = requestAnimationFrame(fitTopnav);
+}
+
+if ('ResizeObserver' in window && $('#mainNav')) {
+  const observer = new ResizeObserver(scheduleFitTopnav);
+  observer.observe($('#mainNav'));
+  observer.observe($('#mainNav .topnav-context'));
 }
 
 function showView(page) {
@@ -803,6 +853,22 @@ async function loadDevices() {
   }
 }
 
+// list_cameras is only read when the camera page opens; carry the online flag
+// from the periodic device sync so camera buttons and counts stay current.
+function syncCameraPresence(devices) {
+  if (!devices.length || !state.cameras.length) return false;
+  const online = new Map(devices.map((device) => [device.did, Boolean(device.online)]));
+  let changed = false;
+  const cameras = state.cameras.map((camera) => {
+    const value = online.get(camera.did);
+    if (value === undefined || value === camera.online) return camera;
+    changed = true;
+    return { ...camera, online: value };
+  });
+  if (changed) state.cameras = cameras;
+  return changed;
+}
+
 function clearCachedDeviceState(did) {
   state.hydratedCards.delete(did);
   const prefix = `${did}:`;
@@ -838,6 +904,10 @@ async function refreshDevicePresence() {
     state.devices = devices;
     state.lastPresenceSyncAt = Date.now();
     state.presenceSyncFailed = false;
+    // Re-render even when the camera page is hidden: its next background
+    // reload compares against this already-synced list and would otherwise
+    // keep showing the old online state.
+    if (syncCameraPresence(onlineChanged)) renderCameras();
     if (!changed.length && devices.length === previous.size) {
       updateChrome();
       return true;
@@ -876,6 +946,21 @@ const DEVICE_ICONS = window.MiIcons.icons;
 const deviceKind = window.MiIcons.kindFor;
 const { profileFromSpec, summarizeCardMetrics, formatArrayValue } = window.MiCapabilities;
 
+// Device rows and cards repeat the same few SVG icons hundreds of times.
+// Parse each markup string once and clone it afterwards.
+const htmlTemplates = new Map();
+
+function setCachedHTML(node, html) {
+  let template = htmlTemplates.get(html);
+  if (!template) {
+    if (htmlTemplates.size > 256) htmlTemplates.clear();
+    template = document.createElement('template');
+    template.innerHTML = html;
+    htmlTemplates.set(html, template);
+  }
+  node.replaceChildren(template.content.cloneNode(true));
+}
+
 function deviceGlyph(device) {
   const kind = deviceKind(device);
   const body = DEVICE_ICONS[kind] || DEVICE_ICONS.generic;
@@ -899,6 +984,20 @@ function hasSpecAction(device, siid, aiid) {
     service.iid === siid && service.actions?.some((action) => action.iid === aiid)));
 }
 
+// Parsing a MIoT spec is the hot path of every render: the environment capsule,
+// device rows and overview all ask for it per device. Cache per spec object and
+// UI locale; the cached profile is treated as read-only by every caller.
+const specProfileCache = new WeakMap();
+
+function specProfile(spec) {
+  const locale = window.MihomeI18n?.locale || '';
+  const cached = specProfileCache.get(spec);
+  if (cached && cached.locale === locale) return cached.profile;
+  const profile = profileFromSpec(spec);
+  specProfileCache.set(spec, { locale, profile });
+  return profile;
+}
+
 function cardProfile(device) {
   const kind = deviceKind(device);
   const spec = specFor(device);
@@ -909,7 +1008,7 @@ function cardProfile(device) {
       ? `设备规格读取失败：${specError}`
       : '没有找到公开 MIoT-Spec，当前不提供写入控制。';
   const base = spec
-    ? profileFromSpec(spec)
+    ? specProfile(spec)
     : { metrics: [], controls: [], actions: [], note: fallbackNote };
   let action = null;
   if (kind === 'camera-ptz' || kind === 'camera-fixed') {
@@ -925,10 +1024,10 @@ function cardProfile(device) {
 async function loadDeviceSpecs(devices) {
   const types = [...new Set(devices.map((device) => device.spec_type).filter(Boolean))];
   const missing = types.filter((type) => !state.specs.has(type) && !state.specPending.has(type));
-  if (!missing.length) {
-    refreshEnvironmentStatus();
-    return;
-  }
+  // Nothing new to parse, so the environment summary is unchanged. Refreshing
+  // it here re-read every device's power state (about 14 cloud requests at
+  // 150 cameras) each time the camera list loaded.
+  if (!missing.length) return;
   state.specLoading = true;
   for (const type of missing) state.specPending.add(type);
   let failedBatches = 0;
@@ -1012,11 +1111,18 @@ async function flushCardHydration() {
   if (!devices.length) return;
   const requests = devices.flatMap(propertyRequestsForDevice);
   const currentHome = state.homeId;
-  const request = state.devicesRequest;
+  // A device-list reload replaces cardProps; the 15 s presence sync does not,
+  // so its request counter must not discard an in-flight hydration batch.
+  const props = state.cardProps;
+  const generation = state.accountGeneration;
   if (requests.length) {
     try {
       const result = await invoke('get_properties', { requests });
-      if (currentHome !== state.homeId || request !== state.devicesRequest) return;
+      if (
+        currentHome !== state.homeId
+        || props !== state.cardProps
+        || generation !== state.accountGeneration
+      ) return;
       for (const item of Array.isArray(result) ? result : []) {
         if (!item || !item.did || (item.code && item.code !== 0)) continue;
         state.cardProps.set(propKey(item.did, item.siid, item.piid), item.value);
@@ -1156,9 +1262,9 @@ function cardPower(device, def) {
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(on));
   const bulb = def.label.includes('灯') || def.label.includes('照明');
-  button.innerHTML = bulb
+  setCachedHTML(button, bulb
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.2 1.3 2.2h4.6c.2-1 .7-1.7 1.3-2.2A6 6 0 0 0 12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>');
   button.onclick = async (event) => {
     event.stopPropagation();
     const next = !on;
@@ -1383,7 +1489,7 @@ function renderDeviceCard(device) {
   const glyph = el('span', 'device-glyph');
   glyph.dataset.kind = kind;
   glyph.dataset.family = family;
-  glyph.innerHTML = deviceGlyph(device);
+  setCachedHTML(glyph, deviceGlyph(device));
   top.append(glyph);
 
   const topActions = el('div', 'card-top-actions');
@@ -1427,7 +1533,7 @@ function renderDeviceRow(device) {
   const glyph = el('span', 'device-icon');
   glyph.dataset.tone = deviceTone(kind);
   glyph.dataset.kind = kind;
-  glyph.innerHTML = deviceGlyph(device);
+  setCachedHTML(glyph, deviceGlyph(device));
   row.append(glyph);
 
   const copy = el('div', 'device-id');
@@ -1481,8 +1587,18 @@ function renderDeviceRow(device) {
   return row;
 }
 
+// state.cameras is always replaced, never mutated, so its identity is a valid
+// cache key. Rows look up their camera several times per render.
+let cameraIndex = { list: null, byDid: new Map() };
+
 function cameraForDevice(device) {
-  return state.cameras.find((camera) => camera.did === device.did) || null;
+  if (cameraIndex.list !== state.cameras) {
+    cameraIndex = {
+      list: state.cameras,
+      byDid: new Map(state.cameras.map((camera) => [camera.did, camera])),
+    };
+  }
+  return cameraIndex.byDid.get(device.did) || null;
 }
 
 function deviceFilterState(device) {
@@ -1530,7 +1646,7 @@ function renderDeviceTableRow(device) {
   const glyph = el('span', 'device-icon');
   glyph.dataset.tone = deviceTone(kind);
   glyph.dataset.kind = kind;
-  glyph.innerHTML = deviceGlyph(device);
+  setCachedHTML(glyph, deviceGlyph(device));
   identity.append(glyph, el('span', '', device.name));
 
   const connectionNode = el('span');
@@ -2632,7 +2748,7 @@ async function showAutomations() {
 async function showCameras() {
   if (!state.loggedIn) return;
   showView('camera');
-  await loadCameras();
+  await loadCameras({ background: true });
 }
 
 async function showSettings() {
@@ -3386,24 +3502,32 @@ function userOnboardingText() {
   ].join('\n');
 }
 
-async function loadCameras() {
+// background: keep the current list on screen while the account's camera list
+// is re-read, and only rebuild it when something changed. Opening the camera
+// page uses this so large accounts do not flash and rebuild every visit.
+async function loadCameras(options = {}) {
+  const background = options.background === true && state.cameras.length > 0;
   const request = ++state.camerasRequest;
   const list = $('#camList');
-  list.replaceChildren(el('div', 'empty', '正在读取摄像头…'));
+  if (!background) list.replaceChildren(el('div', 'empty', '正在读取摄像头…'));
   try {
     const cameras = await invoke('list_cameras');
     if (request !== state.camerasRequest) return;
+    const changed = !background || JSON.stringify(cameras) !== JSON.stringify(state.cameras);
     state.cameras = cameras;
-    log.info('Camera', `摄像头列表已加载：${cameras.length} 台`);
     setNavCount('cameraCount', state.cameras.length);
-    renderCameras();
-    renderSidebarRooms();
-    if (state.page === 'overview') renderOverview(true);
+    if (changed) {
+      log.info('Camera', `摄像头列表已加载：${cameras.length} 台`);
+      renderCameras();
+      renderSidebarRooms();
+      if (state.page === 'overview') renderOverview(true);
+    }
     updateChrome();
     loadDeviceSpecs(cameras);
   } catch (error) {
     log.error('Camera', `读取摄像头列表失败：${error}`);
     if (request !== state.camerasRequest) return;
+    if (background) return;
     state.cameras = [];
     setNavCount('cameraCount', 0);
     list.replaceChildren(el('div', 'empty error', `读取摄像头失败：${error}`));
@@ -3411,10 +3535,68 @@ async function loadCameras() {
   }
 }
 
+const CAMERA_COMPACT_THRESHOLD = 12;
+
+function cameraSearchText(camera, devices) {
+  const device = devices.get(camera.did);
+  return `${camera.name} ${camera.model || ''} ${camera.ip || ''} ${device ? roomName(device) : ''}`
+    .toLowerCase();
+}
+
+function cameraQuery() {
+  return state.cameraQuery.trim().toLowerCase();
+}
+
+function devicesByDid() {
+  return new Map(state.devices.map((device) => [device.did, device]));
+}
+
+// Cameras matching the side-panel search; the grid pages through this set.
+function filteredCameras() {
+  const query = cameraQuery();
+  if (!query) return state.cameras;
+  const devices = devicesByDid();
+  return state.cameras.filter((camera) => cameraSearchText(camera, devices).includes(query));
+}
+
+function updateCameraCount() {
+  const node = $('#camSideCount');
+  if (!node) return;
+  node.textContent = cameraQuery() && Number.isFinite(state.cameraVisible)
+    ? `${state.cameraVisible} / ${state.cameras.length}`
+    : String(state.cameras.length);
+}
+
+// Filters by toggling cards instead of rebuilding the list.
+function applyCameraFilter() {
+  const list = $('#camList');
+  const query = cameraQuery();
+  let visible = 0;
+  for (const card of list.querySelectorAll('.cam-card')) {
+    const match = !query || card.dataset.search.includes(query);
+    card.hidden = !match;
+    if (match) visible += 1;
+  }
+  let empty = list.querySelector('.cam-side-empty');
+  if (!visible && state.cameras.length) {
+    if (!empty) {
+      empty = el('div', 'cam-side-empty', '没有匹配的摄像头');
+      list.append(empty);
+    }
+  } else {
+    empty?.remove();
+  }
+  state.cameraVisible = visible;
+  updateCameraCount();
+}
+
 function renderCameras() {
   const list = $('#camList');
+  const scroll = list.scrollTop;
   list.replaceChildren();
-  $('#camSideCount').textContent = String(state.cameras.length);
+  list.classList.toggle('compact', state.cameras.length > CAMERA_COMPACT_THRESHOLD);
+  $('#camSearch').hidden = state.cameras.length <= CAMERA_COMPACT_THRESHOLD;
+  updateCameraCount();
   if (!state.cameras.length) {
     list.append(el('div', 'empty', '账号下没有识别到摄像头'));
     $('#camEmpty').textContent = '没有可用摄像头';
@@ -3427,13 +3609,16 @@ function renderCameras() {
     state.selectedCameraDid = state.cameras[0].did;
   }
   const fragment = document.createDocumentFragment();
+  const devices = devicesByDid();
   for (const camera of state.cameras) {
-    const card = el('div', `cam-card ${state.selectedCameraDid === camera.did ? 'active' : ''}`);
+    const card = el('div', `cam-card ${state.selectedCameraDid === camera.did ? 'active' : ''}${camera.online ? '' : ' offline'}`);
+    card.dataset.did = camera.did;
+    card.dataset.search = cameraSearchText(camera, devices);
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
     card.onclick = () => {
       state.selectedCameraDid = camera.did;
-      renderCameras();
+      markSelectedCamera();
       if (state.selectedCameraDid === camera.did) {
         $('#camEmpty').textContent = `已选择 ${camera.name}，点击“本地”或“远程”打开。`;
         updateCameraStage(camera, null, false);
@@ -3463,7 +3648,7 @@ function renderCameras() {
     local.onclick = (event) => {
       event.stopPropagation();
       state.selectedCameraDid = camera.did;
-      renderCameras();
+      markSelectedCamera();
       startCameraSet([camera], false);
     };
     const remote = el('button', 'pill remote', '远程');
@@ -3472,7 +3657,7 @@ function renderCameras() {
     remote.onclick = (event) => {
       event.stopPropagation();
       state.selectedCameraDid = camera.did;
-      renderCameras();
+      markSelectedCamera();
       startRemoteCamera(camera);
     };
     actions.append(local, remote);
@@ -3480,12 +3665,20 @@ function renderCameras() {
     fragment.append(card);
   }
   list.append(fragment);
+  applyCameraFilter();
+  list.scrollTop = scroll;
   const selected = state.cameras.find((camera) => camera.did === state.selectedCameraDid)
     || state.cameras[0];
   if (!state.activeCamera) {
     state.selectedCameraDid = selected?.did || null;
     $('#camEmpty').textContent = '选择一个摄像头';
     if (selected) updateCameraStage(selected, null, false);
+  }
+}
+
+function markSelectedCamera() {
+  for (const card of $('#camList').querySelectorAll('.cam-card')) {
+    card.classList.toggle('active', card.dataset.did === state.selectedCameraDid);
   }
 }
 
@@ -3592,7 +3785,7 @@ async function startRemoteCameraSetNow(cameras, grid) {
   state.cameraSessionStartedAt = Date.now();
   state.selectedCameraDid = usable[0].did;
   state.remoteActive = true;
-  renderCameras();
+  markSelectedCamera();
   updateCameraStage(usable[0], null, true);
   $('#camLayout').hidden = grid;
   $('#camGrid').hidden = !grid;
@@ -3601,22 +3794,20 @@ async function startRemoteCameraSetNow(cameras, grid) {
   const selected = grid ? usable.slice(0, MAX_REMOTE_STREAMS) : usable;
   $('#camHint').textContent = grid ? `正在建立 ${selected.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
   $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
+  updateCameraGridPager();
 
   let tiles = null;
   let singleVideo = null;
   if (grid) {
     $('#camGrid').replaceChildren();
+    $('#camGrid').toggleAttribute('data-dense', selected.length > 4);
     $('#camControls').hidden = true;
     tiles = new Map();
-    const selectedDids = new Set(selected.map((camera) => camera.did));
-    for (const camera of usable) {
+    for (const camera of selected) {
       const tile = el('div', 'cam-tile');
+      bindGridTile(tile, camera, true);
       tile.append(el('span', 'cam-tile-title', camera.name));
-      const status = el(
-        'span',
-        'cam-tile-status',
-        selectedDids.has(camera.did) ? '正在连接…' : '未启动 · 已达同时显示上限',
-      );
+      const status = el('span', 'cam-tile-status', '正在连接…');
       tile.append(status);
       $('#camGrid').append(tile);
       tiles.set(camera.did, { tile, status, video: null });
@@ -3630,6 +3821,9 @@ async function startRemoteCameraSetNow(cameras, grid) {
   let readyCount = 0;
   const failures = [];
   const starts = runLimited(selected, MAX_REMOTE_START_CONCURRENCY, async (camera) => {
+    // After paging or stopping, cameras still waiting for a start slot are
+    // skipped; otherwise every page flip would still open all of its relays.
+    if (generation !== state.cameraGeneration) return null;
     try {
       // Prewarm audio on its own low-latency channel. Playback stays muted
       // until the user enables it, so toggling sound never rebuilds video.
@@ -3706,28 +3900,37 @@ async function startRemoteCameraSetNow(cameras, grid) {
     }
   });
 
+  // The camera queue is released here instead of after every relay handshake
+  // (2–30 s each), so paging, leaving the page or stopping is not stuck behind
+  // a slow camera. Each start checks the generation before it touches the UI,
+  // and the backend drops starts that finish after a stop.
+  finishRemoteCameraSet(starts, { generation, grid, selected, failures, ready: () => readyCount });
+}
+
+async function finishRemoteCameraSet(starts, { generation, grid, selected, failures, ready }) {
   try {
     await starts;
     if (generation !== state.cameraGeneration) {
       return;
     }
+    const readyCount = ready();
     if (!readyCount) throw failures[0] || new Error('远程通道没有启动');
     if (failures.length) toast(`${failures.length} 路摄像头取流失败`, true);
     log.info('Camera', `远程画面通道已建立：count=${readyCount} failed=${failures.length}`);
     if (grid) {
-      const skipped = usable.length - selected.length;
-      $('#camHint').textContent = `${readyCount}/${selected.length} 路远程画面已启动${failures.length ? ` · ${failures.length} 路失败` : ''}${skipped ? ` · 最多同时显示 ${MAX_REMOTE_STREAMS} 路` : ''}`;
-      for (const camera of usable.slice(selected.length)) {
-        const target = tiles?.get(camera.did);
-        if (target) {
-          target.status.textContent = '未启动 · 已限制同时显示数量';
-          target.status.hidden = false;
-        }
-      }
+      $('#camHint').textContent = `${readyCount}/${selected.length} 路远程画面已启动${failures.length ? ` · ${failures.length} 路失败` : ''}`;
     }
   } catch (error) {
     log.error('Camera', `远程画面失败：${String(error)}`);
-    if (generation === state.cameraGeneration) await stopCameraNow('远程启动失败');
+    if (generation !== state.cameraGeneration) return;
+    let stopped = false;
+    await queueCameraOperation(async () => {
+      if (generation !== state.cameraGeneration) return;
+      await stopCameraNow('远程启动失败');
+      stopped = true;
+    });
+    // Only explain the failure if nothing else started in the meantime.
+    if (!stopped || state.cameraGeneration !== generation + 1) return;
     const text = String(error);
     const busy = /没有返回画面|no authentication|no frames|End of file|提前退出|peer closed/.test(text);
     $('#camEmpty').hidden = false;
@@ -3949,12 +4152,36 @@ async function diagnoseLocalTimeout(camera, video, generation) {
   }
 }
 
+// Clicking a grid tile opens that camera alone over the same transport.
+function bindGridTile(tile, camera, remote) {
+  tile.classList.add('openable');
+  tile.title = camera.name;
+  tile.tabIndex = 0;
+  const open = () => {
+    state.selectedCameraDid = camera.did;
+    markSelectedCamera();
+    if (remote) startRemoteCameraSet([camera], false);
+    else startCameraSet([camera], false);
+  };
+  tile.onclick = (event) => {
+    if (event.target.closest('button')) return;
+    open();
+  };
+  tile.onkeydown = (event) => {
+    if (event.target !== tile || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    open();
+  };
+}
+
 function startCameraSet(cameras, grid) {
   return queueCameraOperation(() => startCameraSetNow(cameras, grid));
 }
 
 async function startCameraSetNow(cameras, grid) {
-  const usable = cameras.filter((camera) => camera.online && camera.ip);
+  const usable = cameras
+    .filter((camera) => camera.online && camera.ip)
+    .slice(0, grid ? MAX_LOCAL_GRID_STREAMS : 1);
   if (!usable.length) {
     $('#camHint').textContent = '没有在线且带局域网地址的摄像头';
     return;
@@ -3974,7 +4201,7 @@ async function startCameraSetNow(cameras, grid) {
     state.cameraSessionStartedAt = Date.now();
     state.selectedCameraDid = usable[0].did;
     state.remoteActive = false;
-    renderCameras();
+    markSelectedCamera();
     updateCameraStage(usable[0], streams[0], false);
     log.info('Camera', `本地画面地址已返回：count=${streams.length}`);
     renderCameraControls(usable[0], false).catch((error) => {
@@ -3984,9 +4211,37 @@ async function startCameraSetNow(cameras, grid) {
       $('#camLayout').hidden = true;
       $('#camGrid').hidden = false;
       $('#camGrid').replaceChildren();
+      $('#camGrid').toggleAttribute('data-dense', streams.length > 4);
+      // One go2rtc process serves the whole local grid, so a restart rebuilds
+      // every tile. A single silent camera only marks its own tile; the grid
+      // restarts by itself only when every tile has stalled (the process is
+      // gone), or when the user clicks a stalled tile.
+      const stalled = new Set();
+      const onTileStall = (camera, tile, video) => {
+        if (generation !== state.cameraGeneration) return;
+        stalled.add(camera.did);
+        let status = tile.querySelector('.cam-tile-status');
+        if (!status) {
+          status = el('button', 'cam-tile-status', '没有画面，点击重试');
+          status.type = 'button';
+          status.onclick = () => restartLocalCamera(camera, generation);
+          tile.append(status);
+        }
+        status.hidden = false;
+        // A slow camera can still come up on the same transcoder: clear the
+        // overlay and resume stall detection once frames arrive.
+        video.addEventListener('playing', () => {
+          if (generation !== state.cameraGeneration) return;
+          stalled.delete(camera.did);
+          status.hidden = true;
+          watchRemote(video, camera, () => onTileStall(camera, tile, video), generation);
+        }, { once: true });
+        if (stalled.size >= streams.length) restartLocalCamera(camera, generation);
+      };
       for (const stream of streams) {
         const camera = usable.find((item) => item.did === stream.id);
         const tile = el('div', 'cam-tile');
+        if (camera) bindGridTile(tile, camera, false);
         tile.append(el('span', 'cam-tile-title', camera?.name || stream.id));
         const video = document.createElement('video');
         video.autoplay = true;
@@ -3998,16 +4253,12 @@ async function startCameraSetNow(cameras, grid) {
         };
         tile.append(video);
         $('#camGrid').append(tile);
-        attachCameraStream(
-          video,
-          stream,
-          camera || usable[0],
-          generation,
-          () => restartLocalCamera(camera || usable[0], generation),
-        );
-        watchRemote(video, camera || usable[0], () => restartLocalCamera(camera || usable[0], generation), generation);
+        const tileCamera = camera || usable[0];
+        attachCameraStream(video, stream, tileCamera, generation, () => onTileStall(tileCamera, tile, video));
+        watchRemote(video, tileCamera, () => onTileStall(tileCamera, tile, video), generation);
       }
       $('#camHint').textContent = `${streams.length} 路画面正在建立本地连接`;
+      updateCameraGridPager();
     } else {
       const stream = streams[0];
       $('#camLayout').hidden = false;
@@ -4162,16 +4413,22 @@ async function restartRemoteCamera(camera, video, generation) {
       () => restartRemoteCamera(camera, video, generation),
     );
     $('#camHint').textContent = `${camera.name} · 已自动重连`;
+    state.restartAttempts.delete(camera.did);
     watchRemote(video, camera, () => restartRemoteCamera(camera, video, generation), generation);
   } catch (error) {
     log.error('Camera', `远程画面重连失败：${camera.name} ${error}`);
     $('#camHint').textContent = `自动重连失败：${error}`;
+    // Back off 5 s, 10 s, 20 s … up to 60 s so an unreachable camera in a
+    // grid does not hit the relay every few seconds for as long as it is open.
+    const attempts = (state.restartAttempts.get(camera.did) || 0) + 1;
+    state.restartAttempts.set(camera.did, attempts);
+    const delay = Math.min(60000, 5000 * 2 ** (attempts - 1));
     const timer = setTimeout(() => {
       state.restartTimers.delete(camera.did);
       if (generation === state.cameraGeneration && state.remoteActive) {
         restartRemoteCamera(camera, video, generation);
       }
-    }, 5000);
+    }, delay);
     state.restartTimers.set(camera.did, timer);
   } finally {
     state.restartingCameras.delete(camera.did);
@@ -4217,6 +4474,7 @@ async function stopCameraNow(reason = '未知') {
   state.videoPlayers = new WeakMap();
   for (const timer of state.restartTimers.values()) clearTimeout(timer);
   state.restartTimers.clear();
+  state.restartAttempts.clear();
   state.restartingCameras.clear();
   $('#camControls').hidden = true;
   const video = $('#camVideo');
@@ -4228,6 +4486,7 @@ async function stopCameraNow(reason = '未知') {
   $('#camGrid').hidden = true;
   $('#camGrid').replaceChildren();
   $('#camLayout').hidden = false;
+  updateCameraGridPager();
   $('#camClock').textContent = '--:--:--';
   $('#camTransport').textContent = '已停止';
   document.querySelector('.camera-frame.theater')?.classList.remove('theater');
@@ -4421,7 +4680,7 @@ document.addEventListener('click', async (event) => {
   }
 });
 $('#camReload').onclick = loadCameras;
-$('#camRemoteGrid').onclick = () => startRemoteCameraSet(state.cameras, true);
+$('#camRemoteGrid').onclick = () => startCameraGrid(true);
 $('#camLocalButton').onclick = () => {
   const camera = state.cameras.find((item) => item.did === state.selectedCameraDid);
   if (!camera) return toast('先选择一台摄像头', true);
@@ -4543,23 +4802,73 @@ $('#camPtzOverlay').addEventListener('click', async (event) => {
   }
 });
 
+function gridCandidates(remote) {
+  return filteredCameras().filter((camera) => camera.online && (remote || camera.ip));
+}
+
+function gridPageInfo(remote, page) {
+  const candidates = gridCandidates(remote);
+  const size = remote ? MAX_REMOTE_STREAMS : MAX_LOCAL_GRID_STREAMS;
+  const pages = Math.max(1, Math.ceil(candidates.length / size));
+  const current = Math.min(Math.max(0, Number(page) || 0), pages - 1);
+  return {
+    cameras: candidates.slice(current * size, current * size + size),
+    page: current,
+    pages,
+    size,
+  };
+}
+
+// Opens one page of the grid. Without an explicit page it starts from the page
+// that contains the selected camera.
+function startCameraGrid(remote, page) {
+  let target = page;
+  if (target === undefined) {
+    const index = gridCandidates(remote).findIndex((camera) => camera.did === state.selectedCameraDid);
+    target = index > 0 ? Math.floor(index / (remote ? MAX_REMOTE_STREAMS : MAX_LOCAL_GRID_STREAMS)) : 0;
+  }
+  const info = gridPageInfo(remote, target);
+  if (!info.cameras.length) {
+    $('#camHint').textContent = remote ? '没有在线摄像头' : '没有在线且带局域网地址的摄像头';
+    return null;
+  }
+  state.cameraGridPage = info.page;
+  return remote ? startRemoteCameraSet(info.cameras, true) : startCameraSet(info.cameras, true);
+}
+
+function updateCameraGridPager() {
+  const pager = $('#camGridPager');
+  if (!pager) return;
+  const info = gridPageInfo(state.remoteActive, state.cameraGridPage);
+  pager.hidden = !state.cameraGrid || $('#camGrid').hidden || info.pages < 2;
+  $('#camGridPageLabel').textContent = `${info.page + 1} / ${info.pages}`;
+  $('#camGridPrev').disabled = info.page <= 0;
+  $('#camGridNext').disabled = info.page >= info.pages - 1;
+}
+
+$('#camGridPrev').onclick = () => startCameraGrid(state.remoteActive, state.cameraGridPage - 1);
+$('#camGridNext').onclick = () => startCameraGrid(state.remoteActive, state.cameraGridPage + 1);
+
 $('#camGridToggle').onclick = () => {
   if (state.cameraGrid) {
-    if (state.remoteActive) {
-      const first = state.cameras.find((camera) => camera.online);
-      if (first) startRemoteCameraSet([first], false);
-    } else {
-      const first = state.cameras.find((camera) => camera.online && camera.ip);
-      if (first) startCameraSet([first], false);
-    }
+    const remote = state.remoteActive;
+    const candidates = gridCandidates(remote);
+    const camera = candidates.find((item) => item.did === state.selectedCameraDid) || candidates[0];
+    if (!camera) return;
+    if (remote) startRemoteCameraSet([camera], false);
+    else startCameraSet([camera], false);
   } else {
-    if (state.remoteActive) startRemoteCameraSet(state.cameras, true);
-    else startCameraSet(state.cameras, true);
+    startCameraGrid(state.remoteActive);
   }
 };
 
 $('#startAuth').onclick = startAuth;
 $('#reload').onclick = loadDevices;
+$('#camSearch').addEventListener('input', (event) => {
+  state.cameraQuery = event.target.value;
+  applyCameraFilter();
+  updateCameraGridPager();
+});
 $('#deviceSearch').addEventListener('input', (event) => {
   state.deviceQuery = event.target.value;
   renderDevices();
@@ -4724,9 +5033,17 @@ function renderQuickPanel() {
 
   const grid = $('#popGrid');
   grid.replaceChildren();
-  const candidates = [...state.devices]
-    .sort((a, b) => Number(b.online) - Number(a.online))
-    .slice(0, 4);
+  // Quick controls: online devices with a switch first, cameras last, so an
+  // account with 100+ cameras still shows lights and plugs here.
+  const rank = (device) => {
+    const switchable = cardProfile(device).controls.some((item) => item.primary);
+    return (device.online ? 4 : 0) + (switchable ? 2 : 0) + (cameraForDevice(device) ? 0 : 1);
+  };
+  const candidates = state.devices
+    .map((device, index) => ({ device, index, rank: rank(device) }))
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .slice(0, 4)
+    .map((item) => item.device);
   for (const device of candidates) {
     const row = el('div', 'pop-device');
     row.tabIndex = 0;
@@ -4853,13 +5170,17 @@ async function loadAll() {
 }
 
 function paletteSource() {
-  const items = state.devices.map((device) => ({
-    group: '设备',
-    label: device.name,
-    sub: `${roomName(device)} · ${device.online ? '在线' : '离线'}`,
-    icon: 'sliders',
-    run: () => selectDevice(device),
-  }));
+  const items = state.devices.map((device) => {
+    const camera = cameraForDevice(device);
+    return {
+      group: '设备',
+      label: device.name,
+      sub: `${roomName(device)} · ${device.online ? '在线' : '离线'}`,
+      icon: camera ? 'camera' : 'sliders',
+      // Cameras open the monitor page with that camera selected.
+      run: () => (camera ? openCameraDevice(device) : selectDevice(device)),
+    };
+  });
   for (const scene of state.scenes) {
     items.push({
       group: '场景',
@@ -4949,7 +5270,21 @@ $('#popOpen').onclick = () => {
   toggleQuickPanel(false);
   showOverview();
 };
-$('#paletteInput').oninput = () => renderPalette($('#paletteInput').value);
+$('#paletteInput').oninput = () => {
+  state.paletteIndex = 0;
+  renderPalette($('#paletteInput').value);
+};
+
+// Moving the highlight only swaps one class instead of re-rendering every
+// device row, and keeps the highlighted row visible in long lists.
+function setPaletteIndex(index) {
+  state.paletteIndex = index;
+  const box = $('#paletteResults');
+  box.querySelector('.palette-item.active')?.classList.remove('active');
+  const node = box.querySelector(`[data-palette-index="${index}"]`);
+  node?.classList.add('active');
+  node?.scrollIntoView({ block: 'nearest' });
+}
 $('#paletteResults').onclick = (event) => {
   const item = event.target.closest('[data-palette-index]');
   if (!item) return;
@@ -4972,16 +5307,17 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if ($('#palette').classList.contains('open')) {
+    // Enter and arrows also confirm or move the candidate list of a Chinese
+    // or Japanese input method; leave them to the IME while composing.
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') closePalette();
     if (event.key === 'ArrowDown' && state.paletteItems.length) {
       event.preventDefault();
-      state.paletteIndex = (state.paletteIndex + 1) % state.paletteItems.length;
-      renderPalette($('#paletteInput').value);
+      setPaletteIndex((state.paletteIndex + 1) % state.paletteItems.length);
     }
     if (event.key === 'ArrowUp' && state.paletteItems.length) {
       event.preventDefault();
-      state.paletteIndex = (state.paletteIndex - 1 + state.paletteItems.length) % state.paletteItems.length;
-      renderPalette($('#paletteInput').value);
+      setPaletteIndex((state.paletteIndex - 1 + state.paletteItems.length) % state.paletteItems.length);
     }
     if (event.key === 'Enter') {
       event.preventDefault();

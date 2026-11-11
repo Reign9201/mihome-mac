@@ -183,6 +183,11 @@
               <p class="page-sub">同一局域网内优先直连；远程通道受网络、relay 与设备固件影响。</p>
             </div>
             <div class="head-actions">
+              <div class="cam-grid-pager" id="camGridPager" hidden>
+                <button id="camGridPrev" class="ghost-btn" type="button" title="上一组" aria-label="上一组" data-icon="left"></button>
+                <span id="camGridPageLabel">1 / 1</span>
+                <button id="camGridNext" class="ghost-btn" type="button" title="下一组" aria-label="下一组" data-icon="right"></button>
+              </div>
               <button id="camGridToggle" class="ghost-btn">宫格</button>
               <button id="camRemoteGrid" class="primary-btn">远程宫格</button>
             </div>
@@ -233,6 +238,7 @@
 
             <aside class="camera-side">
               <div class="cam-side-head"><span>摄像头</span><span id="camSideCount">0</span></div>
+              <input id="camSearch" class="cam-search" type="search" placeholder="搜索名称、房间或 IP" autocomplete="off" spellcheck="false" aria-label="搜索摄像头" hidden>
               <div class="cam-side-list" id="camList"></div>
               <div class="cam-side-note">画面只在本机解码。同一摄像头通常只允许一台设备查看实时画面。</div>
             </aside>

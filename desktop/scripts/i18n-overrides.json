@@ -196,7 +196,14 @@
     "界面风格": "Interface style",
     "现代列表与经典设备卡片可随时切换": "Switch anytime between the modern list and classic device cards",
     "现代": "Modern",
-    "经典": "Classic"
+    "经典": "Classic",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} remote screen has been activated {2}",
+    "上一组": "Previous page",
+    "下一组": "Next page",
+    "搜索名称、房间或 IP": "Search name, room or IP",
+    "没有匹配的摄像头": "No matching cameras",
+    "搜索摄像头": "Search cameras",
+    "没有画面，点击重试": "No video, click to retry"
   },
   "zh-Hant": {
     "设备": "裝置",
@@ -440,7 +447,14 @@
     "现代列表与经典设备卡片可随时切换": "可隨時切換現代清單與經典裝置卡片",
     "现代": "現代",
     "经典": "經典",
-    "耗材不足": "耗材不足"
+    "耗材不足": "耗材不足",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} 路遠端畫面已啟動{2}",
+    "上一组": "上一組",
+    "下一组": "下一組",
+    "搜索名称、房间或 IP": "搜尋名稱、房間或 IP",
+    "没有匹配的摄像头": "沒有符合的攝影機",
+    "搜索摄像头": "搜尋攝影機",
+    "没有画面，点击重试": "沒有畫面，點擊重試"
   },
   "zh-HK": {
     "设备": "裝置",
@@ -684,7 +698,14 @@
     "现代列表与经典设备卡片可随时切换": "可隨時切換現代清單與經典裝置卡片",
     "现代": "現代",
     "经典": "經典",
-    "耗材不足": "耗材不足"
+    "耗材不足": "耗材不足",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} 路遠端畫面已啟動{2}",
+    "上一组": "上一組",
+    "下一组": "下一組",
+    "搜索名称、房间或 IP": "搜尋名稱、房間或 IP",
+    "没有匹配的摄像头": "沒有符合的鏡頭",
+    "搜索摄像头": "搜尋鏡頭",
+    "没有画面，点击重试": "沒有畫面，按一下重試"
   },
   "ja": {
     "设备": "デバイス",
@@ -883,7 +904,14 @@
     "现代列表与经典设备卡片可随时切换": "モダンなリストとクラシックなデバイスカードをいつでも切り替えられます",
     "现代": "モダン",
     "经典": "クラシック",
-    "耗材不足": "消耗品不足"
+    "耗材不足": "消耗品不足",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} リモート画面が有効になりました {2}",
+    "上一组": "前へ",
+    "下一组": "次へ",
+    "搜索名称、房间或 IP": "名前、部屋、IP で検索",
+    "没有匹配的摄像头": "一致するカメラはありません",
+    "搜索摄像头": "カメラを検索",
+    "没有画面，点击重试": "映像なし、クリックで再試行"
   },
   "ko": {
     "设备": "장치",
@@ -1082,7 +1110,14 @@
     "现代列表与经典设备卡片可随时切换": "모던 목록과 클래식 기기 카드를 언제든 전환할 수 있습니다",
     "现代": "모던",
     "经典": "클래식",
-    "耗材不足": "소모품 부족"
+    "耗材不足": "소모품 부족",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} 원격 화면이 활성화되었습니다. {2}",
+    "上一组": "이전",
+    "下一组": "다음",
+    "搜索名称、房间或 IP": "이름, 방 또는 IP 검색",
+    "没有匹配的摄像头": "일치하는 카메라가 없습니다",
+    "搜索摄像头": "카메라 검색",
+    "没有画面，点击重试": "영상 없음, 클릭하여 다시 시도"
   },
   "de": {
     "设备": "Gerät",
@@ -1281,7 +1316,14 @@
     "现代列表与经典设备卡片可随时切换": "Jederzeit zwischen moderner Liste und klassischen Gerätekarten wechseln",
     "现代": "Modern",
     "经典": "Klassisch",
-    "耗材不足": "Verbrauchsmaterial niedrig"
+    "耗材不足": "Verbrauchsmaterial niedrig",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} Remote-Bildschirm wurde aktiviert {2}",
+    "上一组": "Vorherige Seite",
+    "下一组": "Nächste Seite",
+    "搜索名称、房间或 IP": "Name, Raum oder IP suchen",
+    "没有匹配的摄像头": "Keine passenden Kameras",
+    "搜索摄像头": "Kameras suchen",
+    "没有画面，点击重试": "Kein Bild, zum Wiederholen klicken"
   },
   "fr": {
     "设备": "Appareil",
@@ -1480,7 +1522,14 @@
     "现代列表与经典设备卡片可随时切换": "Passez à tout moment de la liste moderne aux cartes d’appareil classiques",
     "现代": "Moderne",
     "经典": "Classique",
-    "耗材不足": "Consommables faibles"
+    "耗材不足": "Consommables faibles",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} l'écran distant a été activé {2}",
+    "上一组": "Page précédente",
+    "下一组": "Page suivante",
+    "搜索名称、房间或 IP": "Rechercher nom, pièce ou IP",
+    "没有匹配的摄像头": "Aucune caméra correspondante",
+    "搜索摄像头": "Rechercher des caméras",
+    "没有画面，点击重试": "Pas d'image, cliquez pour réessayer"
   },
   "es": {
     "设备": "Dispositivo",
@@ -1679,7 +1728,14 @@
     "现代列表与经典设备卡片可随时切换": "Cambia en cualquier momento entre la lista moderna y las tarjetas clásicas de dispositivos",
     "现代": "Moderno",
     "经典": "Clásico",
-    "耗材不足": "Consumibles bajos"
+    "耗材不足": "Consumibles bajos",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} pantalla remota se ha activado {2}",
+    "上一组": "Página anterior",
+    "下一组": "Página siguiente",
+    "搜索名称、房间或 IP": "Buscar nombre, habitación o IP",
+    "没有匹配的摄像头": "No hay cámaras que coincidan",
+    "搜索摄像头": "Buscar cámaras",
+    "没有画面，点击重试": "Sin imagen, haz clic para reintentar"
   },
   "pt-BR": {
     "设备": "Dispositivo",
@@ -1878,7 +1934,14 @@
     "现代列表与经典设备卡片可随时切换": "Alterne a qualquer momento entre a lista moderna e os cartões clássicos de dispositivos",
     "现代": "Moderno",
     "经典": "Clássico",
-    "耗材不足": "Consumíveis baixos"
+    "耗材不足": "Consumíveis baixos",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} tela remota foi ativada {2}",
+    "上一组": "Página anterior",
+    "下一组": "Próxima página",
+    "搜索名称、房间或 IP": "Buscar nome, cômodo ou IP",
+    "没有匹配的摄像头": "Nenhuma câmera correspondente",
+    "搜索摄像头": "Buscar câmeras",
+    "没有画面，点击重试": "Sem imagem, clique para tentar novamente"
   },
   "pt-PT": {
     "设备": "Dispositivo",
@@ -2077,7 +2140,14 @@
     "现代列表与经典设备卡片可随时切换": "Alterne a qualquer momento entre a lista moderna e os cartões clássicos de dispositivos",
     "现代": "Moderno",
     "经典": "Clássico",
-    "耗材不足": "Consumíveis baixos"
+    "耗材不足": "Consumíveis baixos",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} ecrã remoto foi ativado {2}",
+    "上一组": "Página anterior",
+    "下一组": "Página seguinte",
+    "搜索名称、房间或 IP": "Pesquisar nome, divisão ou IP",
+    "没有匹配的摄像头": "Nenhuma câmara correspondente",
+    "搜索摄像头": "Pesquisar câmaras",
+    "没有画面，点击重试": "Sem imagem, clique para tentar novamente"
   },
   "it": {
     "设备": "Dispositivo",
@@ -2276,7 +2346,14 @@
     "现代列表与经典设备卡片可随时切换": "Passa in qualsiasi momento dall’elenco moderno alle schede classiche dei dispositivi",
     "现代": "Moderno",
     "经典": "Classico",
-    "耗材不足": "Consumabili bassi"
+    "耗材不足": "Consumabili bassi",
+    "{0}/{1} 路远程画面已启动{2}": "Lo schermo remoto {0}/{1} è stato attivato {2}",
+    "上一组": "Pagina precedente",
+    "下一组": "Pagina successiva",
+    "搜索名称、房间或 IP": "Cerca nome, stanza o IP",
+    "没有匹配的摄像头": "Nessuna telecamera corrispondente",
+    "搜索摄像头": "Cerca telecamere",
+    "没有画面，点击重试": "Nessuna immagine, fai clic per riprovare"
   },
   "nl": {
     "设备": "Apparaat",
@@ -2475,7 +2552,14 @@
     "现代列表与经典设备卡片可随时切换": "Schakel op elk moment tussen de moderne lijst en klassieke apparaatkaarten",
     "现代": "Modern",
     "经典": "Klassiek",
-    "耗材不足": "Verbruiksartikelen laag"
+    "耗材不足": "Verbruiksartikelen laag",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} extern scherm is geactiveerd {2}",
+    "上一组": "Vorige pagina",
+    "下一组": "Volgende pagina",
+    "搜索名称、房间或 IP": "Zoek op naam, kamer of IP",
+    "没有匹配的摄像头": "Geen overeenkomende camera's",
+    "搜索摄像头": "Camera's zoeken",
+    "没有画面，点击重试": "Geen beeld, klik om opnieuw te proberen"
   },
   "ru": {
     "设备": "Устройство",
@@ -2674,7 +2758,14 @@
     "现代列表与经典设备卡片可随时切换": "В любой момент переключайтесь между современным списком и классическими карточками устройств",
     "现代": "Современный",
     "经典": "Классический",
-    "耗材不足": "Мало расходных материалов"
+    "耗材不足": "Мало расходных материалов",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} удаленный экран активирован {2}",
+    "上一组": "Предыдущая страница",
+    "下一组": "Следующая страница",
+    "搜索名称、房间或 IP": "Поиск по имени, комнате или IP",
+    "没有匹配的摄像头": "Нет подходящих камер",
+    "搜索摄像头": "Поиск камер",
+    "没有画面，点击重试": "Нет изображения, нажмите для повтора"
   },
   "uk": {
     "设备": "пристрій",
@@ -2873,7 +2964,14 @@
     "现代列表与经典设备卡片可随时切换": "Будь-коли перемикайтеся між сучасним списком і класичними картками пристроїв",
     "现代": "Сучасний",
     "经典": "Класичний",
-    "耗材不足": "Мало витратних матеріалів"
+    "耗材不足": "Мало витратних матеріалів",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} віддалений екран активовано {2}",
+    "上一组": "Попередня сторінка",
+    "下一组": "Наступна сторінка",
+    "搜索名称、房间或 IP": "Пошук за назвою, кімнатою або IP",
+    "没有匹配的摄像头": "Немає відповідних камер",
+    "搜索摄像头": "Пошук камер",
+    "没有画面，点击重试": "Немає зображення, натисніть, щоб повторити"
   },
   "pl": {
     "设备": "Urządzenie",
@@ -3072,7 +3170,14 @@
     "现代列表与经典设备卡片可随时切换": "W dowolnym momencie przełączaj nowoczesną listę i klasyczne karty urządzeń",
     "现代": "Nowoczesny",
     "经典": "Klasyczny",
-    "耗材不足": "Mało materiałów eksploatacyjnych"
+    "耗材不足": "Mało materiałów eksploatacyjnych",
+    "{0}/{1} 路远程画面已启动{2}": "Aktywowano ekran zdalny {0}/{1} {2}",
+    "上一组": "Poprzednia strona",
+    "下一组": "Następna strona",
+    "搜索名称、房间或 IP": "Szukaj nazwy, pokoju lub IP",
+    "没有匹配的摄像头": "Brak pasujących kamer",
+    "搜索摄像头": "Szukaj kamer",
+    "没有画面，点击重试": "Brak obrazu, kliknij, aby ponowić"
   },
   "cs": {
     "设备": "Zařízení",
@@ -3271,7 +3376,14 @@
     "现代列表与经典设备卡片可随时切换": "Kdykoli přepínejte mezi moderním seznamem a klasickými kartami zařízení",
     "现代": "Moderní",
     "经典": "Klasický",
-    "耗材不足": "Nedostatek spotřebního materiálu"
+    "耗材不足": "Nedostatek spotřebního materiálu",
+    "{0}/{1} 路远程画面已启动{2}": "Byla aktivována vzdálená obrazovka {0}/{1} {2}",
+    "上一组": "Předchozí stránka",
+    "下一组": "Další stránka",
+    "搜索名称、房间或 IP": "Hledat název, místnost nebo IP",
+    "没有匹配的摄像头": "Žádné odpovídající kamery",
+    "搜索摄像头": "Hledat kamery",
+    "没有画面，点击重试": "Žádný obraz, klikněte pro opakování"
   },
   "sk": {
     "设备": "Zariadenie",
@@ -3470,7 +3582,14 @@
     "现代列表与经典设备卡片可随时切换": "Kedykoľvek prepínajte medzi moderným zoznamom a klasickými kartami zariadení",
     "现代": "Moderný",
     "经典": "Klasický",
-    "耗材不足": "Nedostatok spotrebného materiálu"
+    "耗材不足": "Nedostatok spotrebného materiálu",
+    "{0}/{1} 路远程画面已启动{2}": "Bola aktivovaná vzdialená obrazovka {0}/{1} {2}",
+    "上一组": "Predchádzajúca strana",
+    "下一组": "Ďalšia strana",
+    "搜索名称、房间或 IP": "Hľadať názov, miestnosť alebo IP",
+    "没有匹配的摄像头": "Žiadne zodpovedajúce kamery",
+    "搜索摄像头": "Hľadať kamery",
+    "没有画面，点击重试": "Žiadny obraz, kliknite pre opakovanie"
   },
   "hu": {
     "设备": "Eszköz",
@@ -3669,7 +3788,14 @@
     "现代列表与经典设备卡片可随时切换": "Bármikor válthat a modern lista és a klasszikus eszközkártyák között",
     "现代": "Modern",
     "经典": "Klasszikus",
-    "耗材不足": "Alacsony fogyóanyag"
+    "耗材不足": "Alacsony fogyóanyag",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} távoli képernyő aktiválva {2}",
+    "上一组": "Előző oldal",
+    "下一组": "Következő oldal",
+    "搜索名称、房间或 IP": "Keresés név, szoba vagy IP alapján",
+    "没有匹配的摄像头": "Nincs egyező kamera",
+    "搜索摄像头": "Kamerák keresése",
+    "没有画面，点击重试": "Nincs kép, kattintson az újrapróbáláshoz"
   },
   "ro": {
     "设备": "Dispozitiv",
@@ -3868,7 +3994,14 @@
     "现代列表与经典设备卡片可随时切换": "Comutați oricând între lista modernă și cardurile clasice pentru dispozitive",
     "现代": "Modern",
     "经典": "Clasic",
-    "耗材不足": "Consumabile reduse"
+    "耗材不足": "Consumabile reduse",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} ecranul de la distanță a fost activat {2}",
+    "上一组": "Pagina anterioară",
+    "下一组": "Pagina următoare",
+    "搜索名称、房间或 IP": "Caută nume, cameră sau IP",
+    "没有匹配的摄像头": "Nicio cameră potrivită",
+    "搜索摄像头": "Caută camere",
+    "没有画面，点击重试": "Fără imagine, faceți clic pentru a reîncerca"
   },
   "el": {
     "设备": "Συσκευή",
@@ -4067,7 +4200,14 @@
     "现代列表与经典设备卡片可随时切换": "Εναλλαγή ανά πάσα στιγμή μεταξύ σύγχρονης λίστας και κλασικών καρτών συσκευών",
     "现代": "Σύγχρονο",
     "经典": "Κλασικό",
-    "耗材不足": "Χαμηλά αναλώσιμα"
+    "耗材不足": "Χαμηλά αναλώσιμα",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} η απομακρυσμένη οθόνη έχει ενεργοποιηθεί {2}",
+    "上一组": "Προηγούμενη σελίδα",
+    "下一组": "Επόμενη σελίδα",
+    "搜索名称、房间或 IP": "Αναζήτηση ονόματος, δωματίου ή IP",
+    "没有匹配的摄像头": "Δεν βρέθηκαν κάμερες",
+    "搜索摄像头": "Αναζήτηση καμερών",
+    "没有画面，点击重试": "Δεν υπάρχει εικόνα, κάντε κλικ για επανάληψη"
   },
   "tr": {
     "设备": "Cihaz",
@@ -4266,7 +4406,14 @@
     "现代列表与经典设备卡片可随时切换": "Modern liste ile klasik cihaz kartları arasında istediğiniz zaman geçiş yapın",
     "现代": "Modern",
     "经典": "Klasik",
-    "耗材不足": "Sarf malzemesi az"
+    "耗材不足": "Sarf malzemesi az",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} uzak ekran etkinleştirildi {2}",
+    "上一组": "Önceki sayfa",
+    "下一组": "Sonraki sayfa",
+    "搜索名称、房间或 IP": "Ad, oda veya IP ara",
+    "没有匹配的摄像头": "Eşleşen kamera yok",
+    "搜索摄像头": "Kamera ara",
+    "没有画面，点击重试": "Görüntü yok, yeniden denemek için tıklayın"
   },
   "ar": {
     "设备": "الجهاز",
@@ -4465,7 +4612,14 @@
     "现代列表与经典设备卡片可随时切换": "بدّل في أي وقت بين القائمة الحديثة وبطاقات الأجهزة الكلاسيكية",
     "现代": "حديث",
     "经典": "كلاسيكي",
-    "耗材不足": "مستهلكات منخفضة"
+    "耗材不足": "مستهلكات منخفضة",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} تم تنشيط الشاشة البعيدة {2}",
+    "上一组": "الصفحة السابقة",
+    "下一组": "الصفحة التالية",
+    "搜索名称、房间或 IP": "ابحث بالاسم أو الغرفة أو IP",
+    "没有匹配的摄像头": "لا توجد كاميرات مطابقة",
+    "搜索摄像头": "البحث عن الكاميرات",
+    "没有画面，点击重试": "لا توجد صورة، انقر لإعادة المحاولة"
   },
   "he": {
     "设备": "מכשיר",
@@ -4675,7 +4829,14 @@
     "现代列表与经典设备卡片可随时切换": "החלף בכל עת בין רשימה מודרנית לכרטיסי מכשיר קלאסיים",
     "现代": "מודרני",
     "经典": "קלאסי",
-    "耗材不足": "מתכלים נמוכים"
+    "耗材不足": "מתכלים נמוכים",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} מסך מרוחק הופעל {2}",
+    "上一组": "הדף הקודם",
+    "下一组": "הדף הבא",
+    "搜索名称、房间或 IP": "חיפוש לפי שם, חדר או IP",
+    "没有匹配的摄像头": "אין מצלמות תואמות",
+    "搜索摄像头": "חיפוש מצלמות",
+    "没有画面，点击重试": "אין תמונה, לחצו לניסיון חוזר"
   },
   "hi": {
     "设备": "युक्ति",
@@ -4874,7 +5035,14 @@
     "现代列表与经典设备卡片可随时切换": "आधुनिक सूची और क्लासिक डिवाइस कार्ड के बीच कभी भी बदलें",
     "现代": "आधुनिक",
     "经典": "क्लासिक",
-    "耗材不足": "उपभोग्य सामग्री कम"
+    "耗材不足": "उपभोग्य सामग्री कम",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} रिमोट स्क्रीन सक्रिय कर दी गई है {2}",
+    "上一组": "पिछला पेज",
+    "下一组": "अगला पेज",
+    "搜索名称、房间或 IP": "नाम, कमरा या IP खोजें",
+    "没有匹配的摄像头": "कोई मेल खाता कैमरा नहीं",
+    "搜索摄像头": "कैमरे खोजें",
+    "没有画面，点击重试": "वीडियो नहीं, फिर से प्रयास करने के लिए क्लिक करें"
   },
   "th": {
     "设备": "อุปกรณ์",
@@ -5073,7 +5241,14 @@
     "现代列表与经典设备卡片可随时切换": "สลับระหว่างรายการสมัยใหม่และการ์ดอุปกรณ์คลาสสิกได้ทุกเมื่อ",
     "现代": "สมัยใหม่",
     "经典": "คลาสสิก",
-    "耗材不足": "วัสดุสิ้นเปลืองต่ำ"
+    "耗材不足": "วัสดุสิ้นเปลืองต่ำ",
+    "{0}/{1} 路远程画面已启动{2}": "เปิดใช้งานหน้าจอระยะไกล {0}/{1} แล้ว {2}",
+    "上一组": "หน้าก่อนหน้า",
+    "下一组": "หน้าถัดไป",
+    "搜索名称、房间或 IP": "ค้นหาชื่อ ห้อง หรือ IP",
+    "没有匹配的摄像头": "ไม่พบกล้องที่ตรงกัน",
+    "搜索摄像头": "ค้นหากล้อง",
+    "没有画面，点击重试": "ไม่มีภาพ คลิกเพื่อลองอีกครั้ง"
   },
   "vi": {
     "设备": "Thiết bị",
@@ -5272,7 +5447,14 @@
     "现代列表与经典设备卡片可随时切换": "Chuyển đổi bất cứ lúc nào giữa danh sách hiện đại và thẻ thiết bị cổ điển",
     "现代": "Hiện đại",
     "经典": "Cổ điển",
-    "耗材不足": "Vật tư tiêu hao thấp"
+    "耗材不足": "Vật tư tiêu hao thấp",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} màn hình từ xa đã được kích hoạt {2}",
+    "上一组": "Trang trước",
+    "下一组": "Trang sau",
+    "搜索名称、房间或 IP": "Tìm theo tên, phòng hoặc IP",
+    "没有匹配的摄像头": "Không có camera phù hợp",
+    "搜索摄像头": "Tìm camera",
+    "没有画面，点击重试": "Không có hình, nhấn để thử lại"
   },
   "id": {
     "设备": "Perangkat",
@@ -5471,7 +5653,14 @@
     "现代列表与经典设备卡片可随时切换": "Beralih kapan saja antara daftar modern dan kartu perangkat klasik",
     "现代": "Modern",
     "经典": "Klasik",
-    "耗材不足": "Bahan habis pakai rendah"
+    "耗材不足": "Bahan habis pakai rendah",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} layar jarak jauh telah diaktifkan {2}",
+    "上一组": "Halaman sebelumnya",
+    "下一组": "Halaman berikutnya",
+    "搜索名称、房间或 IP": "Cari nama, ruangan, atau IP",
+    "没有匹配的摄像头": "Tidak ada kamera yang cocok",
+    "搜索摄像头": "Cari kamera",
+    "没有画面，点击重试": "Tidak ada gambar, klik untuk mencoba lagi"
   },
   "ms": {
     "设备": "Peranti",
@@ -5670,7 +5859,14 @@
     "现代列表与经典设备卡片可随时切换": "Tukar pada bila-bila masa antara senarai moden dan kad peranti klasik",
     "现代": "Moden",
     "经典": "Klasik",
-    "耗材不足": "Bahan guna habis rendah"
+    "耗材不足": "Bahan guna habis rendah",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} skrin jauh telah diaktifkan {2}",
+    "上一组": "Halaman sebelumnya",
+    "下一组": "Halaman seterusnya",
+    "搜索名称、房间或 IP": "Cari nama, bilik atau IP",
+    "没有匹配的摄像头": "Tiada kamera yang sepadan",
+    "搜索摄像头": "Cari kamera",
+    "没有画面，点击重试": "Tiada imej, klik untuk cuba lagi"
   },
   "ca": {
     "设备": "Dispositiu",
@@ -5869,7 +6065,14 @@
     "现代列表与经典设备卡片可随时切换": "Canvia en qualsevol moment entre la llista moderna i les targetes clàssiques de dispositius",
     "现代": "Modern",
     "经典": "Clàssic",
-    "耗材不足": "Consumibles baixos"
+    "耗材不足": "Consumibles baixos",
+    "{0}/{1} 路远程画面已启动{2}": "La pantalla remota {0}/{1} s'ha activat {2}",
+    "上一组": "Pàgina anterior",
+    "下一组": "Pàgina següent",
+    "搜索名称、房间或 IP": "Cerca nom, habitació o IP",
+    "没有匹配的摄像头": "No hi ha càmeres coincidents",
+    "搜索摄像头": "Cerca càmeres",
+    "没有画面，点击重试": "Sense imatge, feu clic per tornar-ho a provar"
   },
   "da": {
     "设备": "Enhed",
@@ -6068,7 +6271,14 @@
     "现代列表与经典设备卡片可随时切换": "Skift når som helst mellem den moderne liste og klassiske enhedskort",
     "现代": "Moderne",
     "经典": "Klassisk",
-    "耗材不足": "Forbrugsstoffer lav"
+    "耗材不足": "Forbrugsstoffer lav",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} fjernskærm er blevet aktiveret {2}",
+    "上一组": "Forrige side",
+    "下一组": "Næste side",
+    "搜索名称、房间或 IP": "Søg efter navn, rum eller IP",
+    "没有匹配的摄像头": "Ingen matchende kameraer",
+    "搜索摄像头": "Søg kameraer",
+    "没有画面，点击重试": "Intet billede, klik for at prøve igen"
   },
   "fi": {
     "设备": "Laite",
@@ -6267,7 +6477,14 @@
     "现代列表与经典设备卡片可随时切换": "Vaihda milloin tahansa modernin luettelon ja klassisten laitekorttien välillä",
     "现代": "Moderni",
     "经典": "Klassinen",
-    "耗材不足": "Kulutustarvikkeet vähissä"
+    "耗材不足": "Kulutustarvikkeet vähissä",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} kaukosäätimen näyttö on aktivoitu {2}",
+    "上一组": "Edellinen sivu",
+    "下一组": "Seuraava sivu",
+    "搜索名称、房间或 IP": "Hae nimellä, huoneella tai IP:llä",
+    "没有匹配的摄像头": "Ei vastaavia kameroita",
+    "搜索摄像头": "Hae kameroita",
+    "没有画面，点击重试": "Ei kuvaa, yritä uudelleen napsauttamalla"
   },
   "nb": {
     "设备": "Enhet",
@@ -6466,7 +6683,14 @@
     "现代列表与经典设备卡片可随时切换": "Bytt når som helst mellom moderne liste og klassiske enhetskort",
     "现代": "Moderne",
     "经典": "Klassisk",
-    "耗材不足": "Forbruksmateriell lavt"
+    "耗材不足": "Forbruksmateriell lavt",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} ekstern skjerm er aktivert {2}",
+    "上一组": "Forrige side",
+    "下一组": "Neste side",
+    "搜索名称、房间或 IP": "Søk etter navn, rom eller IP",
+    "没有匹配的摄像头": "Ingen samsvarende kameraer",
+    "搜索摄像头": "Søk etter kameraer",
+    "没有画面，点击重试": "Ikke noe bilde, klikk for å prøve igjen"
   },
   "sv": {
     "设备": "Enhet",
@@ -6665,7 +6889,14 @@
     "现代列表与经典设备卡片可随时切换": "Växla när som helst mellan modern lista och klassiska enhetskort",
     "现代": "Modern",
     "经典": "Klassisk",
-    "耗材不足": "Förbrukningsmaterial lågt"
+    "耗材不足": "Förbrukningsmaterial lågt",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} fjärrskärm har aktiverats {2}",
+    "上一组": "Föregående sida",
+    "下一组": "Nästa sida",
+    "搜索名称、房间或 IP": "Sök namn, rum eller IP",
+    "没有匹配的摄像头": "Inga matchande kameror",
+    "搜索摄像头": "Sök kameror",
+    "没有画面，点击重试": "Ingen bild, klicka för att försöka igen"
   },
   "sr": {
     "设备": "Уређај",
@@ -6864,7 +7095,14 @@
     "现代列表与经典设备卡片可随时切换": "Пребацујте у било ком тренутку између модерне листе и класичних картица уређаја",
     "现代": "Модеран",
     "经典": "Класичан",
-    "耗材不足": "Мало потрошног материјала"
+    "耗材不足": "Мало потрошног материјала",
+    "{0}/{1} 路远程画面已启动{2}": "{0}/{1} удаљени екран је активиран {2}",
+    "上一组": "Претходна страница",
+    "下一组": "Следећа страница",
+    "搜索名称、房间或 IP": "Претрага по имену, соби или IP",
+    "没有匹配的摄像头": "Нема одговарајућих камера",
+    "搜索摄像头": "Претрага камера",
+    "没有画面，点击重试": "Нема слике, кликните за поновни покушај"
   },
   "zh-Hans": {
     "界面风格": "界面风格",

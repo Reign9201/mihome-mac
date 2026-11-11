@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import {
   LANGUAGES,
   desktopRoot,
@@ -16,6 +17,18 @@ const overrides = JSON.parse(fs.readFileSync(overridesFile, 'utf8'));
 const sources = extractSources();
 const batchSize = 20;
 const force = process.argv.includes('--force');
+// --offline rebuilds locale files from the committed translations plus
+// i18n-overrides.json without calling a translation service. New source
+// strings must then have an override for every locale.
+const offline = process.argv.includes('--offline');
+
+function committedLocale(code) {
+  const file = localeFile(code);
+  if (!fs.existsSync(file)) return {};
+  const sandbox = { window: {} };
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), sandbox);
+  return sandbox.window.MihomeI18nData?.[code] || {};
+}
 const chineseVariants = new Set(['zh-Hans', 'zh-Hant', 'zh-HK']);
 const protectedTerms = [
   ['MiHome Mac', 'MiHome Mac'],
@@ -137,10 +150,16 @@ async function translateLanguage(language) {
   }
   const result = {};
   const missing = [];
+  const committed = offline ? committedLocale(language.code) : {};
   for (const source of sources) {
     const override = overrides[language.code]?.[source];
     if (override) {
       result[source] = override;
+      continue;
+    }
+    if (offline) {
+      if (committed[source]) result[source] = committed[source];
+      else missing.push(source);
       continue;
     }
     const needsBrandRefresh = !chineseVariants.has(language.code)
@@ -148,6 +167,9 @@ async function translateLanguage(language) {
     const value = force || needsBrandRefresh ? null : cached(language.code, source);
     if (value) result[source] = postprocess(restoreTerms(value));
     else missing.push(source);
+  }
+  if (offline && missing.length) {
+    throw new Error(`${language.code}: add i18n-overrides.json entries for ${missing.map((item) => JSON.stringify(item)).join(', ')}`);
   }
   for (let offset = 0; offset < missing.length; offset += batchSize) {
     const lines = missing.slice(offset, offset + batchSize);
@@ -195,5 +217,5 @@ await runPool(LANGUAGES, 2, async (language) => {
   ].join('\n');
   fs.writeFileSync(localeFile(language.code), body);
 });
-saveCache();
+if (!offline) saveCache();
 console.log(`Wrote ${LANGUAGES.length} locale files to ${i18nDir}`);
