@@ -195,6 +195,7 @@ impl Go2Rtc {
         encoder: LocalVideoEncoder,
     ) -> Result<Self> {
         let yaml = cameras_yaml(cameras, user_id, pass_token, true)?;
+        let grid = cameras.len() > 1;
         let startup_started = Instant::now();
         let mut runtime = Self::start_with_yaml(binary, "cameras", &yaml)?;
         let rtsp_port = runtime.rtsp_port;
@@ -206,7 +207,7 @@ impl Go2Rtc {
             let id = safe_id(&camera.did);
             let input = format!("{}?video", runtime.rtsp_url(&format!("{id}-raw")));
             let output = runtime.rtsp_url(&id);
-            let args = local_transcode_args(&input, &output, encoder);
+            let args = local_transcode_args(&input, &output, encoder, grid);
             let mut child = spawn_local_transcoder(ffmpeg, &args, &id)?;
             if let Some(stderr) = child.stderr.take() {
                 spawn_diagnostic_reader(stderr, Arc::clone(&diagnostics), format!("ffmpeg-{id}"));
@@ -238,14 +239,32 @@ impl Go2Rtc {
         let mut deadline = Instant::now() + Duration::from_secs(6);
         let mut ready = vec![false; runtime.transcoders.len()];
         let mut retried = vec![false; runtime.transcoders.len()];
+        // In a grid one unreachable camera must not push the other tiles back
+        // to the camera-native HEVC path, so a camera whose transcoder fails
+        // twice is given up on its own and the rest continue.
+        let mut failed = vec![false; runtime.transcoders.len()];
         while Instant::now() < deadline {
             for (index, transcoder) in runtime.transcoders.iter_mut().enumerate() {
+                if failed[index] {
+                    continue;
+                }
                 if let Some(status) = transcoder.child.try_wait()? {
                     if retried[index] {
-                        return Err(anyhow!(
-                            "本地 H.264 转码重试后仍提前退出：id={} status={status}",
-                            transcoder.id
-                        ));
+                        if !grid {
+                            return Err(anyhow!(
+                                "本地 H.264 转码重试后仍提前退出：id={} status={status}",
+                                transcoder.id
+                            ));
+                        }
+                        failed[index] = true;
+                        app_log::warn(
+                            "ffmpeg",
+                            format!(
+                                "本地 H.264 转码重试后仍提前退出，宫格中跳过这一路：id={} status={status}",
+                                transcoder.id
+                            ),
+                        );
+                        continue;
                     }
                     retried[index] = true;
                     ready[index] = false;
@@ -259,7 +278,7 @@ impl Go2Rtc {
 
                     let input = format!("{}?video", rtsp_url(&format!("{}-raw", transcoder.id)));
                     let output = rtsp_url(&transcoder.id);
-                    let args = local_transcode_args(&input, &output, encoder);
+                    let args = local_transcode_args(&input, &output, encoder, grid);
                     let mut child = spawn_local_transcoder(ffmpeg, &args, &transcoder.id)?;
                     if let Some(stderr) = child.stderr.take() {
                         spawn_diagnostic_reader(
@@ -283,11 +302,18 @@ impl Go2Rtc {
                 }
             }
             for (index, transcoder) in runtime.transcoders.iter().enumerate() {
-                if !ready[index] && runtime.producer_ready(&transcoder.id) {
+                if !ready[index] && !failed[index] && runtime.producer_ready(&transcoder.id) {
                     ready[index] = true;
                 }
             }
-            if ready.iter().all(|ready| *ready) {
+            if failed.iter().all(|failed| *failed) {
+                return Err(anyhow!("本地 H.264 转码全部提前退出"));
+            }
+            if ready
+                .iter()
+                .zip(&failed)
+                .all(|(ready, failed)| *ready || *failed)
+            {
                 app_log::info(
                     "Camera",
                     format!(
@@ -303,11 +329,24 @@ impl Go2Rtc {
         let pending = runtime
             .transcoders
             .iter()
-            .zip(ready)
-            .filter(|(_, ready)| !ready)
+            .zip(&ready)
+            .filter(|(_, ready)| !**ready)
             .map(|(transcoder, _)| transcoder.id.as_str())
             .collect::<Vec<_>>()
             .join(",");
+        if grid && ready.iter().any(|ready| *ready) {
+            // Slow cameras keep their transcoder running and may still come
+            // up; their tiles report the stall instead of failing the grid.
+            app_log::warn(
+                "Camera",
+                format!(
+                    "本地宫格部分 H.264 通道 6 秒内未就绪，先显示已就绪画面：ready={}/{} pending={pending}",
+                    ready.iter().filter(|ready| **ready).count(),
+                    ready.len()
+                ),
+            );
+            return Ok(runtime);
+        }
         Err(anyhow!("本地 H.264 转码通道在 6 秒内没有产出：{pending}"))
     }
 
@@ -854,7 +893,12 @@ impl LocalVideoEncoder {
         }
     }
 
-    fn args(self) -> Vec<String> {
+    fn args(self, grid: bool) -> Vec<String> {
+        let (bitrate, maxrate, bufsize) = if grid {
+            ("800k", "1200k", "600k")
+        } else {
+            ("2M", "3M", "1M")
+        };
         let common = [
             "-g",
             "10",
@@ -867,11 +911,11 @@ impl LocalVideoEncoder {
             "-pix_fmt:v",
             "yuv420p",
             "-b:v",
-            "2M",
+            bitrate,
             "-maxrate",
-            "3M",
+            maxrate,
             "-bufsize",
-            "1M",
+            bufsize,
         ];
         let encoder = match self {
             Self::VideoToolbox => vec![
@@ -951,7 +995,18 @@ fn choose_local_video_encoder(encoders: &str, requested: &str) -> LocalVideoEnco
     }
 }
 
-fn local_transcode_args(input: &str, output: &str, encoder: LocalVideoEncoder) -> Vec<String> {
+/// Grid tiles are a few hundred pixels wide, and a 3×3 local grid runs nine
+/// decoders plus nine encoders at once. Grid streams are capped at 960 px and
+/// 15 fps, which roughly halves the per-stream CPU cost and keeps the WebView
+/// within its hardware H.264 decode budget; a single camera keeps 1080p/20 fps.
+fn local_transcode_args(
+    input: &str,
+    output: &str,
+    encoder: LocalVideoEncoder,
+    grid: bool,
+) -> Vec<String> {
+    let (max_width, fps) = if grid { (960, "15") } else { (1920, "20") };
+    let filter = format!(r"scale=min({max_width}\,iw):-2:flags=fast_bilinear,fps={fps}");
     let mut args = vec![
         "-hide_banner",
         "-loglevel",
@@ -978,12 +1033,12 @@ fn local_transcode_args(input: &str, output: &str, encoder: LocalVideoEncoder) -
         // Xiaomi's RTP clock can jump forward after a decode gap. Rebuilding a
         // fixed-rate timeline prevents MSE from seeing multi-second holes and
         // trying to seek/catch up forever.
-        r"scale=min(1920\,iw):-2:flags=fast_bilinear,fps=20",
+        filter.as_str(),
     ]
     .into_iter()
     .map(str::to_string)
     .collect::<Vec<_>>();
-    args.extend(encoder.args());
+    args.extend(encoder.args(grid));
     args.extend(
         [
             "-tag:v",
@@ -991,7 +1046,7 @@ fn local_transcode_args(input: &str, output: &str, encoder: LocalVideoEncoder) -
             "-vsync",
             "cfr",
             "-r",
-            "20",
+            fps,
             "-max_delay",
             "0",
             "-muxdelay",
@@ -1619,6 +1674,7 @@ mod tests {
             "rtsp://127.0.0.1:41002/camera-raw?video",
             "rtsp://127.0.0.1:41002/camera",
             LocalVideoEncoder::VideoToolbox,
+            false,
         );
         let joined = args.join(" ");
         assert!(joined.contains("-fflags +genpts+nobuffer+flush_packets"));
@@ -1642,6 +1698,7 @@ mod tests {
             "rtsp://127.0.0.1:41002/camera-raw?video",
             "rtsp://127.0.0.1:41002/camera",
             LocalVideoEncoder::X264,
+            false,
         );
         let joined = args.join(" ");
         assert!(joined.contains("-c:v libx264"));
@@ -1652,6 +1709,21 @@ mod tests {
         assert!(joined.contains("-bf 0"));
         assert!(joined.contains(r"scale=min(1920\,iw):-2:flags=fast_bilinear,fps=20"));
         assert!(joined.contains("-vsync cfr -r 20"));
+    }
+
+    #[test]
+    fn local_grid_transcode_uses_a_lighter_profile() {
+        let args = local_transcode_args(
+            "rtsp://127.0.0.1:41002/camera-raw?video",
+            "rtsp://127.0.0.1:41002/camera",
+            LocalVideoEncoder::X264,
+            true,
+        );
+        let joined = args.join(" ");
+        assert!(joined.contains(r"scale=min(960\,iw):-2:flags=fast_bilinear,fps=15"));
+        assert!(joined.contains("-b:v 800k -maxrate 1200k -bufsize 600k"));
+        assert!(joined.contains("-vsync cfr -r 15"));
+        assert!(joined.contains("-preset:v superfast"));
     }
 
     #[test]

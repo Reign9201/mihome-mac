@@ -6,6 +6,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::io::Write;
 use std::net::UdpSocket;
 use std::path::PathBuf;
@@ -135,6 +136,21 @@ impl Drop for StartupResources {
 impl RemoteStream {
     /// Blocking entry point. Call it from a worker thread, not the UI thread.
     pub fn start(session: Session, did: &str, quality: u8, audio: bool) -> Result<Self> {
+        Self::start_cancellable(session, did, quality, audio, || false)
+    }
+
+    /// Like [`RemoteStream::start`], but gives up as soon as `cancelled`
+    /// returns true (checked every 250 ms while the MISS session is opening,
+    /// and once more before the media pipeline starts). The relay handshake
+    /// can take up to 90 s; without this a grid page flip or a stop left the
+    /// old handshakes running to completion only to be discarded.
+    pub fn start_cancellable(
+        session: Session,
+        did: &str,
+        quality: u8,
+        audio: bool,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
         cleanup_stale_remote_dirs();
         let started = Instant::now();
         app_log::info(
@@ -169,16 +185,25 @@ impl RemoteStream {
             .enable_all()
             .build()
             .context("创建摄像头运行时失败")?;
-        let camera_result = runtime.block_on(RemoteCamera::open(
-            &session,
-            did,
-            quality,
-            audio,
-            Duration::from_secs(90),
+        let camera_result = runtime.block_on(until_cancelled(
+            RemoteCamera::open(&session, did, quality, audio, Duration::from_secs(90)),
+            &cancelled,
+            Duration::from_millis(250),
         ));
         let relay_result = relay_thread
             .join()
             .map_err(|_| anyhow!("低延迟中继预热线程异常退出"))?;
+        if cancelled() {
+            app_log::info(
+                "Remote",
+                format!(
+                    "远程画面启动已取消：did={} elapsed={}ms",
+                    app_log::mask_id(did),
+                    started.elapsed().as_millis()
+                ),
+            );
+            return Err(anyhow!("远程画面启动已取消"));
+        }
         let camera = camera_result.map_err(|error| {
             app_log::error(
                 "Remote",
@@ -953,6 +978,32 @@ fn create_private_dir(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// Resolves with `future`, or with a cancellation error once `cancelled`
+/// returns true (checked every `interval`). Dropping `future` closes its
+/// sockets, so a cancelled handshake stops using the network immediately.
+async fn until_cancelled<T>(
+    future: impl Future<Output = Result<T>>,
+    cancelled: &impl Fn() -> bool,
+    interval: Duration,
+) -> Result<T> {
+    let mut future = std::pin::pin!(future);
+    let mut watch = std::pin::pin!(async {
+        while !cancelled() {
+            tokio::time::sleep(interval).await;
+        }
+    });
+    std::future::poll_fn(|cx| {
+        if let std::task::Poll::Ready(result) = future.as_mut().poll(cx) {
+            return std::task::Poll::Ready(result);
+        }
+        if watch.as_mut().poll(cx).is_ready() {
+            return std::task::Poll::Ready(Err(anyhow!("远程画面启动已取消")));
+        }
+        std::task::Poll::Pending
+    })
+    .await
+}
+
 fn cleanup_stale_remote_dirs() {
     let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
         return;
@@ -1054,6 +1105,52 @@ fn can_start_decoder(packet: &MediaPacket) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn until_cancelled_stops_a_pending_handshake() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let check = || flag.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let result: Result<()> = runtime.block_on(async {
+            let pending = std::future::pending::<Result<()>>();
+            let flip = async {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                flag.store(true, Ordering::SeqCst);
+                std::future::pending::<()>().await;
+            };
+            let flip = std::pin::pin!(flip);
+            let race = until_cancelled(pending, &check, Duration::from_millis(10));
+            let mut race = std::pin::pin!(race);
+            let mut flip = flip;
+            std::future::poll_fn(|cx| {
+                let _ = flip.as_mut().poll(cx);
+                race.as_mut().poll(cx)
+            })
+            .await
+        });
+        assert!(result.unwrap_err().to_string().contains("已取消"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn until_cancelled_returns_the_result_when_not_cancelled() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let value = runtime
+            .block_on(until_cancelled(
+                async { Ok::<_, anyhow::Error>(7) },
+                &|| false,
+                Duration::from_millis(10),
+            ))
+            .unwrap();
+        assert_eq!(value, 7);
+    }
+
     use super::*;
 
     #[test]

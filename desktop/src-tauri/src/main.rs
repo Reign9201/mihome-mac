@@ -35,14 +35,18 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, State};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 const CAMERA_CACHE_TTL: Duration = Duration::from_secs(15);
 
 struct AppState {
     pending: Mutex<Option<PendingLogin>>,
     accounts: Mutex<AccountBook>,
-    account_lifecycle: Mutex<()>,
+    // Login, logout and account switch take the write side. Camera starts and
+    // automation runs only need the account to stay put, so they share the
+    // read side; a Mutex here serialized every remote grid tile behind the
+    // slowest relay handshake and delayed scheduled scenes behind it.
+    account_lifecycle: RwLock<()>,
     account_epoch: AtomicU64,
     login_epoch: AtomicU64,
     cloud: Mutex<Option<MiCloud>>,
@@ -132,7 +136,7 @@ impl Default for AppState {
         Self {
             pending: Mutex::new(None),
             accounts: Mutex::new(accounts),
-            account_lifecycle: Mutex::new(()),
+            account_lifecycle: RwLock::new(()),
             account_epoch: AtomicU64::new(0),
             login_epoch: AtomicU64::new(0),
             cloud: Mutex::new(cloud),
@@ -290,7 +294,7 @@ async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> 
                 });
             }
             let user_id = session.user_id.clone();
-            let _account_lifecycle = state.account_lifecycle.lock().await;
+            let _account_lifecycle = state.account_lifecycle.write().await;
             if state.login_epoch.load(Ordering::SeqCst) != login_epoch {
                 app_log::info("Auth", "账号切换期间忽略过期登录结果");
                 return Ok(AuthPoll {
@@ -334,7 +338,7 @@ async fn auth_poll(state: State<'_, Arc<AppState>>) -> Result<AuthPoll, String> 
 
 #[tauri::command]
 async fn auth_logout(state: State<'_, Arc<AppState>>) -> Result<AuthLogout, String> {
-    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let _account_lifecycle = state.account_lifecycle.write().await;
     let current_user_id = state
         .cloud
         .lock()
@@ -400,7 +404,7 @@ async fn auth_switch_account(
     state: State<'_, Arc<AppState>>,
     user_id: String,
 ) -> Result<String, String> {
-    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let _account_lifecycle = state.account_lifecycle.write().await;
     let mut next_book = state.accounts.lock().await.clone();
     let session = next_book.switch_to(&user_id).map_err(error_text)?;
     *state.accounts.lock().await = next_book;
@@ -575,7 +579,7 @@ async fn toggle_automation(
 }
 
 async fn run_due_automations(state: &Arc<AppState>) {
-    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let _account_lifecycle = state.account_lifecycle.read().await;
     let now = Local::now();
     let (since, due, account_epoch) = {
         let account_epoch = state.account_epoch.load(Ordering::SeqCst);
@@ -710,11 +714,24 @@ async fn list_cameras(state: State<'_, Arc<AppState>>) -> Result<Vec<CameraDevic
         error_text(error)
     })?;
     *state.camera_cache.lock().await = Some((Instant::now(), cameras.clone()));
+    // The camera page re-reads this list on every visit; with 100+ cameras a
+    // per-camera info line would fill the 2 MB log rotation quickly.
     app_log::info(
         "Camera",
         format!(
-            "已读取 {} 台摄像头：{}",
+            "已读取 {} 台摄像头：在线 {}，带局域网地址 {}",
             cameras.len(),
+            cameras.iter().filter(|camera| camera.online).count(),
+            cameras
+                .iter()
+                .filter(|camera| camera.online && camera.ip.is_some())
+                .count()
+        ),
+    );
+    app_log::debug(
+        "Camera",
+        format!(
+            "摄像头明细：{}",
             cameras
                 .iter()
                 .map(|camera| format!(
@@ -782,7 +799,7 @@ async fn camera_start(
     state: State<'_, Arc<AppState>>,
     dids: Vec<String>,
 ) -> Result<Vec<CameraStream>, String> {
-    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let _account_lifecycle = state.account_lifecycle.read().await;
     app_log::info(
         "Camera",
         format!(
@@ -909,7 +926,7 @@ async fn camera_remote_start(
     audio: Option<bool>,
 ) -> Result<CameraStream, String> {
     let state = state.inner().clone();
-    let _account_lifecycle = state.account_lifecycle.lock().await;
+    let _account_lifecycle = state.account_lifecycle.read().await;
     let start_lock = remote_lock(&state, &did).await;
     let start_guard = start_lock.lock().await;
     let result = camera_remote_start_locked(&state, &did, quality, audio).await;
@@ -1014,8 +1031,13 @@ async fn camera_remote_start_locked(
         drop_off_runtime(local).await;
     }
     let did_for_worker = did.to_string();
+    let epoch_state = Arc::clone(state);
     let stream = tauri::async_runtime::spawn_blocking(move || {
-        RemoteStream::start(session, &did_for_worker, quality, audio)
+        // A stop, a local start or another grid page bumps the epoch; give
+        // up the relay handshake right away instead of finishing it.
+        RemoteStream::start_cancellable(session, &did_for_worker, quality, audio, || {
+            epoch_state.remote_camera_epoch.load(Ordering::SeqCst) != remote_generation
+        })
     })
     .await
     .map_err(error_text)?
