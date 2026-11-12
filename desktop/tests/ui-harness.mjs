@@ -112,6 +112,51 @@ export const mockSource = String.raw`
         properties: [
           { iid: 1, type: 'urn:miot-spec-v2:property:on:00000006:mock:1', description: 'Switch Status', format: 'bool', access: ['read', 'write'] },
         ],
+      }, {
+        iid: 11,
+        type: 'urn:miot-spec-v2:service:power-consumption:0000780E:mock:1',
+        description: 'Power Consumption',
+        properties: [
+          { iid: 1, type: 'urn:miot-spec-v2:property:power-consumption:0000002F:mock:1', description: 'Power Consumption', format: 'float', access: ['read', 'notify'], unit: 'kWh' },
+          { iid: 2, type: 'urn:miot-spec-v2:property:electric-power:00000066:mock:1', description: 'Electric Power', format: 'float', access: ['read', 'notify'], unit: 'watt' },
+        ],
+      }],
+    },
+    'urn:miot-spec-v2:device:speaker:0000A015:mock:1': {
+      services: [{
+        iid: 2,
+        type: 'urn:miot-spec-v2:service:speaker:0000781C:mock:1',
+        description: 'Speaker',
+        properties: [
+          { iid: 1, type: 'urn:miot-spec-v2:property:volume:00000013:mock:1', description: 'Volume', format: 'uint8', access: ['read', 'write'], unit: 'percentage', 'value-range': [0, 100, 1] },
+          { iid: 2, type: 'urn:miot-spec-v2:property:mute:00000040:mock:1', description: 'Mute', format: 'bool', access: ['read', 'write'] },
+        ],
+      }, {
+        iid: 3,
+        type: 'urn:miot-spec-v2:service:play-control:0000781D:mock:1',
+        description: 'Play Control',
+        properties: [
+          { iid: 1, type: 'urn:miot-spec-v2:property:playing-state:00000099:mock:1', description: 'Playing State', format: 'uint8', access: ['notify'] },
+        ],
+        actions: [
+          { iid: 1, type: 'urn:miot-spec-v2:action:play:0000280B:mock:1', description: 'Play', in: [] },
+          { iid: 2, type: 'urn:miot-spec-v2:action:pause:0000280C:mock:1', description: 'Pause', in: [] },
+          { iid: 3, type: 'urn:miot-spec-v2:action:next:0000280D:mock:1', description: 'Next', in: [] },
+          { iid: 4, type: 'urn:miot-spec-v2:action:previous:0000280E:mock:1', description: 'Previous', in: [] },
+        ],
+      }, {
+        iid: 5,
+        type: 'urn:miot-spec-v2:service:intelligent-speaker:00007A0F:mock:1',
+        description: 'Intelligent Speaker',
+        properties: [
+          { iid: 1, type: 'urn:miot-spec-v2:property:text-content:000000C1:mock:1', description: 'Text Content', format: 'string', access: [] },
+          { iid: 2, type: 'urn:miot-spec-v2:property:silent-execution:000000C2:mock:1', description: 'Silent Execution', format: 'bool', access: [] },
+        ],
+        actions: [
+          { iid: 1, type: 'urn:miot-spec-v2:action:play-text:00002837:mock:1', description: 'Play Text', in: [1] },
+          { iid: 3, type: 'urn:miot-spec-v2:action:wake-up:00002838:mock:1', description: 'Wake Up', in: [] },
+          { iid: 5, type: 'urn:miot-spec-v2:action:execute-text-directive:00002839:mock:1', description: 'Execute Text Directive', in: [1, 2] },
+        ],
       }],
     },
     'urn:miot-spec-v2:device:television:0000A00C:mock:1': {
@@ -158,6 +203,10 @@ export const mockSource = String.raw`
     'camera2:2:1': true,
     'camera2:2:2': 0,
     'plug1:2:1': true,
+    'plug1:11:1': 12.4,
+    'plug1:11:2': 36.5,
+    'speaker1:2:1': 35,
+    'speaker1:2:2': false,
     'fan1:2:1': false,
     'fan1:2:2': 20,
     'fan1:2:4': 1,
@@ -180,6 +229,7 @@ export const mockSource = String.raw`
     { did: 'camera1', name: '小米智能摄像机3 云台版', model: 'chuangmi.camera.069a01', home_id: 'home1', room_id: 'living', room_name: '客厅', online: true, spec_type: 'urn:miot-spec-v2:device:camera:0000A009:mock:1', parent_id: null },
     { did: 'camera2', name: '小米智能摄像机2 云台版', model: 'chuangmi.camera.039a01', home_id: 'home1', room_id: 'study', room_name: '书房', online: true, spec_type: 'urn:miot-spec-v2:device:camera:0000A009:mock:1', parent_id: null },
     { did: 'plug1', name: '书房插座', model: 'cuco.plug.mock', home_id: 'home1', room_id: 'study', room_name: '书房', online: true, spec_type: 'urn:miot-spec-v2:device:outlet:0000A002:mock:1', parent_id: null },
+    { did: 'speaker1', name: '卧室小爱音箱', model: 'xiaomi.wifispeaker.mock', home_id: 'home1', room_id: 'bedroom', room_name: '卧室', online: true, spec_type: 'urn:miot-spec-v2:device:speaker:0000A015:mock:1', parent_id: null },
     { did: 'fan1', name: '卧室风扇灯', model: 'yeelink.light.fanmock', home_id: 'home1', room_id: 'bedroom', room_name: '卧室', online: true, spec_type: 'urn:miot-spec-v2:device:light:0000A001:mock:1', parent_id: null },
     { did: 'tv1', name: '客厅电视', model: 'xiaomi.tv.mock', home_id: 'home1', room_id: 'living', room_name: '客厅', online: false, spec_type: 'urn:miot-spec-v2:device:television:0000A00C:mock:1', parent_id: null },
     { did: 'router1', name: '客厅路由器', model: 'xiaomi.router.mock', home_id: 'home1', room_id: 'living', room_name: '客厅', online: true, spec_type: 'urn:miot-spec-v2:device:router:0000A036:mock:1', parent_id: null },
@@ -237,14 +287,14 @@ export const mockSource = String.raw`
       rooms: [
         { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
         { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
-        { id: 'bedroom', name: '卧室', dids: ['fan1'] },
+        { id: 'bedroom', name: '卧室', dids: ['speaker1', 'fan1'] },
       ],
     }, {
       id: 'home2', name: '工作室', uid: 1, room_count: 3,
       rooms: [
         { id: 'living', name: '客厅', dids: ['sensor1', 'light1', 'curtain1', 'camera1', 'tv1', 'router1'] },
         { id: 'study', name: '书房', dids: ['camera2', 'plug1'] },
-        { id: 'bedroom', name: '卧室', dids: ['fan1'] },
+        { id: 'bedroom', name: '卧室', dids: ['speaker1', 'fan1'] },
       ],
     }],
     'mock-user-2': [{ id: 'home-b', name: '湖畔住宅', uid: 2, room_count: 1, rooms: [{ id: 'b-room', name: '工作室', dids: ['b-light'] }] }],
@@ -448,7 +498,30 @@ export const mockSource = String.raw`
         values[args.did + ':' + args.siid + ':' + args.piid] = args.value;
         return [{ code: 0 }];
       }
-      if (command === 'call_action') return null;
+      if (command === 'call_action') {
+        (window.__MOCK_ACTIONS__ ||= []).push(clone(args));
+        if (window.__MOCK_ACTION_ERROR__) throw new Error(window.__MOCK_ACTION_ERROR__);
+        return null;
+      }
+      if (command === 'device_statistics') {
+        const query = args.query;
+        (window.__MOCK_STATS_QUERIES__ ||= []).push(clone(query));
+        if (window.__MOCK_STATS_ERROR__) throw new Error(window.__MOCK_STATS_ERROR__);
+        if (query.did !== 'plug1') return [];
+        // One record per local day or month start, newest first like the cloud.
+        const points = [];
+        const start = new Date(query.time_start * 1000);
+        for (let index = 0; index < query.limit; index += 1) {
+          const date = query.data_type === 'stat_month_v3'
+            ? new Date(start.getFullYear(), start.getMonth() + index, 1)
+            : new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+          if (date.getTime() / 1000 > query.time_end) break;
+          if (index === 2) continue;
+          const base = query.data_type === 'stat_month_v3' ? 30 : 1;
+          points.push({ time: Math.floor(date.getTime() / 1000), value: Number((base * (0.6 + (index % 5) * 0.25)).toFixed(2)) });
+        }
+        return points.reverse();
+      }
       if (command === 'list_scenes') return clone(accountScenes[activeUserId] || []);
       if (command === 'run_scene') return null;
       if (command === 'list_cameras') return clone(accountCameras[activeUserId] || []);

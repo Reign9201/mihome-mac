@@ -1551,3 +1551,62 @@ test('release bundle strips symbols without requiring cargo-binutils', () => {
     true,
   );
 });
+
+test('energy properties: accumulated use keeps its declared unit, live power is watts', () => {
+  const plug = {
+    services: [{
+      iid: 11,
+      type: 'urn:miot-spec-v2:service:power-consumption:1',
+      properties: [
+        { iid: 1, type: 'urn:miot-spec-v2:property:power-consumption:1', format: 'uint16', access: ['read', 'notify'] },
+        { iid: 2, type: 'urn:miot-spec-v2:property:electric-power:1', format: 'float', access: ['read', 'notify'], unit: 'watt' },
+      ],
+    }],
+  };
+  const profile = profileFromSpec(plug);
+  const energy = profile.metrics.find((item) => item.suffix === 'power-consumption');
+  const power = profile.metrics.find((item) => item.suffix === 'electric-power');
+  assert.equal(energy.label, '用电量');
+  assert.equal(energy.unit, '');
+  assert.equal(power.label, '功率');
+  assert.equal(power.unit, 'W');
+  assert.deepEqual(profile.statistics, [{ siid: 11, piid: 1, key: '11.1', unit: '' }]);
+
+  plug.services[0].properties[0].unit = 'kWh';
+  assert.equal(profileFromSpec(plug).statistics[0].unit, 'kWh');
+  assert.deepEqual(profileFromSpec({ services: [] }).statistics, []);
+});
+
+test('actions with inputs are kept apart with their input formats', () => {
+  const speaker = {
+    services: [{
+      iid: 3,
+      type: 'urn:miot-spec-v2:service:play-control:1',
+      actions: [{ iid: 1, type: 'urn:miot-spec-v2:action:play:1', in: [] }],
+    }, {
+      iid: 5,
+      type: 'urn:miot-spec-v2:service:intelligent-speaker:1',
+      properties: [
+        { iid: 1, type: 'urn:miot-spec-v2:property:text-content:1', format: 'string', access: [] },
+        { iid: 2, type: 'urn:miot-spec-v2:property:silent-execution:1', format: 'bool', access: [] },
+      ],
+      actions: [
+        { iid: 1, type: 'urn:miot-spec-v2:action:play-text:1', in: [1] },
+        { iid: 5, type: 'urn:miot-spec-v2:action:execute-text-directive:1', inputs: [1, 2] },
+        { iid: 6, type: 'urn:miot-spec-v2:action:broken:1', in: [9] },
+      ],
+    }],
+  };
+  const profile = profileFromSpec(speaker);
+  assert.deepEqual(
+    profile.actions.map(({ siid, aiid, name, service }) => ({ siid, aiid, name, service })),
+    [{ siid: 3, aiid: 1, name: 'play', service: 'play-control' }],
+  );
+  assert.deepEqual(
+    profile.inputActions.map(({ aiid, name, inputs }) => ({ aiid, name, formats: inputs.map((item) => item.format) })),
+    [
+      { aiid: 1, name: 'play-text', formats: ['string'] },
+      { aiid: 5, name: 'execute-text-directive', formats: ['string', 'bool'] },
+    ],
+  );
+});

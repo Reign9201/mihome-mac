@@ -212,7 +212,7 @@ try {
       overview.hasMenuBar && overview.hasThemeToggle && overview.hasAddRoom && overview.hasHud,
       `round ${round}: prototype shell controls missing`,
     );
-    expect(overview.rows === 9, `round ${round}: expected 9 overview rows, got ${overview.rows}`);
+    expect(overview.rows === 10, `round ${round}: expected 10 overview rows, got ${overview.rows}`);
     expect(overview.overflow === false, `round ${round}: horizontal overflow on overview`);
     await waitFor(() => pageEval(
       cdp,
@@ -263,7 +263,7 @@ try {
     expect(environmentPopover.open, `round ${round}: environment details did not open`);
     expect(environmentPopover.expanded === 'true', `round ${round}: environment aria-expanded missing`);
     expect(environmentPopover.temp === '23.6 °C', `round ${round}: environment detail temperature ${environmentPopover.temp}`);
-    expect(environmentPopover.online === '8 / 9', `round ${round}: environment detail online ${environmentPopover.online}`);
+    expect(environmentPopover.online === '9 / 10', `round ${round}: environment detail online ${environmentPopover.online}`);
     expect(environmentPopover.consumable === '1 / 1', `round ${round}: environment detail consumable ${environmentPopover.consumable}`);
     expect(environmentPopover.inside, `round ${round}: environment details are clipped`);
     await screenshot(`r${round}-01b-environment-details`);
@@ -464,7 +464,7 @@ try {
     })`);
     expect(devicesPage.title === '全部设备', `round ${round}: devices title ${devicesPage.title}`);
     expect(devicesPage.filters === 4, `round ${round}: expected 4 device filters, got ${devicesPage.filters}`);
-    expect(devicesPage.rows === 9, `round ${round}: expected 9 table rows, got ${devicesPage.rows}`);
+    expect(devicesPage.rows === 10, `round ${round}: expected 10 table rows, got ${devicesPage.rows}`);
     await waitFor(() => pageEval(
       cdp,
       `document.querySelector('#deviceList .table-row[data-did="router1"] .state-pill')?.textContent === '在线'`,
@@ -498,7 +498,7 @@ try {
     await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length === 1`));
     await screenshot(`r${round}-08-devices-local-filter`);
     await click('[data-device-filter="all"]');
-    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length === 9`));
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length === 10`));
     await waitForSelector('#deviceList .table-row[data-did="light1"]');
     await click('#deviceList .table-row[data-did="light1"]');
     await waitFor(() => pageEval(cdp, `document.querySelector('#inspector').classList.contains('open')`));
@@ -541,6 +541,125 @@ try {
       `round ${round}: known fan-light modes are missing`,
     );
     await screenshot(`r${round}-09b-fan-inspector`);
+    await click('#inspector .insp-close');
+
+    // Energy statistics on a metering plug.
+    const statsBefore = await pageEval(cdp, `(window.__MOCK_STATS_QUERIES__ || []).length`);
+    await pageEval(cdp, `(() => { state.statsCache.clear(); return true; })()`);
+    await click('#deviceList .table-row[data-did="plug1"]');
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-chart .stats-bar').length > 0`));
+    await pageEval(cdp, `new Promise((resolve) => setTimeout(resolve, 300))`);
+    expect(
+      await pageEval(cdp, `window.__MOCK_STATS_QUERIES__.length - ${statsBefore} === 1`),
+      `round ${round}: opening the plug detail requested statistics more than once`,
+    );
+    await pageEval(cdp, `document.querySelector('#inspector .stats-tab[data-range="7d"]').click()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-chart .stats-bar').length === 7`));
+    const plugStats = await pageEval(cdp, `({
+      tabs: [...document.querySelectorAll('#inspector .stats-tab')].map((node) => node.dataset.range),
+      active: document.querySelector('#inspector .stats-tab.active')?.dataset.range,
+      bars: document.querySelectorAll('#inspector .stats-bar').length,
+      missing: document.querySelectorAll('#inspector .stats-fill.missing').length,
+      total: document.querySelector('#inspector .stats-figure strong')?.textContent,
+      metrics: [...document.querySelectorAll('#inspector .detail-metric-label')].map((node) => node.textContent),
+      query: window.__MOCK_STATS_QUERIES__.at(-1),
+    })`);
+    expect(plugStats.tabs.join(',') === '7d,30d,12m' && plugStats.active === '7d', `round ${round}: stats tabs ${JSON.stringify(plugStats)}`);
+    expect(plugStats.missing === 1, `round ${round}: stats should mark one day without records, got ${plugStats.missing}`);
+    expect(/kWh$/.test(plugStats.total || ''), `round ${round}: stats total ${plugStats.total}`);
+    expect(plugStats.metrics.includes('功率') && plugStats.metrics.includes('用电量'), `round ${round}: plug metrics ${plugStats.metrics}`);
+    expect(
+      plugStats.query.key === '11.1' && plugStats.query.data_type === 'stat_day_v3' && plugStats.query.limit === 7
+        && plugStats.query.time_start < plugStats.query.time_end,
+      `round ${round}: stats query ${JSON.stringify(plugStats.query)}`,
+    );
+    await pageEval(cdp, `document.querySelector('#inspector .stats-tab[data-range="30d"]').click()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-bar').length === 30`));
+    await pageEval(cdp, `document.querySelector('#inspector .stats-tab[data-range="12m"]').click()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-bar').length === 12`));
+    expect(
+      await pageEval(cdp, `window.__MOCK_STATS_QUERIES__.at(-1).data_type === 'stat_month_v3'`),
+      `round ${round}: monthly stats used the wrong data type`,
+    );
+    await screenshot(`r${round}-09c-plug-statistics`);
+    const statsCalls = await pageEval(cdp, `window.__MOCK_STATS_QUERIES__.length`);
+    await pageEval(cdp, `document.querySelector('#inspector .stats-tab[data-range="7d"]').click()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-bar').length === 7`));
+    expect(
+      await pageEval(cdp, `window.__MOCK_STATS_QUERIES__.length === ${statsCalls}`),
+      `round ${round}: a cached stats range was fetched again`,
+    );
+    await pageEval(cdp, `(() => { state.statsCache.clear(); window.__MOCK_STATS_ERROR__ = 'mock stats offline'; document.querySelector('#inspector .stats-tab[data-range="30d"]').click(); return true; })()`);
+    await waitFor(() => pageEval(cdp, `Boolean(document.querySelector('#inspector .stats-error .stats-retry'))`));
+    await pageEval(cdp, `(() => { window.__MOCK_STATS_ERROR__ = null; document.querySelector('#inspector .stats-retry').click(); return true; })()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-bar').length === 30`));
+    await pageEval(cdp, `document.querySelector('#inspector .stats-tab[data-range="7d"]').click()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#inspector .stats-bar').length === 7`));
+    await click('#inspector .insp-close');
+    await click('#deviceList .table-row[data-did="light1"]');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#inspector').classList.contains('open')`));
+    expect(
+      await pageEval(cdp, `!document.querySelector('#inspector .stats-section')`),
+      `round ${round}: a light without energy metering shows statistics`,
+    );
+    await click('#inspector .insp-close');
+
+    // Xiao AI speaker: text command, read-aloud and transport keys.
+    await click('#deviceList .table-row[data-did="speaker1"]');
+    await waitForSelector('#inspector .speaker-section .speaker-input');
+    const speakerPanel = await pageEval(cdp, `({
+      keys: document.querySelectorAll('#inspector .speaker-key').length,
+      silent: Boolean(document.querySelector('#inspector .speaker-silent input')),
+      genericActions: [...document.querySelectorAll('#inspector .detail-actions .detail-action')].map((node) => node.textContent),
+      volume: Boolean(document.querySelector('#inspector .detail-range input[type="range"]')),
+    })`);
+    expect(speakerPanel.keys === 4, `round ${round}: speaker transport keys ${speakerPanel.keys}`);
+    expect(speakerPanel.silent && speakerPanel.volume, `round ${round}: speaker panel ${JSON.stringify(speakerPanel)}`);
+    expect(speakerPanel.genericActions.length === 1, `round ${round}: speaker generic actions ${speakerPanel.genericActions}`);
+    const speakerAction = (expression) => pageEval(cdp, `(() => {
+      window.__MOCK_ACTIONS__ = [];
+      const input = document.querySelector('#inspector .speaker-input');
+      ${expression}
+      return true;
+    })()`);
+    const lastAction = () => pageEval(cdp, `window.__MOCK_ACTIONS__.at(-1) || null`);
+    await speakerAction(`input.value = '  '; input.form.requestSubmit();`);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(await lastAction() === null, `round ${round}: an empty speaker command was sent`);
+    await speakerAction(`input.value = '打开客厅灯'; input.form.requestSubmit();`);
+    await waitFor(async () => Boolean(await lastAction()));
+    let sent = await lastAction();
+    expect(
+      sent.siid === 5 && sent.aiid === 5 && JSON.stringify(sent.params) === JSON.stringify(['打开客厅灯', false]),
+      `round ${round}: speaker directive ${JSON.stringify(sent)}`,
+    );
+    await waitFor(() => pageEval(cdp, `document.querySelector('#inspector .speaker-input').value === '' && !document.querySelector('#inspector .speaker-input').disabled`));
+    await speakerAction(`document.querySelector('#inspector .speaker-silent input').click(); input.value = '关窗帘'; input.form.requestSubmit();`);
+    await waitFor(async () => Boolean(await lastAction()));
+    sent = await lastAction();
+    expect(JSON.stringify(sent.params) === JSON.stringify(['关窗帘', true]), `round ${round}: silent directive ${JSON.stringify(sent)}`);
+    await waitFor(() => pageEval(cdp, `!document.querySelector('#inspector .speaker-input').disabled`));
+    await pageEval(cdp, `document.querySelector('#inspector .speaker-silent input').click()`);
+    await speakerAction(`input.value = '晚饭好了'; document.querySelector('#inspector .speaker-send.secondary').click();`);
+    await waitFor(async () => Boolean(await lastAction()));
+    sent = await lastAction();
+    expect(
+      sent.siid === 5 && sent.aiid === 1 && JSON.stringify(sent.params) === JSON.stringify(['晚饭好了']),
+      `round ${round}: speaker read-aloud ${JSON.stringify(sent)}`,
+    );
+    await waitFor(() => pageEval(cdp, `!document.querySelector('#inspector .speaker-input').disabled`));
+    await speakerAction(`document.querySelector('#inspector .speaker-key[aria-label="播放"]').click();`);
+    await waitFor(async () => Boolean(await lastAction()));
+    sent = await lastAction();
+    expect(sent.siid === 3 && sent.aiid === 1 && sent.params.length === 0, `round ${round}: speaker play ${JSON.stringify(sent)}`);
+    await speakerAction(`window.__MOCK_ACTION_ERROR__ = 'mock speaker offline'; input.value = '开灯'; input.form.requestSubmit();`);
+    await waitFor(() => pageEval(cdp, `!document.querySelector('#inspector .speaker-input').disabled && window.__MOCK_ACTIONS__.length === 1`));
+    expect(
+      await pageEval(cdp, `document.querySelector('#inspector .speaker-input').value === '开灯'`),
+      `round ${round}: a failed speaker command cleared the text`,
+    );
+    await pageEval(cdp, `window.__MOCK_ACTION_ERROR__ = null`);
+    await screenshot(`r${round}-09d-speaker`);
     await click('#inspector .insp-close');
 
     await click('#sceneNav');
@@ -884,7 +1003,7 @@ try {
         && Boolean(document.querySelector('.device-row[data-did="light1"]'))`,
     ));
     expect(
-      await pageEval(cdp, `document.querySelectorAll('.device-row').length === 9`),
+      await pageEval(cdp, `document.querySelectorAll('.device-row').length === 10`),
       `round ${round}: account A did not recover all devices`,
     );
     await screenshot(`r${round}-23-account-a-restored`);
@@ -1227,6 +1346,54 @@ try {
             metrics.leftovers.length === 0,
             `i18n ${code}, ${width}px: ${name} has untranslated text: ${metrics.leftovers.join(' | ')}`,
           );
+        }
+        if (width === 1440) {
+          await pageEval(cdp, `document.querySelector('#devicesNav').click(); true`);
+          for (const did of ['plug1', 'speaker1']) {
+            await waitForSelector(`#deviceList .table-row[data-did="${did}"]`);
+            await click(`#deviceList .table-row[data-did="${did}"]`);
+            await waitFor(() => pageEval(cdp, did === 'plug1'
+              ? `document.querySelectorAll('#inspector .stats-bar').length > 0`
+              : `Boolean(document.querySelector('#inspector .speaker-input'))`));
+            // The panel slides open; measure once it has reached its final width.
+            await waitFor(() => pageEval(cdp, `(() => {
+              const box = document.querySelector('#inspector');
+              const head = box.querySelector('.detail-head');
+              return Boolean(head) && box.getBoundingClientRect().width >= head.getBoundingClientRect().width - 1;
+            })()`));
+            const detail = await pageEval(cdp, `(() => {
+              const box = document.querySelector('#inspector');
+              const checkHan = !['zh-Hans', 'zh-Hant', 'zh-HK', 'ja'].includes(${JSON.stringify(code)});
+              const leftovers = [];
+              if (checkHan) {
+                const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                  if (node.parentElement.closest('.detail-heading > h3, .detail-sub')) continue;
+                  if (/[\\u3400-\\u9fff]/.test(node.nodeValue)) leftovers.push(node.nodeValue.trim().slice(0, 60));
+                }
+                for (const node of box.querySelectorAll('[title], [placeholder], [aria-label]')) {
+                  for (const attr of ['title', 'placeholder', 'aria-label']) {
+                    const text = node.getAttribute(attr) || '';
+                    if (/[\\u3400-\\u9fff]/.test(text)) leftovers.push(attr + '=' + text.slice(0, 60));
+                  }
+                }
+              }
+              const right = box.getBoundingClientRect().right;
+              const clipped = [...box.querySelectorAll('button, input, .stats-figure')]
+                .filter((node) => node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().right > right + 1)
+                .map((node) => node.className || node.tagName);
+              return {
+                leftovers: leftovers.slice(0, 8),
+                clipped,
+                broken: /undefined|NaN|\\[object Object\\]|\\{\\d+\\}/.test(box.innerText),
+              };
+            })()`);
+            expect(detail.leftovers.length === 0, `i18n ${code}: ${did} detail has untranslated text: ${detail.leftovers.join(' | ')}`);
+            expect(detail.clipped.length === 0, `i18n ${code}: ${did} detail clips ${detail.clipped.join(', ')}`);
+            expect(!detail.broken, `i18n ${code}: ${did} detail contains broken text`);
+            if (['en', 'ar', 'de', 'ja'].includes(code)) await screenshot(`i18n-${code}-${did}-detail`);
+            await click('#inspector .insp-close');
+          }
         }
       }
       for (const [width, height] of [[1440, 900], [720, 900]]) {
