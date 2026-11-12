@@ -42,8 +42,22 @@ test:perf (PERF_STALL=1)     152 台摄像头 / 279 台设备，通过
 
 ## 发布包
 
-安装包由 tag 触发的 GitHub Actions 远端构建生成，大小和 SHA256 在构建完成后
-补记。
+| 产物 | 大小（bytes） | SHA256 |
+|---|---:|---|
+| `MiHome-Mac-1.3.0-arm64.dmg` | 12,497,822 | `119573bfc90ac4faa55f337c5c9e9f4f3a6681767cc05be5166487e24ceb1387` |
+| `MiHome-Mac-1.3.0-x64.dmg` | 14,874,057 | `e7b289ec2ba42db4faac2b957c9f6df99b9cd7101edbee4ca2e9e8fbb30a3ff0` |
+
+每个 DMG 同时提供对应 `.sha256` 文件。
+
+tag 触发的 arm64/x64 远端构建与包体验证均通过：
+[`43137699856`](https://github.com/Reign9201/mihome-mac/actions/runs/43137699856)。
+tag 和 main 的 CI 均通过：
+[`43137699803`](https://github.com/Reign9201/mihome-mac/actions/runs/43137699803)、
+[`43137696029`](https://github.com/Reign9201/mihome-mac/actions/runs/43137696029)。
+
+arm64 DMG 下载后在本机（Apple Silicon）再次执行 `scripts/verify-macos-bundle.sh`，
+主程序、go2rtc 和 FFmpeg 的 ad-hoc 签名校验通过。本次没有做全新隔离安装与启动
+回归，可通过 `Release DMG regression` 工作流补跑。
 
 ## 已知边界
 
