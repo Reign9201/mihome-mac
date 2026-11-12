@@ -81,6 +81,7 @@ const state = {
   style: localStorage.getItem('mihome-style') === 'classic' ? 'classic' : 'modern',
   overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
   sensorSeries: [], paletteIndex: 0, paletteItems: [],
+  statsCache: new Map(), statsRange: localStorage.getItem('mihome-stats-range') || '7d',
   polling: false, loggedIn: false, cameras: [], cameraStreams: [], cameraGrid: false, cameraGridPage: 0,
   selectedCameraDid: null, roomFilter: 'all', activeCamera: null, remoteActive: false,
   deviceFilter: 'all', deviceQuery: '', cameraQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
@@ -2402,10 +2403,12 @@ function detailAction(device) {
   return null;
 }
 
-function detailSpecActions(device, profile) {
+function detailSpecActions(device, profile, speakerShown = false) {
   const kind = deviceKind(device);
+  const transport = speakerShown ? new Set(speakerActions(profile).transport) : new Set();
   const actions = (profile.actions || []).filter((action) =>
-    !((kind === 'router' || kind === 'tv') && action.siid === 2 && action.aiid === 1));
+    !((kind === 'router' || kind === 'tv') && action.siid === 2 && action.aiid === 1)
+    && ![...transport].some((item) => item.siid === action.siid && item.aiid === action.aiid));
   if (!actions.length) return null;
   const section = el('section', 'detail-section');
   section.append(el('h4', '', '设备动作'));
@@ -2518,6 +2521,308 @@ function detailTvRemote(device) {
   return section;
 }
 
+// Cloud statistics for energy-metering devices. The cloud keeps one record per
+// day or month; ranges are aligned to local midnight / month start so each bar
+// matches what the official app shows for that period.
+const STATS_RANGES = {
+  '7d': { label: '7 天', type: 'stat_day_v3', count: 7, unit: 'day' },
+  '30d': { label: '30 天', type: 'stat_day_v3', count: 30, unit: 'day' },
+  '12m': { label: '12 个月', type: 'stat_month_v3', count: 12, unit: 'month' },
+};
+const STATS_CACHE_MS = 10 * 60 * 1000;
+const statsInflight = new Map();
+
+function statsSlots(rangeId, now = new Date()) {
+  const range = STATS_RANGES[rangeId] || STATS_RANGES['7d'];
+  const slots = [];
+  for (let offset = range.count - 1; offset >= 0; offset -= 1) {
+    const start = range.unit === 'month'
+      ? new Date(now.getFullYear(), now.getMonth() - offset, 1)
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    slots.push(start);
+  }
+  return slots;
+}
+
+function statsSlotKey(date, unit) {
+  return unit === 'month'
+    ? `${date.getFullYear()}-${date.getMonth()}`
+    : `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatStatValue(value) {
+  if (!Number.isFinite(value)) return '—';
+  const digits = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return Number(value.toFixed(digits)).toLocaleString(window.MihomeI18n?.locale || undefined);
+}
+
+async function loadDeviceStatistics(device, stat, rangeId, { force = false } = {}) {
+  const range = STATS_RANGES[rangeId] || STATS_RANGES['7d'];
+  const cacheKey = `${state.accountGeneration}|${device.did}|${stat.key}|${rangeId}`;
+  const cached = state.statsCache.get(cacheKey);
+  if (!force && cached && Date.now() - cached.at < STATS_CACHE_MS) return cached.points;
+  const slots = statsSlots(rangeId);
+  const query = {
+    did: device.did,
+    key: stat.key,
+    data_type: range.type,
+    time_start: Math.floor(slots[0].getTime() / 1000),
+    time_end: Math.floor(Date.now() / 1000) + 60,
+    limit: range.count,
+  };
+  // The inspector renders twice while it loads properties; both renders share
+  // one request instead of asking the cloud twice.
+  if (statsInflight.has(cacheKey)) return statsInflight.get(cacheKey);
+  const request = invoke('device_statistics', { query })
+    .then((points) => {
+      const list = Array.isArray(points) ? points : [];
+      state.statsCache.set(cacheKey, { at: Date.now(), points: list });
+      if (state.statsCache.size > 200) state.statsCache.delete(state.statsCache.keys().next().value);
+      return list;
+    })
+    .finally(() => statsInflight.delete(cacheKey));
+  statsInflight.set(cacheKey, request);
+  return request;
+}
+
+function renderStatsChart(body, stat, rangeId, points) {
+  const range = STATS_RANGES[rangeId] || STATS_RANGES['7d'];
+  const slots = statsSlots(rangeId);
+  const values = new Map();
+  for (const point of points) {
+    const key = statsSlotKey(new Date(point.time * 1000), range.unit);
+    values.set(key, (values.get(key) || 0) + Number(point.value || 0));
+  }
+  const bars = slots.map((date) => ({ date, value: values.get(statsSlotKey(date, range.unit)) }));
+  const recorded = bars.filter((bar) => Number.isFinite(bar.value));
+  body.replaceChildren();
+  if (!recorded.length) {
+    body.append(el('p', 'stats-empty', '这段时间没有用电记录'));
+    return;
+  }
+  const total = recorded.reduce((sum, bar) => sum + bar.value, 0);
+  const unit = stat.unit ? ` ${stat.unit}` : '';
+  const summary = el('div', 'stats-summary');
+  const totalBox = el('div', 'stats-figure');
+  totalBox.append(el('span', '', '合计'), el('strong', '', `${formatStatValue(total)}${unit}`));
+  const averageBox = el('div', 'stats-figure');
+  averageBox.append(
+    el('span', '', range.unit === 'month' ? '月均' : '日均'),
+    el('strong', '', `${formatStatValue(total / recorded.length)}${unit}`),
+  );
+  summary.append(totalBox, averageBox);
+  const max = Math.max(...recorded.map((bar) => bar.value), 0);
+  const locale = window.MihomeI18n?.locale || undefined;
+  const dayFormat = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' });
+  const monthFormat = new Intl.DateTimeFormat(locale, { month: 'short' });
+  const chart = el('div', `stats-chart${bars.length > 12 ? ' dense' : ''}`);
+  chart.setAttribute('role', 'img');
+  bars.forEach((bar, index) => {
+    const column = el('div', 'stats-bar');
+    const label = range.unit === 'month' ? monthFormat.format(bar.date) : dayFormat.format(bar.date);
+    const valueText = Number.isFinite(bar.value) ? `${formatStatValue(bar.value)}${unit}` : '—';
+    column.title = `${label} · ${valueText}`;
+    const fill = el('span', `stats-fill${Number.isFinite(bar.value) ? '' : ' missing'}`);
+    fill.style.height = Number.isFinite(bar.value) && max > 0
+      ? `${Math.max(2, Math.round((bar.value / max) * 100))}%`
+      : '2%';
+    column.append(fill);
+    // Thirty daily bars only label every fifth day to keep the axis legible.
+    const showLabel = bars.length <= 12 || index % 5 === (bars.length - 1) % 5;
+    column.append(el('small', 'stats-label', showLabel ? label : ''));
+    chart.append(column);
+  });
+  chart.setAttribute('aria-label', bars.map((bar, index) => chart.children[index].title).join('，'));
+  body.append(summary, chart);
+}
+
+function detailStatistics(device, profile) {
+  const stat = profile.statistics?.[0];
+  if (!stat) return null;
+  const section = el('section', 'detail-section stats-section');
+  const head = el('div', 'stats-head');
+  head.append(el('h4', '', '用电统计'));
+  const tabs = el('div', 'stats-tabs');
+  tabs.setAttribute('role', 'tablist');
+  head.append(tabs);
+  const body = el('div', 'stats-body');
+  section.append(head, body);
+  const request = { id: 0 };
+  const show = async (rangeId, options = {}) => {
+    state.statsRange = rangeId;
+    localStorage.setItem('mihome-stats-range', rangeId);
+    for (const tab of tabs.children) {
+      const active = tab.dataset.range === rangeId;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    }
+    const id = ++request.id;
+    body.replaceChildren(el('p', 'stats-empty', '正在读取用电记录…'));
+    try {
+      const points = await loadDeviceStatistics(device, stat, rangeId, options);
+      if (id !== request.id || !section.isConnected) return;
+      renderStatsChart(body, stat, rangeId, points);
+    } catch (error) {
+      if (id !== request.id || !section.isConnected) return;
+      const failure = el('div', 'stats-error');
+      failure.append(el('span', '', `读取失败：${error}`));
+      const retry = el('button', 'stats-retry', '重试');
+      retry.type = 'button';
+      retry.onclick = () => show(rangeId, { force: true });
+      failure.append(retry);
+      body.replaceChildren(failure);
+    }
+  };
+  for (const [rangeId, range] of Object.entries(STATS_RANGES)) {
+    const tab = el('button', 'stats-tab', range.label);
+    tab.type = 'button';
+    tab.dataset.range = rangeId;
+    tab.setAttribute('role', 'tab');
+    tab.onclick = () => show(rangeId);
+    tabs.append(tab);
+  }
+  show(STATS_RANGES[state.statsRange] ? state.statsRange : '7d');
+  return section;
+}
+
+// Xiao AI speakers declare `execute-text-directive` (text + silent flag) and
+// `play-text` (text) in their intelligent-speaker service. Both take inputs,
+// so the generic action list skips them; this panel fills them in.
+const SPEAKER_TRANSPORT = [
+  ['previous', 'prev', '上一首'],
+  ['play', 'play', '播放'],
+  ['pause', 'pause', '暂停'],
+  ['stop', 'stop', '停止'],
+  ['next', 'next', '下一首'],
+];
+
+function speakerActions(profile) {
+  const textAction = (name) => profile.inputActions?.find((action) =>
+    action.name === name && action.inputs.some((input) => input.format === 'string'));
+  const transport = SPEAKER_TRANSPORT
+    .map(([name, iconName, label]) => {
+      const action = profile.actions?.find((item) => item.service === 'play-control' && item.name === name);
+      return action && { ...action, iconName, label };
+    })
+    .filter(Boolean);
+  return { directive: textAction('execute-text-directive'), speak: textAction('play-text'), transport };
+}
+
+function actionInputs(action, text, silent) {
+  return action.inputs.map((input) => {
+    if (input.format === 'string') return text;
+    if (input.format === 'bool') return Boolean(silent);
+    return 0;
+  });
+}
+
+function detailSpeaker(device, profile) {
+  const { directive, speak, transport } = speakerActions(profile);
+  if (!directive && !speak && !transport.length) return null;
+  const section = el('section', 'detail-section speaker-section');
+  section.append(el('h4', '', '小爱同学'));
+  if (transport.length) {
+    const row = el('div', 'speaker-transport');
+    for (const action of transport) {
+      const button = el('button', 'speaker-key');
+      button.type = 'button';
+      button.innerHTML = uiIcon(action.iconName);
+      button.title = action.label;
+      button.setAttribute('aria-label', action.label);
+      button.disabled = !device.online;
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await invoke('call_action', { did: device.did, siid: action.siid, aiid: action.aiid, params: [] });
+        } catch (error) {
+          toast(`操作失败：${error}`, true);
+        } finally {
+          button.disabled = !device.online;
+        }
+      };
+      row.append(button);
+    }
+    section.append(row);
+  }
+  if (directive || speak) {
+    const form = el('form', 'speaker-form');
+    const input = el('input', 'speaker-input');
+    input.type = 'text';
+    input.maxLength = 200;
+    input.placeholder = directive ? '让小爱执行，例如：打开客厅灯' : '输入要播报的文字';
+    input.setAttribute('aria-label', input.placeholder);
+    input.disabled = !device.online;
+    const buttons = el('div', 'speaker-buttons');
+    const silentInput = directive?.inputs.some((item) => item.format === 'bool');
+    let silentBox = null;
+    if (silentInput) {
+      const label = el('label', 'speaker-silent');
+      silentBox = el('input');
+      silentBox.type = 'checkbox';
+      silentBox.checked = localStorage.getItem('mihome-speaker-silent') === '1';
+      silentBox.disabled = !device.online;
+      silentBox.onchange = () => localStorage.setItem('mihome-speaker-silent', silentBox.checked ? '1' : '0');
+      label.append(silentBox, el('span', '', '不出声'));
+      buttons.append(label);
+    }
+    const send = async (action, button) => {
+      const text = input.value.trim();
+      if (!text) {
+        input.focus();
+        return;
+      }
+      for (const item of form.querySelectorAll('button, input')) item.disabled = true;
+      try {
+        await invoke('call_action', {
+          did: device.did,
+          siid: action.siid,
+          aiid: action.aiid,
+          params: actionInputs(action, text, silentBox?.checked),
+        });
+        toast(MihomeI18n?.t('已发送给{0}', device.name) || `已发送给${device.name}`);
+        input.value = '';
+      } catch (error) {
+        toast(`发送失败：${error}`, true);
+      } finally {
+        for (const item of form.querySelectorAll('button, input')) item.disabled = !device.online;
+        if (button === document.activeElement || !document.activeElement) input.focus();
+      }
+    };
+    if (speak) {
+      const speakButton = el('button', 'speaker-send secondary', '播报');
+      speakButton.type = 'button';
+      speakButton.disabled = !device.online;
+      speakButton.onclick = () => send(speak, speakButton);
+      buttons.append(speakButton);
+    }
+    if (directive) {
+      const runButton = el('button', 'speaker-send', '执行');
+      runButton.type = 'submit';
+      runButton.disabled = !device.online;
+      buttons.append(runButton);
+    }
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      send(directive || speak, form.querySelector('button[type="submit"]') || null);
+    };
+    input.addEventListener('keydown', (event) => {
+      // Enter that confirms an IME candidate must not send the text.
+      if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault();
+    });
+    if (!directive) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) {
+          event.preventDefault();
+          send(speak, null);
+        }
+      });
+    }
+    form.append(input, buttons);
+    section.append(form);
+  }
+  return section;
+}
+
 function renderInspector(device, error, loading = false) {
   const box = $('#inspector');
   const profile = inspectorProfile(device);
@@ -2565,6 +2870,10 @@ function renderInspector(device, error, loading = false) {
   if (profile.note) box.append(el('p', 'detail-note', profile.note));
 
   if (kind === 'tv' && specFor(device)) box.append(detailTvRemote(device));
+  const speaker = detailSpeaker(device, profile);
+  if (speaker) box.append(speaker);
+  const statistics = detailStatistics(device, profile);
+  if (statistics) box.append(statistics);
 
   const groups = new Map();
   for (const def of profile.controls) {
@@ -2588,10 +2897,10 @@ function renderInspector(device, error, loading = false) {
     section.append(action);
     box.append(section);
   }
-  const specActions = detailSpecActions(device, profile);
+  const specActions = detailSpecActions(device, profile, Boolean(speaker));
   if (specActions) box.append(specActions);
 
-  if (!metrics.length && !profile.controls.length && !action && !specActions) {
+  if (!metrics.length && !profile.controls.length && !action && !specActions && !speaker && !statistics) {
     box.append(el('p', 'detail-empty', device.online ? '这台设备当前没有可读写的属性。' : '设备离线，暂时读不到状态。'));
   }
 

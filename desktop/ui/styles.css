@@ -1878,6 +1878,8 @@ html, body { overflow: hidden; }
 .detail-switch.on { background: var(--green); }
 .detail-switch.on span { transform: translateX(14px); }
 .detail-switch:disabled { opacity: .45; }
+.detail-range { display: block; }
+.detail-range input[type="range"] { display: block; width: 100%; margin: 0; }
 .detail-range-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; font-size: 10.5px; }
 .detail-range-head strong { font-variant-numeric: tabular-nums; }
 .detail-segment-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
@@ -1917,6 +1919,72 @@ html, body { overflow: hidden; }
 }
 .detail-action.secondary { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); }
 .detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+/* Energy statistics */
+.stats-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.stats-head h4 { margin: 0; }
+.stats-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--surface-3); }
+.stats-tab {
+  min-height: 21px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.stats-tab.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.stats-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.stats-figure { padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
+.stats-figure span { display: block; color: var(--ink-3); font-size: 9.5px; }
+.stats-figure strong { display: block; margin-top: 2px; font-size: 15px; font-variant-numeric: tabular-nums; }
+/* Keep "5.85 kWh" in reading order inside right-to-left layouts. */
+.stats-figure strong { unicode-bidi: plaintext; text-align: start; }
+[dir="rtl"] .stats-figure strong { text-align: right; }
+.stats-chart { display: flex; align-items: stretch; gap: 4px; height: 112px; }
+.stats-chart.dense { gap: 1px; }
+.stats-bar { position: relative; display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: flex-end; padding-bottom: 15px; }
+.stats-fill { display: block; width: 100%; min-height: 2px; border-radius: 3px 3px 1px 1px; background: var(--accent); }
+.stats-chart.dense .stats-fill { border-radius: 1px; }
+.stats-fill.missing { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.stats-bar:hover .stats-fill:not(.missing) { filter: brightness(1.12); }
+.stats-label {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  color: var(--ink-3);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stats-empty, .stats-error { margin: 0; padding: 18px 10px; border-radius: 8px; background: var(--surface-2); color: var(--ink-3); font-size: 10px; text-align: center; }
+.stats-error { display: flex; align-items: center; justify-content: center; gap: 8px; color: #a33f21; }
+.stats-retry { min-height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-3); color: var(--ink); font-size: 9.5px; }
+
+/* Smart speaker */
+.speaker-transport { display: flex; justify-content: center; gap: 6px; margin-bottom: 9px; }
+.speaker-key { display: grid; place-items: center; width: 34px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--ink); }
+.speaker-key .ic { width: 15px; height: 15px; }
+.speaker-key:disabled, .speaker-send:disabled { opacity: .45; }
+.speaker-form { display: grid; gap: 7px; }
+.speaker-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+.speaker-input:focus { outline: none; border-color: var(--accent); }
+.speaker-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.speaker-silent { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--ink-3); font-size: 10px; }
+.speaker-send { min-height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: var(--ink); color: var(--surface); font-size: 10.5px; font-weight: 550; }
+.speaker-send.secondary { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); }
+
 .tv-remote { margin: 0 20px 13px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
 .tv-remote-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tv-power { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }

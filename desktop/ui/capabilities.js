@@ -11,7 +11,8 @@
     'wide-dynamic-range': '宽动态', 'full-color-night-vision': '全彩夜视',
     'time-watermark': '时间水印', 'status-led': '状态灯', 'alarm-interval': '报警间隔',
     volume: '音量', mute: '静音', 'motor-control': '云台', 'physical-controls-locked': '按键锁',
-    'charging-state': '充电状态', 'power-consumption': '功率', 'electric-current': '电流',
+    'charging-state': '充电状态', 'power-consumption': '用电量', 'electric-power': '功率',
+    'electric-current': '电流',
     voltage: '电压', 'filter-life-level': '滤芯寿命', 'water-level': '水位',
     'image-rollover': '画面翻转', 'night-shot': '夜视模式', 'wdr-mode': '宽动态范围',
     'glimmer-full-color': '微光全彩', 'recording-mode': '录像模式',
@@ -53,6 +54,7 @@
     seconds: '秒', second: '秒', hours: '小时', hour: '小时',
     milliseconds: '毫秒', microseconds: '微秒', lux: 'lx',
     'mg/m3': 'mg/m³', 'μg/m3': 'μg/m³', ppm: 'ppm', db: 'dB',
+    watt: 'W', kwh: 'kWh', wh: 'Wh',
     none: '',
   };
 
@@ -81,6 +83,10 @@
     'fan speed down': '风速降低', 'fan speed up': '风速提高',
     'temperature down': '温度降低', 'temperature up': '温度提高',
     'turn off': '关闭', 'turn on': '开启',
+    play: '播放', pause: '暂停', stop: '停止', next: '下一首', previous: '上一首',
+    'wake up': '唤醒', 'play music': '播放音乐', 'play radio': '播放电台',
+    'stop alarm': '关闭闹钟', 'play text': '播报文字',
+    'execute text directive': '执行文字指令',
   };
 
   const VALUE_LABELS = {
@@ -107,7 +113,7 @@
   const CARD_METRIC_ORDER = [
     'temperature', 'current-temperature', 'target-temperature',
     'relative-humidity', 'target-humidity', 'battery-level',
-    'power-consumption', 'brightness', 'water-level', 'filter-life-level',
+    'electric-power', 'power-consumption', 'brightness', 'water-level', 'filter-life-level',
     'connected-device-number',
   ];
   const CARD_OPTION_METRICS = new Set([
@@ -271,7 +277,9 @@
     if (suffix === 'record-duration') return '分钟';
     if (suffix === 'voltage') return 'V';
     if (suffix === 'electric-current') return 'mA';
-    if (suffix === 'power-consumption') return 'W';
+    // power-consumption is accumulated energy whose scale differs by model;
+    // only the declared unit is shown. electric-power is the live wattage.
+    if (suffix === 'electric-power') return 'W';
     if (suffix === 'connected-device-number') return '';
     return '';
   }
@@ -286,6 +294,8 @@
     const metrics = [];
     const controls = [];
     const actions = [];
+    const inputActions = [];
+    const statistics = [];
     const seen = new Set();
     const seenMetrics = new Set();
     for (const service of spec.services || []) {
@@ -297,6 +307,12 @@
         if (seen.has(key)) continue;
         seen.add(key);
         const suffix = kindSuffix(property.kind || property.type);
+        if (suffix === 'power-consumption' && propertyAccessible(property)) {
+          statistics.push({
+            siid: service.iid, piid: property.iid, key: `${service.iid}.${property.iid}`,
+            unit: propertyUnit(service, property),
+          });
+        }
         if (!propertyIsKnown(service, property)) continue;
         const label = propertyLabel(service, property);
         const unit = propertyUnit(service, property);
@@ -344,20 +360,38 @@
         }
       }
       for (const action of service.actions || []) {
-        if (action.inputs?.length) continue;
-        actions.push({
-          siid: service.iid,
-          aiid: action.iid,
-          label: localizedText(action.description)
-            || TEXT_LABELS[normalizedText(kindSuffix(action.kind || action.type))]
-            || '执行动作',
-        });
+        const name = kindSuffix(action.kind || action.type);
+        const label = localizedText(action.description)
+          || TEXT_LABELS[normalizedText(name)]
+          || '执行动作';
+        const inputs = action.inputs || action.in || [];
+        if (inputs.length) {
+          // Kept separately so a dedicated panel (the smart speaker's text
+          // command) can fill them in; the generic action list cannot.
+          const fields = inputs.map((piid) => {
+            const property = (service.properties || []).find((item) => item.iid === piid);
+            return property && {
+              piid,
+              name: kindSuffix(property.kind || property.type),
+              format: property.format || '',
+            };
+          });
+          if (fields.every(Boolean)) {
+            inputActions.push({
+              siid: service.iid, aiid: action.iid, name, service: serviceName, label, inputs: fields,
+            });
+          }
+          continue;
+        }
+        actions.push({ siid: service.iid, aiid: action.iid, name, service: serviceName, label });
       }
     }
     return {
       metrics,
       controls,
       actions,
+      inputActions,
+      statistics,
       note: metrics.length || controls.length || actions.length ? '' : '设备规格中没有可用的属性或动作。',
     };
   }

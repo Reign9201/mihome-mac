@@ -47,6 +47,9 @@ const ICONS = {
   down: '<path d="M12 5v14M6.5 13.5 12 19l5.5-5.5"/>',
   left: '<path d="M19 12H5M10.5 6.5 5 12l5.5 5.5"/>',
   right: '<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>',
+  prev: '<path d="M6.5 5.5v13M18 5.8 9.4 12l8.6 6.2V5.8Z"/>',
+  next: '<path d="M17.5 5.5v13M6 5.8l8.6 6.2L6 18.2V5.8Z"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>',
 };
 
 function icon(name, cls = '') {
