@@ -3,7 +3,7 @@
 一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建本地核心，以 Tauri 2 提供桌面窗口，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.2.0-black)
+![Version](https://img.shields.io/badge/version-1.3.0-black)
 ![Platform](https://img.shields.io/badge/platform-macOS-black)
 ![Rust](https://img.shields.io/badge/Rust-1.90%2B-orange)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
@@ -18,13 +18,22 @@
 
 ## 下载
 
-macOS 1.2.0 提供两个独立安装包：
+macOS 1.3.0 提供两个独立安装包：
 
-- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.2.0/MiHome-Mac-1.2.0-arm64.dmg)
-- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.2.0/MiHome-Mac-1.2.0-x64.dmg)
-- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.2.0)
+- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.3.0/MiHome-Mac-1.3.0-arm64.dmg)
+- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.3.0/MiHome-Mac-1.3.0-x64.dmg)
+- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.3.0)
 
-两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.2.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.2.0)。
+两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.3.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.3.0)。
+
+### 1.3.0 更新
+
+- 插座等计量设备可在详情里查看 7 天、30 天、12 个月用电柱状图，以及合计和平均值。
+- 小爱音箱详情可以输入文字让音箱执行或播报，支持“不出声”和一排播放控制按键。
+- 顶部导航显示温湿度、开着和在线的设备数，耗材剩余不到 20% 时提醒；经典设备卡片样式可在设置里切换。
+- 监控页支持搜索和宫格分页，点一格直接看单画面，某一路出不了画不影响其他画面；150 台摄像头时监控页高度从约 25700px 降到约 1000px。
+- 飞书机器人进群自动发欢迎语，平台连接失败按原因提示，回复设备状态时带单位。
+- 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值和测试范围见 [1.3.0 发布记录](docs/15-release-1.3.0.md)。
 
 ### 1.2.0 更新
 
@@ -191,7 +200,7 @@ npm --prefix desktop run dev
 universal 会同时包含两套主程序和两套 helper，体积约为单架构包的两倍。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构、内置 FFmpeg 版本和编码器：
 
 ```bash
-./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.2.0-universal.dmg universal
+./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.3.0-universal.dmg universal
 ```
 
 FFmpeg 不是完整发行版：构建时使用 `--disable-everything`，只保留摄像头链路实际使用的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 以及 scale/fps/aresample/format。实测未压缩体积为 Intel `9,492,896` 字节（约 `9.1 MiB`）、Apple Silicon `7,378,392` 字节（约 `7.0 MiB`）、universal `16,897,496` 字节（约 `16.1 MiB`）。单架构 go2rtc 未压缩约 `19.3–20.6 MiB`。DMG 压缩后的实际体积以构建产物为准。

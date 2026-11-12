@@ -475,7 +475,7 @@ export const mockSource = String.raw`
         setActiveAccount(userId);
         return { status: 'success', user_id: userId, message: '' };
       }
-      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.2.0' };
+      if (command === 'app_meta') return { name: 'MiHome Mac', version: '1.3.0' };
       if (command === 'ui_ready' || command === 'camera_stop' || command === 'log_export') return null;
       if (command === 'list_homes') {
         if (window.__MOCK_LIST_HOMES_ERROR__) throw new Error(window.__MOCK_LIST_HOMES_ERROR__);
