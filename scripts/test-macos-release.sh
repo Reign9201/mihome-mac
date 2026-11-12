@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP_NAME="MiHome Mac"
 EXEC_NAME="mihome-mac"
-TAG="v1.2.0"
-VERSION="1.2.0"
+TAG="v1.3.0"
+VERSION="1.3.0"
 ARCH=""
 ROUNDS=10
 DMG=""
@@ -24,8 +24,8 @@ Usage: scripts/test-macos-release.sh [options]
 
 Options:
   --arch arm64|x64       Test architecture (default: host architecture)
-  --tag v1.2.0           Release tag used for download and version checks
-  --version 1.2.0        Expected app version (default: tag without leading v)
+  --tag v1.3.0           Release tag used for download and version checks
+  --version 1.3.0        Expected app version (default: tag without leading v)
   --rounds 10            Number of isolated install/start rounds
   --dmg PATH             Use an existing DMG instead of downloading the Release
   --sha256 HEX           Expected DMG SHA256 (also read from PATH.sha256)
