@@ -873,9 +873,18 @@ mod tests {
         assert_eq!(
             points,
             vec![
-                super::StatPoint { time: 1731340800, value: 1.25 },
-                super::StatPoint { time: 1731427200, value: 0.5 },
-                super::StatPoint { time: 1731513600, value: 2.0 },
+                super::StatPoint {
+                    time: 1731340800,
+                    value: 1.25
+                },
+                super::StatPoint {
+                    time: 1731427200,
+                    value: 0.5
+                },
+                super::StatPoint {
+                    time: 1731513600,
+                    value: 2.0
+                },
             ]
         );
         assert!(super::parse_statistics(&serde_json::json!({})).is_empty());
