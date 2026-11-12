@@ -26,7 +26,7 @@ pub use auth::{
 };
 pub use automation::{Automation, AutomationStore};
 pub use camera::{CameraDevice, CameraStream};
-pub use cloud::{Device, Home, MiCloud, Scene};
+pub use cloud::{Device, Home, MiCloud, Scene, StatPoint, StatQuery};
 pub use integration::{
     AsrConfig, AsrProvider, Binding, ConnectionMode, IntegrationSettings, IntegrationSnapshot,
     IntegrationStore, LlmConfig, PairingCode, PairingCodeView, PlatformConfig, PlatformKind,

@@ -1165,6 +1165,20 @@ async fn call_action(
 }
 
 #[tauri::command]
+async fn device_statistics(
+    state: State<'_, Arc<AppState>>,
+    query: mihome_core::StatQuery,
+) -> Result<Vec<mihome_core::StatPoint>, String> {
+    let cloud = state
+        .cloud
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "未登录".to_string())?;
+    cloud.statistics(&query).await.map_err(error_text)
+}
+
+#[tauri::command]
 async fn camera_remote_stop(
     state: State<'_, Arc<AppState>>,
     did: Option<String>,
@@ -1961,6 +1975,7 @@ fn main() {
             camera_remote_stop,
             camera_remote_ptz,
             call_action,
+            device_statistics,
             camera_stop,
             camera_status,
             get_property,
