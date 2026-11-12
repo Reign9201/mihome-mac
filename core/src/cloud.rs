@@ -589,6 +589,114 @@ impl MiCloud {
             )
             .await
     }
+
+    /// Read cloud usage statistics for one property, such as a plug's daily
+    /// energy use. `key` is `siid.piid`; the cloud only keeps statistics for
+    /// some models and returns an empty list for the rest.
+    pub async fn statistics(&self, query: &StatQuery) -> Result<Vec<StatPoint>> {
+        query.validate()?;
+        let result = self
+            .session
+            .request(
+                "/v2/user/statistics",
+                json!({
+                    "did": query.did,
+                    "key": query.key,
+                    "data_type": query.data_type,
+                    "time_start": query.time_start,
+                    "time_end": query.time_end,
+                    "limit": query.limit,
+                }),
+            )
+            .await?;
+        Ok(parse_statistics(&result))
+    }
+}
+
+pub const STAT_DATA_TYPES: [&str; 4] = [
+    "stat_hour_v3",
+    "stat_day_v3",
+    "stat_week_v3",
+    "stat_month_v3",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatQuery {
+    pub did: String,
+    pub key: String,
+    pub data_type: String,
+    pub time_start: i64,
+    pub time_end: i64,
+    pub limit: u32,
+}
+
+impl StatQuery {
+    fn validate(&self) -> Result<()> {
+        if self.did.trim().is_empty() {
+            return Err(anyhow!("缺少设备 ID"));
+        }
+        let mut parts = self.key.split('.');
+        let valid_key = matches!(
+            (parts.next(), parts.next(), parts.next()),
+            (Some(siid), Some(piid), None)
+                if siid.parse::<u32>().is_ok() && piid.parse::<u32>().is_ok()
+        );
+        if !valid_key {
+            return Err(anyhow!("统计属性格式应为 siid.piid：{}", self.key));
+        }
+        if !STAT_DATA_TYPES.contains(&self.data_type.as_str()) {
+            return Err(anyhow!("不支持的统计类型：{}", self.data_type));
+        }
+        if self.time_start >= self.time_end {
+            return Err(anyhow!("统计开始时间必须早于结束时间"));
+        }
+        if self.limit == 0 || self.limit > 400 {
+            return Err(anyhow!("统计条数应在 1 到 400 之间"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatPoint {
+    /// Start of the period, in Unix seconds.
+    pub time: i64,
+    pub value: f64,
+}
+
+/// Each record carries its number as a JSON array string, for example
+/// `{"time": 1731340800, "value": "[0.42]"}`. Records without a usable time
+/// or number are dropped, the same period is kept once, and the result is
+/// sorted from oldest to newest.
+pub fn parse_statistics(result: &Value) -> Vec<StatPoint> {
+    let mut points: Vec<StatPoint> = result
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|record| {
+            let time = record.get("time").and_then(|time| {
+                time.as_i64()
+                    .or_else(|| time.as_str().and_then(|text| text.parse().ok()))
+            })?;
+            if time <= 0 {
+                return None;
+            }
+            let value = match record.get("value")? {
+                Value::String(text) => match serde_json::from_str::<Value>(text).ok()? {
+                    Value::Array(items) => items.first()?.as_f64()?,
+                    Value::Number(number) => number.as_f64()?,
+                    _ => return None,
+                },
+                Value::Array(items) => items.first()?.as_f64()?,
+                Value::Number(number) => number.as_f64()?,
+                _ => return None,
+            };
+            value.is_finite().then_some(StatPoint { time, value })
+        })
+        .collect();
+    points.sort_by_key(|point| point.time);
+    points.dedup_by_key(|point| point.time);
+    points
 }
 
 fn map_device(item: &Value, home_id: &str, fallback_room: Option<(String, String)>) -> Device {
@@ -749,6 +857,51 @@ fn value_text(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn statistics_records_are_parsed_sorted_and_deduplicated() {
+        let result = serde_json::json!([
+            {"key": "11.1", "time": 1731427200, "value": "[0.5]"},
+            {"key": "11.1", "time": 1731340800, "value": "[1.25]"},
+            {"key": "11.1", "time": 1731340800, "value": "[1.25]"},
+            {"key": "11.1", "time": "1731513600", "value": 2},
+            {"key": "11.1", "time": 1731600000, "value": "[]"},
+            {"key": "11.1", "time": 0, "value": "[3]"},
+            {"key": "11.1", "value": "[4]"},
+            {"key": "11.1", "time": 1731686400, "value": "not json"},
+        ]);
+        let points = super::parse_statistics(&result);
+        assert_eq!(
+            points,
+            vec![
+                super::StatPoint { time: 1731340800, value: 1.25 },
+                super::StatPoint { time: 1731427200, value: 0.5 },
+                super::StatPoint { time: 1731513600, value: 2.0 },
+            ]
+        );
+        assert!(super::parse_statistics(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn statistics_query_rejects_bad_input() {
+        let query = |key: &str, data_type: &str, limit: u32| super::StatQuery {
+            did: "plug1".into(),
+            key: key.into(),
+            data_type: data_type.into(),
+            time_start: 100,
+            time_end: 200,
+            limit,
+        };
+        assert!(query("11.1", "stat_day_v3", 7).validate().is_ok());
+        assert!(query("11", "stat_day_v3", 7).validate().is_err());
+        assert!(query("11.1.2", "stat_day_v3", 7).validate().is_err());
+        assert!(query("a.1", "stat_day_v3", 7).validate().is_err());
+        assert!(query("11.1", "stat_year", 7).validate().is_err());
+        assert!(query("11.1", "stat_day_v3", 0).validate().is_err());
+        let mut reversed = query("11.1", "stat_day_v3", 7);
+        reversed.time_start = 300;
+        assert!(reversed.validate().is_err());
+    }
+
     use super::*;
 
     #[test]

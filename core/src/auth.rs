@@ -31,6 +31,7 @@ fn can_retry_request(uri: &str) -> bool {
             | "/appgateway/miot/appsceneservice/AppSceneService/GetSimpleSceneList"
             | "/miotspec/prop/get"
             | "/v2/device/miss_get_vendor"
+            | "/v2/user/statistics"
     )
 }
 
