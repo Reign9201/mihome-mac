@@ -3666,3 +3666,8 @@ button,
 [dir="rtl"][data-style="classic"] .device-card {
   direction: rtl;
 }
+
+/* 应用内升级 */
+.update-progress { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.update-progress-bar { height: 100%; width: 0; border-radius: 3px; background: var(--accent, #34c759); transition: width .3s ease; }
+.update-notes { margin: 8px 16px 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); max-height: 220px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--ink-2, inherit); }

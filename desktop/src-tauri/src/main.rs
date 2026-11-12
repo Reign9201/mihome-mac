@@ -8,6 +8,7 @@ mod gateway;
 mod platform_bridge;
 mod platform_recovery;
 mod platform_supervisor;
+mod updater;
 mod wecom_ws;
 
 use assistant_engine::{AssistantRequest, AssistantResponse, AssistantRuntime};
@@ -2000,7 +2001,10 @@ fn main() {
             copy_text,
             open_external_url,
             log_frontend,
-            log_export
+            log_export,
+            updater::updater_check,
+            updater::updater_download,
+            updater::updater_install
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MiHome Mac");

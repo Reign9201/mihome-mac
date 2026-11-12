@@ -5727,6 +5727,119 @@ async function boot() {
   }
 }
 
+// —— 应用内升级（与 montage 一致：GitHub Releases 检查 → 下载校验 → 替换重启） ——
+const UPDATE_CHECK_KEY = 'mihomeUpdateLastCheck';
+let pendingUpdate = null;
+let updateBusy = false;
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+function renderUpdateAvailable(info) {
+  pendingUpdate = info;
+  $('#updateTitle').textContent = `发现新版本 ${info.latestVersion}`;
+  $('#updateSize').textContent = `当前 ${info.currentVersion} · ${formatBytes(info.size)}`;
+  $('#updateRow').hidden = false;
+  $('#updateNotesBox').hidden = true;
+  $('#updateNotesBox').textContent = info.notes || '';
+}
+
+async function checkForUpdates(manual = false) {
+  const button = $('#checkUpdateBtn');
+  if (manual) {
+    button.disabled = true;
+    button.textContent = '检查中…';
+  }
+  try {
+    const info = await invoke('updater_check');
+    if (info.updateAvailable) {
+      renderUpdateAvailable(info);
+    } else if (manual) {
+      $('#updateTitle').textContent = '已是最新版本';
+      $('#updateSize').textContent = `当前 ${info.currentVersion}`;
+      $('#updateRow').hidden = false;
+      $('#updateNotesBtn').hidden = true;
+      $('#updateInstallBtn').hidden = true;
+      $('#updateNotesBox').hidden = true;
+    }
+  } catch (error) {
+    if (log?.warn) log.warn('Updater', `检查更新失败：${error}`);
+    else console.warn('检查更新失败', error);
+    if (manual) window.alert(`检查更新失败：${error}`);
+  } finally {
+    if (manual) {
+      button.disabled = false;
+      button.textContent = '检查更新';
+    }
+  }
+}
+
+function scheduleQuietUpdateCheck() {
+  try {
+    const last = Number(localStorage.getItem(UPDATE_CHECK_KEY) || 0);
+    if (Date.now() - last < 24 * 60 * 60 * 1000) return;
+    localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now()));
+  } catch { /* localStorage 不可用时静默跳过 */ }
+  checkForUpdates(false);
+}
+
+if ($('#checkUpdateBtn')) {
+  $('#checkUpdateBtn').onclick = () => checkForUpdates(true);
+  $('#updateNotesBtn').onclick = () => {
+    const box = $('#updateNotesBox');
+    box.hidden = !box.hidden;
+    $('#updateNotesBtn').textContent = box.hidden ? '更新说明' : '收起说明';
+  };
+  $('#updateInstallBtn').onclick = async () => {
+    if (!pendingUpdate || updateBusy) return;
+    updateBusy = true;
+    const installBtn = $('#updateInstallBtn');
+    installBtn.disabled = true;
+    installBtn.textContent = '下载中…';
+    $('#updateProgressRow').hidden = false;
+    $('#updateProgressBar').style.width = '0%';
+    try {
+      const ChannelCtor = window.__MIHOME_TAURI__?.Channel;
+      const channel = ChannelCtor
+        ? new ChannelCtor()
+        : null;
+      if (channel) {
+        channel.onmessage = (progress) => {
+          const percent = progress.total
+            ? Math.floor((progress.downloaded / progress.total) * 100)
+            : 0;
+          $('#updateProgressBar').style.width = `${percent}%`;
+          $('#updateProgressText').textContent = progress.total
+            ? `正在下载 ${percent}%（${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}）`
+            : `正在下载 ${formatBytes(progress.downloaded)}`;
+        };
+      }
+      const dmgPath = await invoke('updater_download', {
+        downloadUrl: pendingUpdate.downloadUrl,
+        expectedSha256: pendingUpdate.sha256 || null,
+        onProgress: channel,
+      });
+      $('#updateProgressText').textContent = '校验通过，正在安装并重启…';
+      $('#updateProgressBar').style.width = '100%';
+      await invoke('updater_install', { dmgPath });
+      // 安装成功后应用会自动重启；若未退出（安装失败会抛错），恢复按钮
+      installBtn.disabled = false;
+      installBtn.textContent = '下载并安装';
+    } catch (error) {
+      window.alert(`升级失败：${error}`);
+      $('#updateProgressRow').hidden = true;
+      installBtn.disabled = false;
+      installBtn.textContent = '下载并安装';
+    } finally {
+      updateBusy = false;
+    }
+  };
+  scheduleQuietUpdateCheck();
+}
+
 if (invoke) {
   boot();
 }
