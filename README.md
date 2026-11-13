@@ -309,4 +309,4 @@ UI_REGRESSION_ROUNDS=10 npm --prefix desktop run test:ui
 
 本项目是非官方开源项目，不提供任何担保。使用非官方接口可能导致账号风控、设备状态异常或服务不可用。请遵守小米的服务条款和设备使用说明，并自行保护登录凭据与设备访问权限。
 
-Copyright (C) 2026 XuYanjun and contributors.
+Copyright (C) 2026 Reign9201.
