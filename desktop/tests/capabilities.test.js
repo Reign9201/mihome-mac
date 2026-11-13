@@ -1535,7 +1535,7 @@ test('release bundle strips symbols without requiring cargo-binutils', () => {
     path.join(root, 'src-tauri/tauri.conf.json'),
     'utf8',
   ));
-  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry", "tray-icon"\] \}/);
+  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry", "tray-icon", "image-png"\] \}/);
   assert.match(cargo, /^lto = true$/m);
   assert.match(cargo, /^codegen-units = 1$/m);
   assert.match(cargo, /^strip = false$/m);
