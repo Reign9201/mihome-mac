@@ -235,7 +235,17 @@
     "日均": "Daily avg",
     "月均": "Monthly avg",
     "重试": "Retry",
-    "执行": "Run"
+    "执行": "Run",
+    "菜单栏面板": "Menu bar panel",
+    "常用设备": "Favorite devices",
+    "常用场景": "Favorite scenes",
+    "选择常用设备": "Choose favorite devices",
+    "选择常用场景": "Choose favorite scenes",
+    "未挑选时按在线和可开关自动排": "Without a selection, online and switchable devices come first",
+    "未挑选时显示前几个场景": "Without a selection, the first few scenes are shown",
+    "还没有读取到设备": "No devices loaded yet",
+    "当前家庭还没有手动场景": "This home has no manual scenes yet",
+    "先登录米家账号再挑选": "Sign in to Mi Home first, then choose"
   },
   "zh-Hant": {
     "设备": "裝置",
@@ -1039,7 +1049,11 @@
     "日均": "1 日平均",
     "月均": "月平均",
     "重试": "再試行",
-    "执行": "実行"
+    "执行": "実行",
+    "常用设备": "よく使うデバイス",
+    "常用场景": "よく使うシーン",
+    "选择常用设备": "よく使うデバイスを選択",
+    "选择常用场景": "よく使うシーンを選択"
   },
   "ko": {
     "设备": "장치",
@@ -1277,7 +1291,11 @@
     "日均": "일 평균",
     "月均": "월 평균",
     "重试": "다시 시도",
-    "执行": "실행"
+    "执行": "실행",
+    "常用设备": "자주 쓰는 장치",
+    "常用场景": "자주 쓰는 씬",
+    "选择常用设备": "자주 쓰는 장치 선택",
+    "选择常用场景": "자주 쓰는 씬 선택"
   },
   "de": {
     "设备": "Gerät",
@@ -1515,7 +1533,21 @@
     "日均": "Ø pro Tag",
     "月均": "Ø pro Monat",
     "重试": "Erneut versuchen",
-    "执行": "Ausführen"
+    "执行": "Ausführen",
+    "菜单栏面板": "Menüleisten-Panel",
+    "菜单栏面板已更新": "Menüleisten-Panel aktualisiert",
+    "常用设备": "Häufige Geräte",
+    "常用场景": "Häufige Szenen",
+    "选择常用设备": "Häufige Geräte wählen",
+    "选择常用场景": "Häufige Szenen wählen",
+    "清空": "Leeren",
+    "保存中…": "Wird gespeichert…",
+    "正在读取…": "Wird gelesen…",
+    "未挑选时按在线和可开关自动排": "Ohne Auswahl stehen online- und schaltbare Geräte vorn",
+    "未挑选时显示前几个场景": "Ohne Auswahl werden die ersten Szenen angezeigt",
+    "还没有读取到设备": "Noch keine Geräte geladen",
+    "当前家庭还没有手动场景": "Dieses Zuhause hat noch keine manuellen Szenen",
+    "先登录米家账号再挑选": "Zuerst bei Mi Home anmelden, dann auswählen"
   },
   "fr": {
     "设备": "Appareil",
@@ -1753,7 +1785,20 @@
     "日均": "Moy. par jour",
     "月均": "Moy. par mois",
     "重试": "Réessayer",
-    "执行": "Exécuter"
+    "执行": "Exécuter",
+    "菜单栏面板": "Panneau de la barre des menus",
+    "常用设备": "Appareils favoris",
+    "常用场景": "Scènes favorites",
+    "选择常用设备": "Choisir les appareils favoris",
+    "选择常用场景": "Choisir les scènes favorites",
+    "清空": "Vider",
+    "保存中…": "Enregistrement…",
+    "正在读取…": "Chargement…",
+    "未挑选时按在线和可开关自动排": "Sans sélection, les appareils en ligne et pilotables passent devant",
+    "未挑选时显示前几个场景": "Sans sélection, les premières scènes sont affichées",
+    "还没有读取到设备": "Aucun appareil chargé pour l’instant",
+    "当前家庭还没有手动场景": "Cette maison n’a pas encore de scènes manuelles",
+    "先登录米家账号再挑选": "Connectez-vous d’abord à Mi Home, puis choisissez"
   },
   "es": {
     "设备": "Dispositivo",
@@ -1991,7 +2036,19 @@
     "日均": "Media diaria",
     "月均": "Media mensual",
     "重试": "Reintentar",
-    "执行": "Ejecutar"
+    "执行": "Ejecutar",
+    "菜单栏面板": "Panel de la barra de menús",
+    "菜单栏面板已更新": "Panel de la barra de menús actualizado",
+    "常用设备": "Dispositivos frecuentes",
+    "常用场景": "Escenas frecuentes",
+    "选择常用设备": "Elegir dispositivos frecuentes",
+    "选择常用场景": "Elegir escenas frecuentes",
+    "清空": "Vaciar",
+    "未挑选时按在线和可开关自动排": "Sin selección, los dispositivos en línea y controlables van primero",
+    "未挑选时显示前几个场景": "Sin selección, se muestran las primeras escenas",
+    "还没有读取到设备": "Aún no se han cargado dispositivos",
+    "当前家庭还没有手动场景": "Esta casa aún no tiene escenas manuales",
+    "先登录米家账号再挑选": "Inicia sesión en Mi Home primero y luego elige"
   },
   "pt-BR": {
     "设备": "Dispositivo",
@@ -2229,7 +2286,18 @@
     "日均": "Média diária",
     "月均": "Média mensal",
     "重试": "Tentar novamente",
-    "执行": "Executar"
+    "执行": "Executar",
+    "菜单栏面板": "Painel da barra de menus",
+    "菜单栏面板已更新": "Painel da barra de menus atualizado",
+    "常用设备": "Dispositivos frequentes",
+    "常用场景": "Cenas frequentes",
+    "选择常用设备": "Escolher dispositivos frequentes",
+    "选择常用场景": "Escolher cenas frequentes",
+    "未挑选时按在线和可开关自动排": "Sem seleção, dispositivos online e controláveis vêm primeiro",
+    "未挑选时显示前几个场景": "Sem seleção, as primeiras cenas são exibidas",
+    "还没有读取到设备": "Nenhum dispositivo carregado ainda",
+    "当前家庭还没有手动场景": "Esta casa ainda não tem cenas manuais",
+    "先登录米家账号再挑选": "Entre no Mi Home primeiro e depois escolha"
   },
   "pt-PT": {
     "设备": "Dispositivo",
@@ -2467,7 +2535,19 @@
     "日均": "Média diária",
     "月均": "Média mensal",
     "重试": "Tentar novamente",
-    "执行": "Executar"
+    "执行": "Executar",
+    "菜单栏面板": "Painel da barra de menus",
+    "菜单栏面板已更新": "Painel da barra de menus atualizado",
+    "常用设备": "Dispositivos frequentes",
+    "常用场景": "Cenas frequentes",
+    "选择常用设备": "Escolher dispositivos frequentes",
+    "选择常用场景": "Escolher cenas frequentes",
+    "保存中…": "A guardar…",
+    "未挑选时按在线和可开关自动排": "Sem seleção, os dispositivos online e controláveis vêm primeiro",
+    "未挑选时显示前几个场景": "Sem seleção, são apresentadas as primeiras cenas",
+    "还没有读取到设备": "Ainda não há dispositivos carregados",
+    "当前家庭还没有手动场景": "Esta casa ainda não tem cenários manuais",
+    "先登录米家账号再挑选": "Inicie sessão no Mi Home primeiro e depois escolha"
   },
   "it": {
     "设备": "Dispositivo",
@@ -2705,7 +2785,18 @@
     "日均": "Media giornaliera",
     "月均": "Media mensile",
     "重试": "Riprova",
-    "执行": "Esegui"
+    "执行": "Esegui",
+    "菜单栏面板": "Pannello della barra dei menu",
+    "常用设备": "Dispositivi frequenti",
+    "常用场景": "Scene frequenti",
+    "选择常用设备": "Scegli dispositivi frequenti",
+    "选择常用场景": "Scegli scene frequenti",
+    "清空": "Svuota",
+    "未挑选时按在线和可开关自动排": "Senza selezione, i dispositivi online e controllabili vengono prima",
+    "未挑选时显示前几个场景": "Senza selezione, vengono mostrate le prime scene",
+    "还没有读取到设备": "Nessun dispositivo caricato",
+    "当前家庭还没有手动场景": "Questa casa non ha ancora scene manuali",
+    "先登录米家账号再挑选": "Accedi prima a Mi Home, poi scegli"
   },
   "nl": {
     "设备": "Apparaat",
@@ -2943,7 +3034,17 @@
     "日均": "Gem. per dag",
     "月均": "Gem. per maand",
     "重试": "Opnieuw",
-    "执行": "Uitvoeren"
+    "执行": "Uitvoeren",
+    "常用设备": "Favoriete apparaten",
+    "常用场景": "Favoriete scènes",
+    "选择常用设备": "Favoriete apparaten kiezen",
+    "选择常用场景": "Favoriete scènes kiezen",
+    "清空": "Wissen",
+    "未挑选时按在线和可开关自动排": "Zonder selectie komen online en schakelbare apparaten eerst",
+    "未挑选时显示前几个场景": "Zonder selectie worden de eerste scènes getoond",
+    "还没有读取到设备": "Nog geen apparaten geladen",
+    "当前家庭还没有手动场景": "Dit huis heeft nog geen handmatige scènes",
+    "先登录米家账号再挑选": "Meld u eerst aan bij Mi Home en kies dan"
   },
   "ru": {
     "设备": "Устройство",
@@ -3181,7 +3282,18 @@
     "日均": "В среднем за день",
     "月均": "В среднем за месяц",
     "重试": "Повторить",
-    "执行": "Выполнить"
+    "执行": "Выполнить",
+    "菜单栏面板": "Панель строки меню",
+    "菜单栏面板已更新": "Панель строки меню обновлена",
+    "常用设备": "Частые устройства",
+    "常用场景": "Частые сцены",
+    "选择常用设备": "Выбрать частые устройства",
+    "选择常用场景": "Выбрать частые сцены",
+    "未挑选时按在线和可开关自动排": "Без выбора сначала идут устройства в сети с переключателем",
+    "未挑选时显示前几个场景": "Без выбора показываются первые сцены",
+    "还没有读取到设备": "Устройства ещё не загружены",
+    "当前家庭还没有手动场景": "В этом доме пока нет ручных сцен",
+    "先登录米家账号再挑选": "Сначала войдите в Mi Home, затем выбирайте"
   },
   "uk": {
     "设备": "пристрій",
@@ -3419,7 +3531,20 @@
     "日均": "У середньому за день",
     "月均": "У середньому за місяць",
     "重试": "Повторити",
-    "执行": "Виконати"
+    "执行": "Виконати",
+    "菜单栏面板": "Панель рядка меню",
+    "菜单栏面板已更新": "Панель рядка меню оновлено",
+    "常用设备": "Часті пристрої",
+    "常用场景": "Часті сцени",
+    "选择常用设备": "Вибрати часті пристрої",
+    "选择常用场景": "Вибрати часті сцени",
+    "清空": "Очистити",
+    "正在读取…": "Завантаження…",
+    "未挑选时按在线和可开关自动排": "Без вибору спочатку йдуть пристрої в мережі з перемикачем",
+    "未挑选时显示前几个场景": "Без вибору показуються перші сцени",
+    "还没有读取到设备": "Пристрої ще не завантажено",
+    "当前家庭还没有手动场景": "У цьому домі ще немає ручних сцен",
+    "先登录米家账号再挑选": "Спочатку увійдіть у Mi Home, потім обирайте"
   },
   "pl": {
     "设备": "Urządzenie",
@@ -3657,7 +3782,18 @@
     "日均": "Średnio dziennie",
     "月均": "Średnio miesięcznie",
     "重试": "Ponów",
-    "执行": "Wykonaj"
+    "执行": "Wykonaj",
+    "常用设备": "Częste urządzenia",
+    "常用场景": "Częste sceny",
+    "选择常用设备": "Wybierz częste urządzenia",
+    "选择常用场景": "Wybierz częste sceny",
+    "清空": "Wyczyść",
+    "正在读取…": "Wczytywanie…",
+    "未挑选时按在线和可开关自动排": "Bez wyboru najpierw pojawiają się urządzenia online z włącznikiem",
+    "未挑选时显示前几个场景": "Bez wyboru wyświetlane są pierwsze sceny",
+    "还没有读取到设备": "Nie wczytano jeszcze urządzeń",
+    "当前家庭还没有手动场景": "Ten dom nie ma jeszcze scen ręcznych",
+    "先登录米家账号再挑选": "Najpierw zaloguj się do Mi Home, potem wybierz"
   },
   "cs": {
     "设备": "Zařízení",
@@ -3895,7 +4031,19 @@
     "日均": "Průměr za den",
     "月均": "Průměr za měsíc",
     "重试": "Zkusit znovu",
-    "执行": "Spustit"
+    "执行": "Spustit",
+    "菜单栏面板": "Panel nabídkové lišty",
+    "菜单栏面板已更新": "Panel nabídkové lišty aktualizován",
+    "常用设备": "Častá zařízení",
+    "常用场景": "Časté scény",
+    "选择常用设备": "Vybrat častá zařízení",
+    "选择常用场景": "Vybrat časté scény",
+    "清空": "Vymazat",
+    "未挑选时按在线和可开关自动排": "Bez výběru jsou první zařízení online s přepínačem",
+    "未挑选时显示前几个场景": "Bez výběru se zobrazí první scény",
+    "还没有读取到设备": "Zatím nejsou načtena žádná zařízení",
+    "当前家庭还没有手动场景": "Tento domov zatím nemá ruční scény",
+    "先登录米家账号再挑选": "Nejprve se přihlaste k Mi Home, poté vyberte"
   },
   "sk": {
     "设备": "Zariadenie",
@@ -4133,7 +4281,19 @@
     "日均": "Priemer za deň",
     "月均": "Priemer za mesiac",
     "重试": "Skúsiť znova",
-    "执行": "Spustiť"
+    "执行": "Spustiť",
+    "菜单栏面板": "Panel ponukovej lišty",
+    "菜单栏面板已更新": "Panel ponukovej lišty aktualizovaný",
+    "常用设备": "Časté zariadenia",
+    "常用场景": "Časté scény",
+    "选择常用设备": "Vybrať časté zariadenia",
+    "选择常用场景": "Vybrať časté scény",
+    "清空": "Vymazať",
+    "未挑选时按在线和可开关自动排": "Bez výberu sú prvé zariadenia online s prepínačom",
+    "未挑选时显示前几个场景": "Bez výberu sa zobrazia prvé scény",
+    "还没有读取到设备": "Zatiaľ nie sú načítané žiadne zariadenia",
+    "当前家庭还没有手动场景": "Tento domov zatiaľ nemá ručné scény",
+    "先登录米家账号再挑选": "Najprv sa prihláste k Mi Home, potom vyberte"
   },
   "hu": {
     "设备": "Eszköz",
@@ -4371,7 +4531,12 @@
     "日均": "Napi átlag",
     "月均": "Havi átlag",
     "重试": "Újra",
-    "执行": "Futtatás"
+    "执行": "Futtatás",
+    "常用设备": "Gyakori eszközök",
+    "常用场景": "Gyakori jelenetek",
+    "选择常用设备": "Gyakori eszközök kiválasztása",
+    "选择常用场景": "Gyakori jelenetek kiválasztása",
+    "清空": "Törlés"
   },
   "ro": {
     "设备": "Dispozitiv",
@@ -4609,7 +4774,18 @@
     "日均": "Medie zilnică",
     "月均": "Medie lunară",
     "重试": "Reîncearcă",
-    "执行": "Execută"
+    "执行": "Execută",
+    "菜单栏面板": "Panoul barei de meniu",
+    "常用设备": "Dispozitive frecvente",
+    "常用场景": "Scene frecvente",
+    "选择常用设备": "Alege dispozitive frecvente",
+    "选择常用场景": "Alege scene frecvente",
+    "清空": "Golește",
+    "未挑选时按在线和可开关自动排": "Fără selecție, dispozitivele online și comutabile apar primele",
+    "未挑选时显示前几个场景": "Fără selecție, sunt afișate primele scene",
+    "还没有读取到设备": "Nu au fost încărcate dispozitive",
+    "当前家庭还没有手动场景": "Această casă nu are încă scene manuale",
+    "先登录米家账号再挑选": "Conectați-vă mai întâi la Mi Home, apoi alegeți"
   },
   "el": {
     "设备": "Συσκευή",
@@ -4847,7 +5023,13 @@
     "日均": "Μέσος όρος ημέρας",
     "月均": "Μέσος όρος μήνα",
     "重试": "Επανάληψη",
-    "执行": "Εκτέλεση"
+    "执行": "Εκτέλεση",
+    "菜单栏面板": "Πίνακας γραμμής μενού",
+    "常用设备": "Συχνές συσκευές",
+    "常用场景": "Συχνές σκηνές",
+    "选择常用设备": "Επιλογή συχνών συσκευών",
+    "选择常用场景": "Επιλογή συχνών σκηνών",
+    "清空": "Καθαρισμός"
   },
   "tr": {
     "设备": "Cihaz",
@@ -5085,7 +5267,16 @@
     "日均": "Günlük ort.",
     "月均": "Aylık ort.",
     "重试": "Yeniden dene",
-    "执行": "Çalıştır"
+    "执行": "Çalıştır",
+    "常用设备": "Sık kullanılan cihazlar",
+    "常用场景": "Sık kullanılan sahneler",
+    "选择常用设备": "Sık kullanılan cihazları seç",
+    "选择常用场景": "Sık kullanılan sahneleri seç",
+    "未挑选时按在线和可开关自动排": "Seçim yoksa çevrimiçi ve açılıp kapanabilen cihazlar öne gelir",
+    "未挑选时显示前几个场景": "Seçim yoksa ilk birkaç sahne gösterilir",
+    "还没有读取到设备": "Henüz cihaz yüklenmedi",
+    "当前家庭还没有手动场景": "Bu evde henüz manuel sahne yok",
+    "先登录米家账号再挑选": "Önce Mi Home’a giriş yapın, sonra seçin"
   },
   "ar": {
     "设备": "الجهاز",
@@ -5323,7 +5514,18 @@
     "日均": "المتوسط اليومي",
     "月均": "المتوسط الشهري",
     "重试": "إعادة المحاولة",
-    "执行": "تنفيذ"
+    "执行": "تنفيذ",
+    "菜单栏面板": "لوحة شريط القوائم",
+    "常用设备": "الأجهزة الشائعة",
+    "常用场景": "المشاهد الشائعة",
+    "选择常用设备": "اختيار الأجهزة الشائعة",
+    "选择常用场景": "اختيار المشاهد الشائعة",
+    "清空": "مسح الكل",
+    "未挑选时按在线和可开关自动排": "بدون تحديد، تأتي الأجهزة المتصلة والقابلة للتشغيل أولاً",
+    "未挑选时显示前几个场景": "بدون تحديد، تُعرض المشاهد الأولى",
+    "还没有读取到设备": "لم يتم تحميل أي أجهزة بعد",
+    "当前家庭还没有手动场景": "لا توجد مشاهد يدوية في هذا المنزل بعد",
+    "先登录米家账号再挑选": "سجّل الدخول إلى Mi Home أولاً ثم اختر"
   },
   "he": {
     "设备": "מכשיר",
@@ -5572,7 +5774,19 @@
     "日均": "ממוצע יומי",
     "月均": "ממוצע חודשי",
     "重试": "ניסיון חוזר",
-    "执行": "הפעלה"
+    "执行": "הפעלה",
+    "菜单栏面板": "חלונית שורת התפריטים",
+    "菜单栏面板已更新": "חלונית שורת התפריטים עודכנה",
+    "常用设备": "מכשירים בשימוש תכוף",
+    "常用场景": "סצנות בשימוש תכוף",
+    "选择常用设备": "בחירת מכשירים בשימוש תכוף",
+    "选择常用场景": "בחירת סצנות בשימוש תכוף",
+    "清空": "ניקוי",
+    "未挑选时按在线和可开关自动排": "ללא בחירה, מכשירים מחוברים וניתנים להדלקה יופיעו ראשונים",
+    "未挑选时显示前几个场景": "ללא בחירה, יוצגו הסצנות הראשונות",
+    "还没有读取到设备": "לא נטענו מכשירים עדיין",
+    "当前家庭还没有手动场景": "אין עדיין סצנות ידניות בבית הזה",
+    "先登录米家账号再挑选": "היכנסו תחילה ל-Mi Home ואז בחרו"
   },
   "hi": {
     "设备": "युक्ति",
@@ -5810,7 +6024,18 @@
     "日均": "दैनिक औसत",
     "月均": "मासिक औसत",
     "重试": "फिर से कोशिश करें",
-    "执行": "चलाएँ"
+    "执行": "चलाएँ",
+    "常用设备": "अक्सर उपयोग होने वाले डिवाइस",
+    "常用场景": "अक्सर उपयोग होने वाले दृश्य",
+    "选择常用设备": "अक्सर उपयोग होने वाले डिवाइस चुनें",
+    "选择常用场景": "अक्सर उपयोग होने वाले दृश्य चुनें",
+    "清空": "साफ़ करें",
+    "正在读取…": "लोड हो रहा है...",
+    "未挑选时按在线和可开关自动排": "चयन न होने पर ऑनलाइन और चालू-बंद करने योग्य डिवाइस पहले आते हैं",
+    "未挑选时显示前几个场景": "चयन न होने पर पहले कुछ दृश्य दिखाए जाते हैं",
+    "还没有读取到设备": "अभी कोई डिवाइस लोड नहीं हुआ",
+    "当前家庭还没有手动场景": "इस घर में अभी कोई मैन्युअल दृश्य नहीं है",
+    "先登录米家账号再挑选": "पहले Mi Home में साइन इन करें, फिर चुनें"
   },
   "th": {
     "设备": "อุปกรณ์",
@@ -6048,7 +6273,17 @@
     "日均": "เฉลี่ยต่อวัน",
     "月均": "เฉลี่ยต่อเดือน",
     "重试": "ลองอีกครั้ง",
-    "执行": "เรียกใช้"
+    "执行": "เรียกใช้",
+    "常用设备": "อุปกรณ์ที่ใช้บ่อย",
+    "常用场景": "ฉากที่ใช้บ่อย",
+    "选择常用设备": "เลือกอุปกรณ์ที่ใช้บ่อย",
+    "选择常用场景": "เลือกฉากที่ใช้บ่อย",
+    "清空": "ล้างทั้งหมด",
+    "未挑选时按在线和可开关自动排": "หากไม่ได้เลือก อุปกรณ์ออนไลน์ที่เปิดปิดได้จะขึ้นก่อน",
+    "未挑选时显示前几个场景": "หากไม่ได้เลือก จะแสดงฉากแรก ๆ",
+    "还没有读取到设备": "ยังไม่ได้โหลดอุปกรณ์",
+    "当前家庭还没有手动场景": "บ้านนี้ยังไม่มีฉากแบบกำหนดเอง",
+    "先登录米家账号再挑选": "ลงชื่อเข้าใช้ Mi Home ก่อนแล้วจึงเลือก"
   },
   "vi": {
     "设备": "Thiết bị",
@@ -6286,7 +6521,17 @@
     "日均": "TB mỗi ngày",
     "月均": "TB mỗi tháng",
     "重试": "Thử lại",
-    "执行": "Thực hiện"
+    "执行": "Thực hiện",
+    "菜单栏面板": "Bảng thanh menu",
+    "常用设备": "Thiết bị thường dùng",
+    "常用场景": "Cảnh thường dùng",
+    "选择常用设备": "Chọn thiết bị thường dùng",
+    "选择常用场景": "Chọn cảnh thường dùng",
+    "未挑选时按在线和可开关自动排": "Nếu chưa chọn, thiết bị trực tuyến và bật tắt được sẽ đứng trước",
+    "未挑选时显示前几个场景": "Nếu chưa chọn, vài cảnh đầu tiên sẽ hiển thị",
+    "还没有读取到设备": "Chưa tải được thiết bị nào",
+    "当前家庭还没有手动场景": "Nhà này chưa có cảnh thủ công",
+    "先登录米家账号再挑选": "Đăng nhập Mi Home trước rồi chọn"
   },
   "id": {
     "设备": "Perangkat",
@@ -6524,7 +6769,17 @@
     "日均": "Rata-rata harian",
     "月均": "Rata-rata bulanan",
     "重试": "Coba lagi",
-    "执行": "Jalankan"
+    "执行": "Jalankan",
+    "常用设备": "Perangkat yang sering dipakai",
+    "常用场景": "Adegan yang sering dipakai",
+    "选择常用设备": "Pilih perangkat yang sering dipakai",
+    "选择常用场景": "Pilih adegan yang sering dipakai",
+    "清空": "Kosongkan",
+    "未挑选时按在线和可开关自动排": "Tanpa pilihan, perangkat online yang bisa dinyalakan tampil lebih dulu",
+    "未挑选时显示前几个场景": "Tanpa pilihan, beberapa adegan pertama ditampilkan",
+    "还没有读取到设备": "Belum ada perangkat yang dimuat",
+    "当前家庭还没有手动场景": "Rumah ini belum punya adegan manual",
+    "先登录米家账号再挑选": "Masuk ke Mi Home dulu, lalu pilih"
   },
   "ms": {
     "设备": "Peranti",
@@ -6762,7 +7017,17 @@
     "日均": "Purata harian",
     "月均": "Purata bulanan",
     "重试": "Cuba lagi",
-    "执行": "Jalankan"
+    "执行": "Jalankan",
+    "常用设备": "Peranti kerap digunakan",
+    "常用场景": "Adegan kerap digunakan",
+    "选择常用设备": "Pilih peranti kerap digunakan",
+    "选择常用场景": "Pilih adegan kerap digunakan",
+    "清空": "Kosongkan",
+    "未挑选时按在线和可开关自动排": "Tanpa pilihan, peranti dalam talian yang boleh dihidupkan muncul dahulu",
+    "未挑选时显示前几个场景": "Tanpa pilihan, beberapa adegan pertama dipaparkan",
+    "还没有读取到设备": "Belum ada peranti dimuatkan",
+    "当前家庭还没有手动场景": "Rumah ini belum ada adegan manual",
+    "先登录米家账号再挑选": "Log masuk ke Mi Home dahulu, kemudian pilih"
   },
   "ca": {
     "设备": "Dispositiu",
@@ -7000,7 +7265,17 @@
     "日均": "Mitjana diària",
     "月均": "Mitjana mensual",
     "重试": "Torna-ho a provar",
-    "执行": "Executa"
+    "执行": "Executa",
+    "常用设备": "Dispositius freqüents",
+    "常用场景": "Escenes freqüents",
+    "选择常用设备": "Triar dispositius freqüents",
+    "选择常用场景": "Triar escenes freqüents",
+    "清空": "Buidar",
+    "未挑选时按在线和可开关自动排": "Sense selecció, els dispositius en línia i commutables surten primer",
+    "未挑选时显示前几个场景": "Sense selecció, es mostren les primeres escenes",
+    "还没有读取到设备": "Encara no s’han carregat dispositius",
+    "当前家庭还没有手动场景": "Aquesta llar encara no té escenes manuals",
+    "先登录米家账号再挑选": "Inicia la sessió a Mi Home i després tria"
   },
   "da": {
     "设备": "Enhed",
@@ -7238,7 +7513,16 @@
     "日均": "Gns. pr. dag",
     "月均": "Gns. pr. måned",
     "重试": "Prøv igen",
-    "执行": "Kør"
+    "执行": "Kør",
+    "常用设备": "Hyppige enheder",
+    "常用场景": "Hyppige scener",
+    "选择常用设备": "Vælg hyppige enheder",
+    "选择常用场景": "Vælg hyppige scener",
+    "未挑选时按在线和可开关自动排": "Uden valg kommer online- og tændbare enheder først",
+    "未挑选时显示前几个场景": "Uden valg vises de første scener",
+    "还没有读取到设备": "Der er endnu ikke indlæst enheder",
+    "当前家庭还没有手动场景": "Dette hjem har endnu ingen manuelle scener",
+    "先登录米家账号再挑选": "Log ind på Mi Home først, og vælg derefter"
   },
   "fi": {
     "设备": "Laite",
@@ -7476,7 +7760,17 @@
     "日均": "Keskim. päivässä",
     "月均": "Keskim. kuukaudessa",
     "重试": "Yritä uudelleen",
-    "执行": "Suorita"
+    "执行": "Suorita",
+    "常用设备": "Usein käytetyt laitteet",
+    "常用场景": "Usein käytetyt kohtaukset",
+    "选择常用设备": "Valitse usein käytetyt laitteet",
+    "选择常用场景": "Valitse usein käytetyt kohtaukset",
+    "清空": "Tyhjennä",
+    "未挑选时按在线和可开关自动排": "Ilman valintaa verkossa olevat ja kytkettävät laitteet tulevat ensin",
+    "未挑选时显示前几个场景": "Ilman valintaa näytetään ensimmäiset kohtaukset",
+    "还没有读取到设备": "Laitteita ei ole vielä ladattu",
+    "当前家庭还没有手动场景": "Tässä kodissa ei ole vielä manuaalisia kohtauksia",
+    "先登录米家账号再挑选": "Kirjaudu ensin Mi Homeen ja valitse sitten"
   },
   "nb": {
     "设备": "Enhet",
@@ -7714,7 +8008,17 @@
     "日均": "Snitt per dag",
     "月均": "Snitt per måned",
     "重试": "Prøv igjen",
-    "执行": "Kjør"
+    "执行": "Kjør",
+    "常用设备": "Ofte brukte enheter",
+    "常用场景": "Ofte brukte scener",
+    "选择常用设备": "Velg ofte brukte enheter",
+    "选择常用场景": "Velg ofte brukte scener",
+    "清空": "Tøm",
+    "未挑选时按在线和可开关自动排": "Uten valg kommer tilkoblede enheter som kan slås på først",
+    "未挑选时显示前几个场景": "Uten valg vises de første scenene",
+    "还没有读取到设备": "Ingen enheter er lastet ennå",
+    "当前家庭还没有手动场景": "Dette hjemmet har ingen manuelle scener ennå",
+    "先登录米家账号再挑选": "Logg på Mi Home først, velg deretter"
   },
   "sv": {
     "设备": "Enhet",
@@ -7952,7 +8256,18 @@
     "日均": "Snitt per dag",
     "月均": "Snitt per månad",
     "重试": "Försök igen",
-    "执行": "Kör"
+    "执行": "Kör",
+    "菜单栏面板": "Menyradspanelen",
+    "菜单栏面板已更新": "Menyradspanelen har uppdaterats",
+    "常用设备": "Vanliga enheter",
+    "常用场景": "Vanliga scener",
+    "选择常用设备": "Välj vanliga enheter",
+    "选择常用场景": "Välj vanliga scener",
+    "未挑选时按在线和可开关自动排": "Utan urval kommer nätanslutna och påslagningsbara enheter först",
+    "未挑选时显示前几个场景": "Utan urval visas de första scenerna",
+    "还没有读取到设备": "Inga enheter har laddats än",
+    "当前家庭还没有手动场景": "Det här hemmet har inga manuella scener än",
+    "先登录米家账号再挑选": "Logga in på Mi Home först och välj sedan"
   },
   "sr": {
     "设备": "Уређај",
@@ -8190,7 +8505,19 @@
     "日均": "Дневни просек",
     "月均": "Месечни просек",
     "重试": "Покушај поново",
-    "执行": "Изврши"
+    "执行": "Изврши",
+    "菜单栏面板": "Панел траке менија",
+    "菜单栏面板已更新": "Панел траке менија је ажуриран",
+    "常用设备": "Чести уређаји",
+    "常用场景": "Честе сцене",
+    "选择常用设备": "Изабери честе уређаје",
+    "选择常用场景": "Изабери честе сцене",
+    "清空": "Очисти",
+    "未挑选时按在线和可开关自动排": "Без избора прво иду уређаји на мрежи са прекидачем",
+    "未挑选时显示前几个场景": "Без избора приказују се прве сцене",
+    "还没有读取到设备": "Уређаји још нису учитани",
+    "当前家庭还没有手动场景": "Овај дом још нема ручне сцене",
+    "先登录米家账号再挑选": "Прво се пријавите на Mi Home, затим изаберите"
   },
   "zh-Hans": {
     "界面风格": "界面风格",

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>米家速控</title>
+<link rel="stylesheet" href="quick.css">
+</head>
+<body>
+<main class="panel" id="panel">
+  <header class="head">
+    <span class="brand">米家速控</span>
+    <span class="head-tools">
+      <span class="clock" id="clock">--:--</span>
+      <button class="icon-btn" id="editPrefs" type="button" aria-pressed="false" aria-label="设置面板显示哪些设备和场景">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M19 7h1M4 12h3M13 12h7M4 17h9M19 17h1"/><circle cx="15.5" cy="7" r="1.9"/><circle cx="9.5" cy="12" r="1.9"/><circle cx="15.5" cy="17" r="1.9"/></svg>
+      </button>
+    </span>
+  </header>
+
+  <section class="env" id="envCard">
+    <div class="env-temp"><strong id="envTemp">--</strong><span class="env-unit" id="envUnit">°</span></div>
+    <div class="env-meta">
+      <span id="envHome">未读取家庭</span>
+      <span id="envOnline">在线 --</span>
+    </div>
+    <span class="env-dot" id="envDot" aria-hidden="true"></span>
+  </section>
+
+  <div class="section-head"><span>常用设备</span><span class="muted" id="deviceCount"></span></div>
+  <div class="device-grid" id="deviceGrid">
+    <div class="empty">正在读取设备…</div>
+  </div>
+
+  <div class="section-head"><span>场景</span><span class="muted" id="sceneCount"></span></div>
+  <div class="scenes" id="scenes"></div>
+
+  <div class="status-line" id="statusLine" hidden></div>
+
+  <footer class="foot">
+    <div class="foot-main" id="footMain">
+      <button class="open-main" id="openMain" type="button">打开主窗口</button>
+    </div>
+    <div class="foot-edit" id="footEdit" hidden>
+      <button class="foot-cancel" id="editCancel" type="button">取消</button>
+      <button class="open-main" id="editSave" type="button">保存</button>
+    </div>
+  </footer>
+</main>
+<script src="icons.js"></script>
+<script src="capabilities.js"></script>
+<script src="tauri-api.js"></script>
+<script src="quick.js"></script>
+</body>
+</html>

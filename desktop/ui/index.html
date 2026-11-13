@@ -639,6 +639,17 @@
                 <button class="ghost-btn" id="settingsAccess">打开</button>
               </div>
             </div>
+            <div class="settings-card quick-prefs-card">
+              <h3>菜单栏面板</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>常用设备</strong><small>未挑选时按在线和可开关自动排</small></div>
+                <button class="ghost-btn" id="settingsQuickDevices">选择</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label"><strong>常用场景</strong><small>未挑选时显示前几个场景</small></div>
+                <button class="ghost-btn" id="settingsQuickScenes">选择</button>
+              </div>
+            </div>
             <div class="settings-card">
               <h3>语言与地区</h3>
               <div class="setting-row">
@@ -680,6 +691,21 @@
     <div class="account-pop-actions">
       <button class="primary-btn wide" id="addAccountButton">添加米家账号</button>
       <button class="text-btn danger-text" id="removeAccountButton">退出当前账号</button>
+    </div>
+  </div>
+
+  <div class="quick-pick-layer" id="quickPickLayer" hidden>
+    <div class="quick-pick" role="dialog" aria-modal="true" aria-labelledby="quickPickTitle">
+      <div class="quick-pick-head">
+        <strong id="quickPickTitle">选择常用设备</strong>
+        <button class="icon-btn" id="quickPickClose" aria-label="关闭">×</button>
+      </div>
+      <div class="quick-pick-list" id="quickPickList"></div>
+      <div class="quick-pick-foot">
+        <span class="quick-pick-count" id="quickPickCount"></span>
+        <button class="text-btn" id="quickPickClear">清空</button>
+        <button class="primary-btn" id="quickPickSave">保存</button>
+      </div>
     </div>
   </div>
 

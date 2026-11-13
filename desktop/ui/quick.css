@@ -1,0 +1,540 @@
+:root {
+  color-scheme: light dark;
+  --surface: rgba(247, 244, 237, 0.94);
+  --surface-2: rgba(255, 255, 255, 0.78);
+  --ink: #1a1a17;
+  --ink-2: #5c5c54;
+  --ink-3: #8b8b81;
+  --line: rgba(20, 20, 15, 0.10);
+  --line-strong: rgba(20, 20, 15, 0.20);
+  --accent: #b4402e;
+  --accent-soft: rgba(180, 64, 46, 0.12);
+  --green: #3e9a62;
+  --green-soft: rgba(62, 154, 98, 0.14);
+  --danger: #c0392b;
+  --switch-off: rgba(20, 20, 15, 0.16);
+}
+
+:root[data-theme="dark"] {
+  --surface: rgba(23, 23, 20, 0.92);
+  --surface-2: rgba(255, 255, 255, 0.055);
+  --ink: #f1eee4;
+  --ink-2: #b9b5a9;
+  --ink-3: #8a877d;
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.20);
+  --accent: #e0735e;
+  --accent-soft: rgba(224, 115, 94, 0.16);
+  --green: #7bc79a;
+  --green-soft: rgba(123, 199, 154, 0.16);
+  --danger: #f08a7c;
+  --switch-off: rgba(255, 255, 255, 0.20);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: rgba(23, 23, 20, 0.92);
+    --surface-2: rgba(255, 255, 255, 0.055);
+    --ink: #f1eee4;
+    --ink-2: #b9b5a9;
+    --ink-3: #8a877d;
+    --line: rgba(255, 255, 255, 0.10);
+    --line-strong: rgba(255, 255, 255, 0.20);
+    --accent: #e0735e;
+    --accent-soft: rgba(224, 115, 94, 0.16);
+    --green: #7bc79a;
+    --green-soft: rgba(123, 199, 154, 0.16);
+    --danger: #f08a7c;
+    --switch-off: rgba(255, 255, 255, 0.20);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* .foot-edit 自己设了 display: flex，会盖掉 [hidden] 的 UA 样式，这里补回来。 */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  padding: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/* 面板铺满窗口：窗口背景是透明的，面板不铺满的话，点下面空白区会被判成
+   「点在面板内」而不收起。内容超高时由设备区滚动吸收，底部按钮固定不动。 */
+.panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 12px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(30px) saturate(1.35);
+}
+
+/* ---------- 头部 ---------- */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 0 2px 8px;
+}
+
+.brand {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.clock {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.icon-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.icon-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 环境 ---------- */
+.env {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  margin-bottom: 8px;
+}
+
+.env-temp {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.env-temp strong {
+  font-family: "New York", "Songti SC", Georgia, serif;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.env-unit {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.env-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 9.5px;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+.env-meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.env-dot {
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 4px var(--green-soft);
+}
+
+.env-dot.off {
+  background: var(--ink-3);
+  box-shadow: none;
+}
+
+/* ---------- 分组标题 ---------- */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 0 2px 6px;
+  font-size: 9.5px;
+  color: var(--ink-3);
+}
+
+.section-head .muted {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 设备 ---------- */
+/* 设备区是唯一允许收缩的部分：内容超高时它自己滚动，底部按钮不动。 */
+.device-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.device {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.device .ic {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+}
+
+.device .ic svg {
+  width: 100%;
+  height: 100%;
+}
+
+.device-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device.offline {
+  opacity: 0.5;
+}
+
+/* ---------- 挑选模式 ---------- */
+.device.pickable {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.device.pickable:hover {
+  border-color: var(--line-strong);
+}
+
+.device.pickable.picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pick-badge {
+  flex: 0 0 15px;
+  height: 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: 8.5px;
+  line-height: 13px;
+  text-align: center;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.pick-badge.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* 挑选模式下列表项多，设备区滚动，场景跟着一起滚。 */
+.scenes.pick-mode {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 96px;
+  overflow-y: auto;
+  flex-wrap: wrap;
+}
+
+.scenes.pick-mode .scene {
+  flex: 1 1 calc(50% - 3px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  text-align: left;
+}
+
+.scene.pickable {
+  cursor: pointer;
+}
+
+.scene.pickable.picked {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.switch {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--switch-off);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.switch.on::after {
+  transform: translateX(10px);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.switch:focus-visible,
+.scene:focus-visible,
+.open-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.device-icon-btn {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+.device-icon-btn .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  padding: 18px 8px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+/* ---------- 场景 ---------- */
+.scenes {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+  min-height: 30px;
+}
+
+.scene {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.scene:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.scene:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.scenes-empty {
+  padding: 6px 8px;
+}
+
+/* ---------- 状态行 ---------- */
+.status-line {
+  flex: 0 0 auto;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.status-line.ok {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.status-line.error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.status-line.hint {
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+/* ---------- 底部 ---------- */
+.foot {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.foot-edit {
+  display: flex;
+  gap: 6px;
+}
+
+.foot-edit .open-main {
+  flex: 1 1 auto;
+}
+
+.foot-cancel {
+  flex: 0 0 84px;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.foot-cancel:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.foot-cancel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.open-main {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.open-main:hover {
+  opacity: 0.88;
+}
+
+.open-main:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
