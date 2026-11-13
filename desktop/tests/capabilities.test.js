@@ -726,6 +726,55 @@ test('remote reconnect preserves audio and first-frame stalls trigger recovery',
   assert.match(app, /CAMERA_STALL_INTERVALS = 3/);
 });
 
+test('a single window return runs one device sync, not one per event', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  // focus and visibilitychange both fire for one return; without a shared
+  // debounced entry the device list is read twice back to back.
+  assert.match(app, /window\.addEventListener\('focus', requestPresenceRefresh\)/);
+  assert.match(app, /if \(!document\.hidden\) requestPresenceRefresh\(\);/);
+  assert.match(app, /const PRESENCE_RETURN_DEBOUNCE_MS = 120;/);
+  // The presence sync must patch camera cards instead of rebuilding the list.
+  assert.match(app, /applyCameraPresence\(new Set\(onlineChanged\.map/);
+  assert.doesNotMatch(
+    app,
+    /if \(syncCameraPresence\(onlineChanged\)\) renderCameras\(\);/,
+  );
+});
+
+test('the environment sweep is throttled but still runs on its own cadence', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const presence = app.slice(
+    app.indexOf('async function refreshDevicePresence('),
+    app.indexOf('const DEVICE_ICONS'),
+  );
+  assert.ok(presence.length, 'refreshDevicePresence must exist');
+  // A per-device property sweep on every presence sync is what makes a window
+  // return stall with a large account, so the sweep takes a throttle flag. A
+  // device that just changed state must not wait for the floor.
+  assert.match(
+    presence,
+    /refreshEnvironmentStatus\(\{ immediate: onlineChanged\.length > 0 \}\);/,
+  );
+  assert.match(app, /const ENVIRONMENT_SWEEP_MIN_GAP_MS = 5000;/);
+  assert.match(app, /async function refreshEnvironmentStatus\(options = \{\}\)/);
+  assert.match(app, /if \(!options\.immediate/);
+  // The capsule is chrome: its periodic refresh must survive the throttle.
+  assert.match(app, /state\.environmentSyncAt = Date\.now\(\);/);
+});
+
+test('camera presence patches cards in place instead of rebuilding the list', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const patch = app.slice(
+    app.indexOf('function applyCameraPresence('),
+    app.indexOf('function updateCameraStage('),
+  );
+  assert.ok(patch.length, 'applyCameraPresence must exist');
+  for (const part of ['offline', 'live-dot', 'cam-thumb-badge', 'cam-actions']) {
+    assert.match(patch, new RegExp(part.replace(/[.-]/g, '\\$&')));
+  }
+  assert.doesNotMatch(patch, /replaceChildren|innerHTML/);
+});
+
 test('WebRTC diagnostics expose negotiated audio codec and playback state', () => {
   const player = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
   assert.match(player, /remoteAudioCodecs/);

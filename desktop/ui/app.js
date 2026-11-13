@@ -859,6 +859,23 @@ async function loadDevices() {
   }
 }
 
+// Focus and visibility both fire for a single window return, so they land
+// within a few milliseconds of each other. Debounce just long enough to
+// collapse that pair into one sync; a user who returns twice in quick
+// succession still gets a fresh read each time.
+const PRESENCE_RETURN_DEBOUNCE_MS = 120;
+
+let presenceReturnTimer = null;
+
+function requestPresenceRefresh() {
+  if (!state.loggedIn) return;
+  if (presenceReturnTimer) return;
+  presenceReturnTimer = setTimeout(() => {
+    presenceReturnTimer = null;
+    refreshDevicePresence();
+  }, PRESENCE_RETURN_DEBOUNCE_MS);
+}
+
 // list_cameras is only read when the camera page opens; carry the online flag
 // from the periodic device sync so camera buttons and counts stay current.
 function syncCameraPresence(devices) {
@@ -910,10 +927,15 @@ async function refreshDevicePresence() {
     state.devices = devices;
     state.lastPresenceSyncAt = Date.now();
     state.presenceSyncFailed = false;
-    // Re-render even when the camera page is hidden: its next background
-    // reload compares against this already-synced list and would otherwise
-    // keep showing the old online state.
-    if (syncCameraPresence(onlineChanged)) renderCameras();
+    // Re-sync even when the camera page is hidden: its next background reload
+    // compares against this already-synced list and would otherwise keep
+    // showing the old online state. Only the online flag can change here, so
+    // patch the affected cards instead of rebuilding every one of them. When
+    // the list was never rendered there is nothing to patch; the next visit
+    // rebuilds from this already-synced state.
+    if (syncCameraPresence(onlineChanged)) {
+      applyCameraPresence(new Set(onlineChanged.map((device) => device.did)));
+    }
     if (!changed.length && devices.length === previous.size) {
       updateChrome();
       return true;
@@ -930,7 +952,11 @@ async function refreshDevicePresence() {
     else if ($('#inspector').classList.contains('open')) closeInspector();
     updateChrome();
     if ($('#menubarPop').classList.contains('open')) renderQuickPanel();
-    refreshEnvironmentStatus();
+    // The environment capsule lives in the chrome, so it keeps its cadence on
+    // any page; the sweep itself is throttled because it issues one request per
+    // online device, which is what makes a window return stutter on a large
+    // account. A device that just changed state is read immediately.
+    refreshEnvironmentStatus({ immediate: onlineChanged.length > 0 });
     for (const device of onlineChanged) {
       if (device.online) queueCardHydration(device);
     }
@@ -1934,8 +1960,15 @@ function updateEnvironmentCapsule() {
     : uiText('家庭环境');
 }
 
-async function refreshEnvironmentStatus() {
+// The sweep costs one cloud request per online device, so a coarse floor keeps
+// a burst of presence syncs from repeating it. State changes and the periodic
+// cadence still refresh as before; only back-to-back calls are folded.
+const ENVIRONMENT_SWEEP_MIN_GAP_MS = 5000;
+
+async function refreshEnvironmentStatus(options = {}) {
   if (!invoke || !state.loggedIn || !state.homeId || state.environmentRefreshing) return false;
+  if (!options.immediate
+    && Date.now() - state.environmentSyncAt < ENVIRONMENT_SWEEP_MIN_GAP_MS) return false;
   const sensor = overviewSensorDevice();
   const requests = [];
   const seen = new Set();
@@ -4169,6 +4202,29 @@ function markSelectedCamera() {
   }
 }
 
+// The 15 s presence sync only flips the online flag. Rebuilding the whole list
+// for that costs a full card rebuild per camera; with hundreds of cameras it
+// makes every window focus stutter. Update the affected cards in place instead.
+function applyCameraPresence(changedDids) {
+  if (!changedDids?.size) return false;
+  const byDid = new Map(state.cameras.map((camera) => [camera.did, camera]));
+  let touched = 0;
+  for (const card of $('#camList').querySelectorAll('.cam-card')) {
+    const camera = byDid.get(card.dataset.did);
+    if (!camera || !changedDids.has(camera.did)) continue;
+    touched += 1;
+    card.classList.toggle('offline', !camera.online);
+    const dot = card.querySelector('.live-dot');
+    if (dot) dot.classList.toggle('muted', !camera.online);
+    const badge = card.querySelector('.cam-thumb-badge');
+    if (badge) badge.textContent = camera.online ? (camera.ip ? '本地可达' : '仅远程') : '离线';
+    const [local, remote] = card.querySelectorAll('.cam-actions .pill');
+    if (local) local.disabled = !camera.online || !camera.ip;
+    if (remote) remote.disabled = !camera.online;
+  }
+  return touched > 0;
+}
+
 function updateCameraStage(camera, stream, remote) {
   if (!camera) return;
   $('#camTitle').textContent = camera.name;
@@ -5888,11 +5944,12 @@ async function boot() {
   setInterval(() => {
     if (state.loggedIn && !document.hidden) refreshDevicePresence();
   }, DEVICE_PRESENCE_REFRESH_MS);
-  window.addEventListener('focus', () => {
-    if (state.loggedIn) refreshDevicePresence();
-  });
+  // Coming back to the window fires both events, and each one would run the
+  // full device sync. Collapse them into the same throttled entry so one focus
+  // change costs one sync.
+  window.addEventListener('focus', requestPresenceRefresh);
   document.addEventListener('visibilitychange', () => {
-    if (state.loggedIn && !document.hidden) refreshDevicePresence();
+    if (!document.hidden) requestPresenceRefresh();
   });
   renderSidebarRooms();
   if (!invoke) {
