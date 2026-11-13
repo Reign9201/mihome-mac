@@ -9,6 +9,7 @@ mod loopback_proxy;
 pub mod media;
 pub mod miss;
 pub mod pppp;
+pub mod quick_prefs;
 pub mod relay;
 pub mod remote;
 pub mod remote_crypto;
@@ -32,4 +33,5 @@ pub use integration::{
     IntegrationStore, LlmConfig, PairingCode, PairingCodeView, PlatformConfig, PlatformKind,
     PlatformStatus,
 };
+pub use quick_prefs::{QuickPrefs, QuickPrefsStore};
 pub use spec::{DeviceSpec, SpecBatch, SpecRegistry};
