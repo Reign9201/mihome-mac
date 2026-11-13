@@ -769,6 +769,13 @@ input[type="range"].temp-track::-webkit-slider-thumb { margin-top: -4px; }
 }
 .quick-pick-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
 .quick-pick-head strong { flex: 1; font-size: 12.5px; font-weight: 550; }
+.quick-pick-search {
+  margin: 8px 16px 2px; height: 28px; padding: 0 10px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+  font: inherit; font-size: 11px; outline: none;
+}
+.quick-pick-search::placeholder { color: var(--ink-3); }
+.quick-pick-search:focus { border-color: var(--accent); background: var(--surface); }
 .quick-pick-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
 .quick-pick-item {
   display: flex; align-items: center; gap: 10px; width: 100%;

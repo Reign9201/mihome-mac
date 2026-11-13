@@ -105,7 +105,7 @@ const state = {
     pairTimer: null, token: '', loading: false, draftMode: null, pollTimer: null,
   },
   quickPick: {
-    kind: 'devices', selected: [], listing: [], saving: false,
+    kind: 'devices', selected: [], listing: [], saving: false, query: '',
   },
 };
 
@@ -1752,9 +1752,7 @@ function renderDevices() {
   const target = state.devices.filter((device) => {
     if (state.deviceFilter !== 'all' && deviceFilterState(device) !== state.deviceFilter) return false;
     if (!query) return true;
-    return `${device.name} ${device.model || ''} ${roomName(device)}`
-      .toLowerCase()
-      .includes(query);
+    return deviceSearchText(device).includes(query);
   });
   $('#devicesEyebrow').textContent = uiText('设备 {0} · 本地摄像头 {1}', [
     state.devices.length,
@@ -3085,12 +3083,14 @@ function quickPickLayer() {
 // 家庭或还没读过。
 async function quickPickListing(kind) {
   if (!state.homeId) return [];
+  const searchable = window.MiPinyin?.searchable;
   if (kind === 'scenes') {
     const scenes = await invoke('list_scenes', { homeId: state.homeId });
     return (Array.isArray(scenes) ? scenes : []).map((scene) => ({
       id: scene.id,
       name: scene.name,
       meta: '手动场景',
+      search: searchable ? searchable([scene.name]) : String(scene.name).toLowerCase(),
     }));
   }
   const devices = await invoke('list_devices', { homeId: state.homeId });
@@ -3098,6 +3098,9 @@ async function quickPickListing(kind) {
     id: device.did,
     name: device.name,
     meta: device.online ? '在线' : '离线',
+    search: searchable
+      ? searchable([device.name, device.model || '', roomName(device)])
+      : `${device.name} ${device.model || ''} ${roomName(device)}`.toLowerCase(),
   }));
 }
 
@@ -3115,8 +3118,15 @@ function renderQuickPickList() {
     $('#quickPickCount').textContent = '';
     return;
   }
+  const query = state.quickPick.query.trim().toLowerCase();
+  const visible = query
+    ? listing.filter((item) => (item.search || item.name.toLowerCase()).includes(query))
+    : listing;
+  if (!visible.length) {
+    list.append(el('div', 'quick-pick-empty', '没有匹配的设备或操作'));
+  }
   const chosen = new Set(selected);
-  for (const item of listing) {
+  for (const item of visible) {
     const checked = chosen.has(item.id);
     const button = document.createElement('button');
     button.type = 'button';
@@ -3155,6 +3165,8 @@ async function openQuickPick(kind) {
   layer.hidden = false;
   state.quickPick.kind = kind;
   state.quickPick.saving = false;
+  state.quickPick.query = '';
+  $('#quickPickSearch').value = '';
   try {
     const [prefs, listing] = await Promise.all([
       invoke('quick_prefs'),
@@ -3176,6 +3188,7 @@ async function openQuickPick(kind) {
 function closeQuickPick() {
   quickPickLayer().hidden = true;
   state.quickPick.saving = false;
+  state.quickPick.query = '';
 }
 
 async function saveQuickPick() {
@@ -4006,10 +4019,15 @@ async function loadCameras(options = {}) {
 
 const CAMERA_COMPACT_THRESHOLD = 12;
 
+function deviceSearchText(device) {
+  const parts = [device.name, device.model || '', roomName(device)];
+  return window.MiPinyin?.searchable(parts) ?? parts.join(' ').toLowerCase();
+}
+
 function cameraSearchText(camera, devices) {
   const device = devices.get(camera.did);
-  return `${camera.name} ${camera.model || ''} ${camera.ip || ''} ${device ? roomName(device) : ''}`
-    .toLowerCase();
+  const parts = [camera.name, camera.model || '', camera.ip || '', device ? roomName(device) : ''];
+  return window.MiPinyin?.searchable(parts) ?? parts.join(' ').toLowerCase();
 }
 
 function cameraQuery() {
@@ -4993,6 +5011,10 @@ $('#quickPickClear').onclick = () => {
   state.quickPick.selected = [];
   renderQuickPickList();
 };
+$('#quickPickSearch').addEventListener('input', (event) => {
+  state.quickPick.query = event.target.value;
+  renderQuickPickList();
+});
 quickPickLayer().addEventListener('click', (event) => {
   if (event.target === quickPickLayer()) closeQuickPick();
 });
