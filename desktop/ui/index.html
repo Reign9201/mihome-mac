@@ -9,6 +9,7 @@
   <script src="icons.js"></script>
   <script src="ui-icons.js"></script>
   <script src="capabilities.js"></script>
+  <script src="pinyin.js"></script>
   <script src="tauri-api.js"></script>
   <script src="diagnostics.js"></script>
   <script src="camera-player.js"></script>
@@ -700,6 +701,7 @@
         <strong id="quickPickTitle">选择常用设备</strong>
         <button class="icon-btn" id="quickPickClose" aria-label="关闭">×</button>
       </div>
+      <input class="quick-pick-search" id="quickPickSearch" placeholder="搜索设备或场景" autocomplete="off" spellcheck="false" aria-label="搜索设备或场景">
       <div class="quick-pick-list" id="quickPickList"></div>
       <div class="quick-pick-foot">
         <span class="quick-pick-count" id="quickPickCount"></span>
