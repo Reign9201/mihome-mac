@@ -4869,8 +4869,12 @@ function watchRemote(video, camera, onStall, generation) {
   let lastFrames = -1;
   let stalled = 0;
   let hadFrames = false;
-  const startedAt = Date.now();
+  let hiddenAt = 0;
   const firstFrameTimeout = state.remoteActive ? REMOTE_FIRST_FRAME_TIMEOUT : 30000;
+  // Only time spent in the foreground counts towards the first-frame budget.
+  // A window in the background stops decoding, and charging that interval to
+  // the stream would rebuild a perfectly healthy channel on every return.
+  let visibleSince = Date.now();
   const removeWatch = () => {
     clearInterval(timer);
     state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
@@ -4896,8 +4900,24 @@ function watchRemote(video, camera, onStall, generation) {
       removeWatch();
       return;
     }
+    // A hidden page stops decoding in WKWebView. Neither a missing first frame
+    // nor a frozen counter says anything about stream health while hidden, so
+    // pause the watchdog and restart its budget when the page returns.
+    if (document.hidden) {
+      if (!hiddenAt) hiddenAt = Date.now();
+      return;
+    }
+    if (hiddenAt) {
+      // Do not bill the background interval to the stream, and drop the stale
+      // progress samples so the first visible tick compares fresh values.
+      visibleSince += Date.now() - hiddenAt;
+      hiddenAt = 0;
+      stalled = 0;
+      lastFrames = -1;
+      lastTime = -1;
+    }
     if (video.videoWidth) hadFrames = true;
-    if (!hadFrames && Date.now() - startedAt >= firstFrameTimeout) {
+    if (!hadFrames && Date.now() - visibleSince >= firstFrameTimeout) {
       triggerRestart('画面长时间没有首帧');
       return;
     }

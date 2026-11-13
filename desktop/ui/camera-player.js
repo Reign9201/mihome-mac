@@ -34,7 +34,12 @@
   const WEBRTC_PACKET_STALL_CHECKS = 3;
   const WEBRTC_HARD_STALL_WINDOW = 25000;
   const WEBRTC_RESUME_RECONNECT_AFTER = 1000;
-  const WEBRTC_BACKGROUND_REBUILD_AFTER = 1500;
+  // Rebuilding the whole transport costs a visible reconnect, so reserve it for
+  // absences long enough that the renderer really can drift behind the live
+  // edge. Switching to another window for a few seconds now goes through
+  // resumeLivePlayback, and a renderer that is merely behind the live edge is
+  // caught by the jitter-buffer check in reportMedia instead.
+  const WEBRTC_BACKGROUND_REBUILD_AFTER = 10000;
   const WEBRTC_LIVE_AFTER_PAUSE_MS = 1200;
   const audioControllers = new WeakMap();
 

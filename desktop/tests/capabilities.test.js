@@ -726,6 +726,26 @@ test('remote reconnect preserves audio and first-frame stalls trigger recovery',
   assert.match(app, /CAMERA_STALL_INTERVALS = 3/);
 });
 
+test('camera watchdog stands down while the page is hidden', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const watch = app.slice(
+    app.indexOf('function watchRemote('),
+    app.indexOf('async function restartRemoteCamera('),
+  );
+  assert.ok(watch.length, 'watchRemote must exist');
+  // A hidden page stops decoding in WKWebView. Counting that as a stall tears
+  // down a healthy stream every time the window goes to the background.
+  assert.match(watch, /if \(document\.hidden\) \{/);
+  assert.match(watch, /if \(!hiddenAt\) hiddenAt = Date\.now\(\);/);
+  // The background interval must not be billed to the first-frame budget.
+  assert.match(watch, /visibleSince \+= Date\.now\(\) - hiddenAt;/);
+  assert.match(watch, /Date\.now\(\) - visibleSince >= firstFrameTimeout/);
+  // Progress samples taken before the absence are stale after it.
+  assert.match(watch, /lastFrames = -1;/);
+  assert.match(watch, /lastTime = -1;/);
+  assert.doesNotMatch(watch, /Date\.now\(\) - startedAt >= firstFrameTimeout/);
+});
+
 test('a single window return runs one device sync, not one per event', () => {
   const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
   // focus and visibilitychange both fire for one return; without a shared
@@ -1011,7 +1031,16 @@ test('WebRTC resumes healthy playback without rebuilding and restarts only when 
   assert.equal(hidden.peersAfterProbe, 1);
   assert.equal(hidden.reasons.includes('resume-stalled'), false);
 
-  const rebuilt = await runCase({ advances: true, backgroundMs: 1500 });
+  // A short absence now goes through the resume probe instead of rebuilding:
+  // switching to another window for a couple of seconds must not reconnect.
+  const brief = await runCase({ advances: true, backgroundMs: 1500 });
+  assert.equal(brief.peersAfterResume, 1);
+  assert.equal(brief.peersAfterProbe, 1);
+  assert.equal(brief.reasons.includes('restart'), false, JSON.stringify(brief));
+  assert.ok(brief.reasons.includes('resume-live'), JSON.stringify(brief));
+
+  // Only an absence long enough to accumulate playback delay rebuilds.
+  const rebuilt = await runCase({ advances: true, backgroundMs: 10000 });
   assert.equal(rebuilt.peersAfterResume, 2);
   assert.ok(rebuilt.reasons.includes('restart'), JSON.stringify(rebuilt));
 
