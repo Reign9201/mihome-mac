@@ -442,7 +442,7 @@ MiHomeMac/
 
 | 任务 | 产出 | 验收 |
 |---|---|---|
-| 菜单栏速控 | `MenuBarPanel` | 6 台设备 + 4 个场景 |
+| 菜单栏速控 | `MenuBarPanel` | 12 台设备 + 4 个场景 |
 | 小组件 | `WidgetKit` | 小、中、大三尺寸 |
 | App Intents | 快捷指令 | 开关设备、执行场景 |
 | 本地定时 | `AutomationEngine` | 创建、启停、错过记录 |
