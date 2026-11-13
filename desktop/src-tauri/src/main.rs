@@ -36,6 +36,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, State};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tokio::sync::{Mutex, RwLock};
 
 const CAMERA_CACHE_TTL: Duration = Duration::from_secs(15);
@@ -312,6 +313,43 @@ fn toggle_quick_panel(app: &tauri::AppHandle, rect: tauri::Rect) {
     set_quick_visible(&quick, true);
     *state.quick_shown_at.blocking_lock() = Some(Instant::now());
     app_log::info("App", "菜单栏速控面板已打开");
+}
+
+/// 快捷键触发时没有点击坐标，改读托盘图标当前的位置作为定位基准。
+fn toggle_quick_panel_from_shortcut(app: &tauri::AppHandle) {
+    if let Some(rect) = app
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten())
+    {
+        toggle_quick_panel(app, rect);
+        return;
+    }
+    // 读不到图标位置时按屏幕右上角处理，保证快捷键始终有响应。
+    let Some(quick) = app.get_webview_window("quick") else {
+        return;
+    };
+    let scale = quick.scale_factor().unwrap_or(1.0);
+    let anchor = quick
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| {
+            let position = monitor.position().to_logical::<f64>(monitor.scale_factor());
+            let size = monitor.size().to_logical::<f64>(monitor.scale_factor());
+            tauri::Rect {
+                position: tauri::PhysicalPosition::new(
+                    ((position.x + size.width - 40.0) * scale) as i32,
+                    (position.y * scale) as i32,
+                )
+                .into(),
+                size: tauri::PhysicalSize::new((40.0 * scale) as u32, (24.0 * scale) as u32).into(),
+            }
+        })
+        .unwrap_or(tauri::Rect {
+            position: tauri::PhysicalPosition::new(0, 0).into(),
+            size: tauri::PhysicalSize::new(0, 0).into(),
+        });
+    toggle_quick_panel(app, anchor);
 }
 
 /// 面板弹出。macOS 上走 orderFrontRegardless，避免激活应用把窗口带回原来的 Space；
@@ -2236,13 +2274,30 @@ fn main() {
         Err(error) => eprintln!("日志系统初始化失败：{error:#}"),
     }
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        toggle_quick_panel_from_shortcut(app);
+                    }
+                })
+                .build(),
+        )
         .manage(Arc::new(AppState::default()))
         .setup(|app| {
             app_log::info("App", "Tauri 应用初始化");
+            // ⌥M 呼出或收起速控面板。快捷键被其他程序占用时保留托盘入口即可。
+            if let Err(error) = app.global_shortcut().register("Alt+M") {
+                app_log::warn("App", format!("注册全局快捷键失败：{error}"));
+            }
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 MiHome Mac", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-            let tray = TrayIconBuilder::with_id("main")
+            // 菜单栏图标用模板图，由系统按明暗模式自动反色；彩色应用图标在深色菜单栏上看不清。
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+            TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
+                .icon_as_template(true)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("MiHome Mac")
@@ -2270,9 +2325,6 @@ fn main() {
                     }
                 })
                 .build(app)?;
-            if let Some(icon) = app.default_window_icon() {
-                tray.set_icon(Some(icon.clone()))?;
-            }
             match create_quick_panel(app.handle()) {
                 Ok(quick) => configure_quick_panel_space(&quick),
                 Err(error) => app_log::warn("App", format!("创建菜单栏速控面板失败：{error}")),
