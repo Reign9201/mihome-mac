@@ -514,7 +514,7 @@ MiHomeMacApp
 | `events` | `id`、`did`、`kind`、`result`、`latency_ms`、`created_at` | 诊断事件，30 天 |
 | `metrics` | `did`、`key`、`value`、`ts` | 读数曲线，按小时聚合 |
 
-凭据不进 SQLite。当前实现把 `serviceToken`、`passToken`、`ssecurity` 和设备 `token` 保存在仅当前 macOS 用户可读的账号库 `~/Library/Application Support/MiHome/accounts.json`（目录 0700、文件 0600），按账号隔离。正式签名发行版应迁移到 Keychain 或等价保护。
+凭据不进 SQLite。`serviceToken`、`passToken`、`ssecurity` 和设备 `token` 保存在 macOS 钥匙串条目 `com.reign9201.mihomemac` / `mijia-accounts` 中，按账号隔离。老版本的明文 `accounts.json` 在首次启动时迁入钥匙串并删除；钥匙串写入失败时退回 `0600` 私有文件。
 
 ### 11.6 请求策略
 
@@ -563,7 +563,7 @@ MiHomeMacApp
 | 局域网 | UDP 54321 与 mDNS 发现 | 首次启用本地直连 |
 | 通知 | 自动化执行结果、Token 过期 | 首次开启通知 |
 | 登录项 | 开机启动 | 设置页手动开启 |
-| 账号库 | 保存多账号 Token；正式发行版可换 Keychain | 首次登录 |
+| 账号库 | 保存多账号 Token，存在系统钥匙串 | 首次登录 |
 
 App Sandbox 需要 `com.apple.security.network.client` 与 `com.apple.security.network.server`（UDP 绑定）。局域网权限被拒绝时，应用仍可用云端，设置页给出“去系统设置开启”的入口。
 

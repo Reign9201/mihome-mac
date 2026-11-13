@@ -88,7 +88,7 @@ macOS 1.3.0 提供两个独立安装包：
 
 桌面端已经实现扫码登录、家庭与设备读取、常用属性读写、手动场景和摄像头取流链路。当前仓库的自动化测试、静态检查和离线交互回归已经通过；不同设备型号、固件和网络环境仍需要在真实环境中逐步建立兼容性清单。
 
-多账号登录凭据保存在当前 macOS 用户目录下的 `~/Library/Application Support/MiHome/accounts.json`，目录权限 `0700`、文件权限 `0600`；每个账号的本地自动化保存在 `automations/<sha256(user_id)>.json`。旧版单账号 `session.json` 会自动迁移，迁移成功后删除旧文件。未提供 Developer ID 的构建使用 ad-hoc 签名；当前不调用系统 Keychain，以避免升级二进制后反复出现钥匙串授权弹窗。这个方案不能防御同一 macOS 账号下的恶意进程；正式签名发行版应改用 Keychain 或等价保护。账号隔离实现和迁移边界见 [多账号与数据隔离](docs/09-multi-account.md)。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
+多账号登录凭据保存在 macOS 钥匙串条目 `com.reign9201.mihomemac` / `mijia-accounts` 中；每个账号的本地自动化保存在 `~/Library/Application Support/MiHome/automations/<sha256(user_id)>.json`。老版本写在明文文件 `accounts.json` 里的凭据会在首次启动时迁入钥匙串，随后删除明文副本；旧版单账号 `session.json` 同样会自动迁移。钥匙串不可用时退回 `0600` 私有文件写入。当前构建使用 ad-hoc 签名，升级后系统可能重新要求钥匙串授权；该回退路径不能防御同一 macOS 账号下的恶意进程，正式签名发行版需要验证升级后的授权行为。账号隔离实现和迁移边界见 [多账号与数据隔离](docs/09-multi-account.md)。设备控制能力来自 `miot-spec.org`，没有公开规格的设备默认不开放写入。
 
 AI 指令和平台接入见 [AI 指令与飞书/企业微信/钉钉接入](docs/12-ai-platform-integration.md)，尚未开发的路线项见 [后续功能 TODO](docs/13-roadmap-todo.md)。当前桌面端支持自建应用长连接；面向普通用户的大众路径应是“共享官方机器人 + 一次性配对码”，该路径还需要部署云端多租户控制面。QQ 只能接入官方机器人，不能控制个人 QQ，暂不提供半成品入口。
 
