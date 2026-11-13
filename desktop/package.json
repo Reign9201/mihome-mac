@@ -11,9 +11,10 @@
     "build": "npm run bridge && tauri build",
     "generate:i18n": "node scripts/generate-i18n.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/i18n.js && node --check ui/diagnostics.js && node --check ui/camera-player.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js && node --check scripts/i18n-source.mjs && node --check scripts/generate-i18n.mjs && node --check scripts/check-i18n.mjs && npm run check:i18n",
+    "check": "npm run bridge && node --check ui/tauri-api.js && node --check ui/i18n.js && node --check ui/diagnostics.js && node --check ui/camera-player.js && node --check ui/app.js && node --check ui/icons.js && node --check ui/capabilities.js && node --check ui/quick.js && node --check scripts/i18n-source.mjs && node --check scripts/generate-i18n.mjs && node --check scripts/check-i18n.mjs && npm run check:i18n",
     "test": "node --test tests/*.test.js",
     "test:ui": "node tests/ui-regression.mjs",
+    "test:quick": "node tests/quick-panel.mjs",
     "test:perf": "node tests/perf-scale.mjs"
   },
   "devDependencies": {

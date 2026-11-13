@@ -705,6 +705,70 @@ try {
 
     await click('#settingsNav');
     await screenshot(`r${round}-13-settings`);
+
+    // 菜单栏面板的常用设备：弹层列出设备，选两项保存，按钮显示已选数量。
+    await click('#settingsQuickDevices');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    const pickInitial = await pageEval(cdp, `({
+      title: document.querySelector('#quickPickTitle').textContent,
+      count: document.querySelectorAll('#quickPickList .quick-pick-item').length,
+      checked: document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length,
+    })`);
+    expect(pickInitial.title.includes('常用设备'), `round ${round}: quick pick title was ${pickInitial.title}`);
+    expect(pickInitial.count > 6, `round ${round}: quick pick listed ${pickInitial.count} devices`);
+    await pageEval(cdp, `(() => {
+      const items = [...document.querySelectorAll('#quickPickList .quick-pick-item')];
+      items[2].click(); items[0].click();
+      return true;
+    })()`);
+    const pickSelected = await pageEval(cdp, `({
+      checked: document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length,
+      count: document.querySelector('#quickPickCount').textContent,
+    })`);
+    expect(pickSelected.checked === 2, `round ${round}: quick pick selected ${pickSelected.checked} devices`);
+    expect(pickSelected.count.includes('2/12'), `round ${round}: quick pick counter was ${pickSelected.count}`);
+    await pageEval(cdp, `document.querySelector('#quickPickSave').click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const devicesLabel = await pageEval(cdp, `document.querySelector('#settingsQuickDevices').textContent`);
+    expect(devicesLabel.includes('2'), `round ${round}: devices button was ${devicesLabel}`);
+    const savedPrefs = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').at(-1)?.args`);
+    expect(
+      Array.isArray(savedPrefs?.devices) && savedPrefs.devices.length === 2,
+      `round ${round}: save_quick_prefs got ${JSON.stringify(savedPrefs)}`,
+    );
+
+    // 常用场景：只选一个，保存后按钮同样显示数量。
+    await click('#settingsQuickScenes');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item')[0].click(); true`);
+    const sceneTitle = await pageEval(cdp, `document.querySelector('#quickPickTitle').textContent`);
+    expect(sceneTitle.includes('常用场景'), `round ${round}: quick pick scene title was ${sceneTitle}`);
+    await pageEval(cdp, `document.querySelector('#quickPickSave').click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const prefsAfterScenes = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').at(-1)?.args`);
+    expect(
+      Array.isArray(prefsAfterScenes?.scenes) && prefsAfterScenes.scenes.length === 1,
+      `round ${round}: second save lost scenes ${JSON.stringify(prefsAfterScenes)}`,
+    );
+    expect(
+      Array.isArray(prefsAfterScenes?.devices) && prefsAfterScenes.devices.length === 2,
+      `round ${round}: saving scenes dropped the device selection ${JSON.stringify(prefsAfterScenes)}`,
+    );
+
+    // 关掉弹层不保存，配置应保持上一次的结果。
+    const savesBeforeClose = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').length`);
+    await click('#settingsQuickDevices');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    const reopenedChecked = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length`);
+    expect(reopenedChecked === 2, `round ${round}: reopened picker showed ${reopenedChecked} selected`);
+    await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item')[1].click(); true`);
+    await click('#quickPickClose');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const savesAfterClose = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').length`);
+    expect(savesAfterClose === savesBeforeClose, `round ${round}: closing the picker saved anyway (${savesAfterClose - savesBeforeClose})`);
+    const devicesLabelAfterClose = await pageEval(cdp, `document.querySelector('#settingsQuickDevices').textContent`);
+    expect(devicesLabelAfterClose.includes('2'), `round ${round}: close changed the label to ${devicesLabelAfterClose}`);
+
     await click('[data-theme-set="dark"]');
     expect(await pageEval(cdp, `document.body.dataset.theme === 'dark'`), `round ${round}: dark theme failed`);
     await screenshot(`r${round}-14-settings-dark`);

@@ -332,6 +332,7 @@ export const mockSource = String.raw`
     const device = (accountDevices[activeUserId] || []).find((item) => item.did === did);
     if (device) device.online = Boolean(online);
   };
+  const quickPrefs = { 'mock-user': { devices: [], scenes: [] } };
   const accountAutomations = {
     'mock-user': [{
       id: 'auto1',
@@ -523,6 +524,13 @@ export const mockSource = String.raw`
         return points.reverse();
       }
       if (command === 'list_scenes') return clone(accountScenes[activeUserId] || []);
+      // 菜单栏面板配置：按账号分开保存，切换账号后读到的应该是各自的那一份。
+      if (command === 'quick_prefs') return clone(quickPrefs[activeUserId] || { devices: [], scenes: [] });
+      if (command === 'save_quick_prefs') {
+        const next = { devices: clone(args.devices || []), scenes: clone(args.scenes || []) };
+        quickPrefs[activeUserId] = next;
+        return clone(next);
+      }
       if (command === 'run_scene') return null;
       if (command === 'list_cameras') return clone(accountCameras[activeUserId] || []);
       if (command === 'camera_start') {
