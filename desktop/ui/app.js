@@ -104,6 +104,9 @@ const state = {
     platform: 'feishu', snapshot: null, pairing: null,
     pairTimer: null, token: '', loading: false, draftMode: null, pollTimer: null,
   },
+  quickPick: {
+    kind: 'devices', selected: [], listing: [], saving: false,
+  },
 };
 
 function setStatus(text, kind = '') {
@@ -528,6 +531,7 @@ async function loadHomes() {
     if (generation !== state.accountGeneration) return;
     state.homes = homes;
     state.homeId = homes[0]?.id || null;
+    if (state.homeId) localStorage.setItem('mihome-home-id', state.homeId);
     renderHomeTabs();
     log.info('Home', `已加载家庭 ${homes.length} 个`);
     hideLogin();
@@ -587,6 +591,7 @@ function renderHomeTabs() {
   }
   box.onchange = async () => {
     state.homeId = box.value;
+    localStorage.setItem('mihome-home-id', state.homeId);
     state.roomFilter = 'all';
     state.deviceFilter = 'all';
     state.deviceQuery = '';
@@ -3064,6 +3069,161 @@ async function showSettings() {
   await stopCamera();
   showView('settings');
   updateSettingsSelection();
+  refreshQuickPrefsLabels();
+}
+
+// ---------- 菜单栏面板的常用设备与场景 ----------
+
+const QUICK_DEVICE_LIMIT = 12;
+const QUICK_SCENE_LIMIT = 3;
+
+function quickPickLayer() {
+  return $('#quickPickLayer');
+}
+
+// 设备与场景都从后端现取：设置页可能先于「设备」页打开，缓存的列表可能是别的
+// 家庭或还没读过。
+async function quickPickListing(kind) {
+  if (!state.homeId) return [];
+  if (kind === 'scenes') {
+    const scenes = await invoke('list_scenes', { homeId: state.homeId });
+    return (Array.isArray(scenes) ? scenes : []).map((scene) => ({
+      id: scene.id,
+      name: scene.name,
+      meta: '手动场景',
+    }));
+  }
+  const devices = await invoke('list_devices', { homeId: state.homeId });
+  return (Array.isArray(devices) ? devices : []).map((device) => ({
+    id: device.did,
+    name: device.name,
+    meta: device.online ? '在线' : '离线',
+  }));
+}
+
+function quickPickLimit(kind) {
+  return kind === 'scenes' ? QUICK_SCENE_LIMIT : QUICK_DEVICE_LIMIT;
+}
+
+function renderQuickPickList() {
+  const list = $('#quickPickList');
+  const { kind, listing, selected } = state.quickPick;
+  const limit = quickPickLimit(kind);
+  list.replaceChildren();
+  if (!listing.length) {
+    list.append(el('div', 'quick-pick-empty', kind === 'scenes' ? '当前家庭还没有手动场景' : '还没有读取到设备'));
+    $('#quickPickCount').textContent = '';
+    return;
+  }
+  const chosen = new Set(selected);
+  for (const item of listing) {
+    const checked = chosen.has(item.id);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'quick-pick-item';
+    button.setAttribute('role', 'checkbox');
+    button.setAttribute('aria-checked', String(checked));
+    // 选满后其余项不可再选，避免点了没反应。
+    button.setAttribute('aria-disabled', String(!checked && selected.length >= limit));
+    button.innerHTML = `<span class="pick-mark">✓</span>
+      <span class="pick-name">${esc(item.name)}</span>
+      <span class="pick-meta">${esc(item.meta || '')}</span>`;
+    button.onclick = () => {
+      const index = state.quickPick.selected.indexOf(item.id);
+      if (index >= 0) state.quickPick.selected.splice(index, 1);
+      else if (state.quickPick.selected.length < limit) state.quickPick.selected.push(item.id);
+      else return;
+      renderQuickPickList();
+    };
+    list.append(button);
+  }
+  const full = selected.length >= limit;
+  $('#quickPickCount').textContent = full
+    ? `已选 ${selected.length}/${limit}，最多 ${limit} 个`
+    : `已选 ${selected.length}/${limit}`;
+}
+
+async function openQuickPick(kind) {
+  if (!state.loggedIn) {
+    toast('先登录米家账号再挑选');
+    return;
+  }
+  const layer = quickPickLayer();
+  const title = $('#quickPickTitle');
+  title.textContent = kind === 'scenes' ? '选择常用场景' : '选择常用设备';
+  $('#quickPickList').innerHTML = '<div class="quick-pick-empty">正在读取…</div>';
+  layer.hidden = false;
+  state.quickPick.kind = kind;
+  state.quickPick.saving = false;
+  try {
+    const [prefs, listing] = await Promise.all([
+      invoke('quick_prefs'),
+      quickPickListing(kind),
+    ]);
+    if (layer.hidden) return;
+    const saved = kind === 'scenes' ? prefs?.scenes : prefs?.devices;
+    // 只保留仍在当前家庭里的条目，免得已删除的设备占着格子。
+    const known = new Set(listing.map((item) => item.id));
+    state.quickPick.listing = listing;
+    state.quickPick.selected = (Array.isArray(saved) ? saved : []).filter((id) => known.has(id));
+    renderQuickPickList();
+  } catch (error) {
+    if (layer.hidden) return;
+    $('#quickPickList').innerHTML = `<div class="quick-pick-empty">读取失败：${esc(String(error))}</div>`;
+  }
+}
+
+function closeQuickPick() {
+  quickPickLayer().hidden = true;
+  state.quickPick.saving = false;
+}
+
+async function saveQuickPick() {
+  if (state.quickPick.saving) return;
+  const button = $('#quickPickSave');
+  state.quickPick.saving = true;
+  button.disabled = true;
+  button.textContent = '保存中…';
+  try {
+    const next = await invoke('quick_prefs');
+    const payload = {
+      devices: Array.isArray(next?.devices) ? next.devices : [],
+      scenes: Array.isArray(next?.scenes) ? next.scenes : [],
+    };
+    payload[state.quickPick.kind] = state.quickPick.selected;
+    await invoke('save_quick_prefs', payload);
+    closeQuickPick();
+    toast('菜单栏面板已更新');
+    refreshQuickPrefsLabels();
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    state.quickPick.saving = false;
+    button.disabled = false;
+    button.textContent = '保存';
+  }
+}
+
+// 设置页上的按钮直接显示已选数量，不用点进去才知道有没有配过。
+async function refreshQuickPrefsLabels() {
+  const devices = $('#settingsQuickDevices');
+  const scenes = $('#settingsQuickScenes');
+  if (!devices || !scenes) return;
+  if (!state.loggedIn) {
+    devices.textContent = '选择';
+    scenes.textContent = '选择';
+    return;
+  }
+  try {
+    const prefs = await invoke('quick_prefs');
+    const deviceCount = Array.isArray(prefs?.devices) ? prefs.devices.length : 0;
+    const sceneCount = Array.isArray(prefs?.scenes) ? prefs.scenes.length : 0;
+    devices.textContent = deviceCount ? `已选 ${deviceCount} 个` : '选择';
+    scenes.textContent = sceneCount ? `已选 ${sceneCount} 个` : '选择';
+  } catch (_) {
+    devices.textContent = '选择';
+    scenes.textContent = '选择';
+  }
 }
 
 function accessPlatformConfig(snapshot = state.access.snapshot) {
@@ -4825,6 +4985,17 @@ $('#settingsAccounts').onclick = (event) => {
   openAccountPop();
 };
 $('#settingsAccess').onclick = showAccess;
+$('#settingsQuickDevices').onclick = () => openQuickPick('devices');
+$('#settingsQuickScenes').onclick = () => openQuickPick('scenes');
+$('#quickPickClose').onclick = closeQuickPick;
+$('#quickPickSave').onclick = saveQuickPick;
+$('#quickPickClear').onclick = () => {
+  state.quickPick.selected = [];
+  renderQuickPickList();
+};
+quickPickLayer().addEventListener('click', (event) => {
+  if (event.target === quickPickLayer()) closeQuickPick();
+});
 $('#accessRefresh').onclick = () => loadAccess(true);
 $('#accessReconnect').onclick = async () => {
   const button = $('#accessReconnect');
@@ -5613,6 +5784,10 @@ document.addEventListener('keydown', (event) => {
   if (modifier && event.key.toLowerCase() === 'k') {
     event.preventDefault();
     openPalette();
+    return;
+  }
+  if (event.key === 'Escape' && !quickPickLayer().hidden) {
+    closeQuickPick();
     return;
   }
   if ($('#palette').classList.contains('open')) {
