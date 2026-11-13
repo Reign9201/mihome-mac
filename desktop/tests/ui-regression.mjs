@@ -488,6 +488,16 @@ try {
     })()`);
     await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length === 2`));
     await screenshot(`r${round}-07-devices-search`);
+    // 拼音首字母：主窗口搜索和设置页挑选弹层共用同一份检索表。
+    const cameraInitials = await pageEval(cdp, `window.MiPinyin.pinyinInitials('摄像机')`);
+    await pageEval(cdp, `(() => {
+      const input = document.querySelector('#deviceSearch');
+      input.value = ${JSON.stringify(cameraInitials)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    const pinyinRows = await pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length`);
+    expect(pinyinRows === 2, `round ${round}: pinyin search "${cameraInitials}" matched ${pinyinRows} rows`);
     await pageEval(cdp, `(() => {
       const input = document.querySelector('#deviceSearch');
       input.value = '';
@@ -761,6 +771,33 @@ try {
     await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
     const reopenedChecked = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length`);
     expect(reopenedChecked === 2, `round ${round}: reopened picker showed ${reopenedChecked} selected`);
+    // 搜索框按拼音首字母过滤，清空后恢复完整列表。
+    const pickTotal = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+    const pinyinQuery = await pageEval(cdp, `(() => {
+      const first = document.querySelector('#quickPickList .quick-pick-item .pick-name')?.textContent || '';
+      return window.MiPinyin.pinyinInitials(first).slice(0, 2);
+    })()`);
+    if (pinyinQuery) {
+      await pageEval(cdp, `(() => {
+        const input = document.querySelector('#quickPickSearch');
+        input.value = ${JSON.stringify(pinyinQuery)};
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      const filtered = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+      expect(
+        filtered > 0 && filtered <= pickTotal,
+        `round ${round}: pinyin "${pinyinQuery}" filtered ${filtered}/${pickTotal}`,
+      );
+      await pageEval(cdp, `(() => {
+        const input = document.querySelector('#quickPickSearch');
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      const restored = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+      expect(restored === pickTotal, `round ${round}: clearing search left ${restored}/${pickTotal}`);
+    }
     await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item')[1].click(); true`);
     await click('#quickPickClose');
     await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
