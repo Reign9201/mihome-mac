@@ -778,6 +778,14 @@ test('the environment sweep is throttled but still runs on its own cadence', () 
   assert.match(app, /const ENVIRONMENT_SWEEP_MIN_GAP_MS = 5000;/);
   assert.match(app, /async function refreshEnvironmentStatus\(options = \{\}\)/);
   assert.match(app, /if \(!options\.immediate/);
+  // The sweep also runs when device specs finish loading, because power and
+  // consumable metrics only become readable once the spec profiles exist. That
+  // sweep carries new information, so it must bypass the floor; otherwise the
+  // environment capsule stays stuck on the pre-spec numbers for up to 5 s.
+  assert.match(
+    app,
+    /state\.specLoading = false;[\s\S]*?refreshEnvironmentStatus\(\{ immediate: true \}\);\s*\}\s*\}/,
+  );
   // The capsule is chrome: its periodic refresh must survive the throttle.
   assert.match(app, /state\.environmentSyncAt = Date\.now\(\);/);
 });

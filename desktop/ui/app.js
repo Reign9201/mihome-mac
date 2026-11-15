@@ -1099,7 +1099,10 @@ async function loadDeviceSpecs(devices) {
       const selected = state.devices.find((device) => device.did === state.selected.did);
       if (selected) selectDevice(selected);
     }
-    refreshEnvironmentStatus();
+    // The specs just arrived, so power and consumable metrics became readable
+    // for the first time. This sweep carries new information, so it must not be
+    // folded into the one that ran before the specs existed.
+    refreshEnvironmentStatus({ immediate: true });
   }
 }
 
