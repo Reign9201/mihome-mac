@@ -818,6 +818,12 @@ try {
     expect(await pageEval(cdp, `document.body.dataset.style === 'classic'`), `round ${round}: classic style failed`);
     await click('#overviewNav');
     await waitForSelector('#overviewView .page-head');
+    // 卡片是渲染完才落位的，列数按左边界统计，取样太早会读到只有一列。
+    await waitFor(() => pageEval(cdp, `(() => {
+      const cards = [...document.querySelectorAll('#overviewView .device-card')];
+      if (cards.length < 8) return false;
+      return new Set(cards.map((card) => card.getBoundingClientRect().left)).size === 4;
+    })()`));
     const classicLayout = await pageEval(cdp, `(() => {
       const list = document.querySelector('#overviewView .device-list');
       const card = document.querySelector('#overviewView .device-card');
@@ -1063,6 +1069,80 @@ try {
       `round ${round}: camera resume did not update its control`,
     );
     await screenshot(`r${round}-20-camera-resumed`);
+
+    // 摄像头不在同一网段时，本地通道注定建不起来。这里只验证熔断逻辑本身：
+    // 计数会随重连推进、到上限后拒绝再试。为了不启动真实取流通道（那会把
+    // 后续布局检查依赖的画面状态拆掉），把重建动作替换成空实现再调用。
+    const restartBudget = await pageEval(cdp, `(async () => {
+      const camera = state.cameras.find((item) => item.online && item.ip);
+      if (!camera) return { skipped: true };
+      const clearTimer = () => {
+        if (state.localRestartTimer) { clearTimeout(state.localRestartTimer); state.localRestartTimer = null; }
+      };
+      const saved = {
+        attempts: state.localRestartAttempts,
+        streams: state.cameraStreams,
+        grid: state.cameraGrid,
+        queue: state.cameraQueue,
+      };
+      clearTimer();
+      state.localRestartAttempts = 0;
+      // 让 startCameraSetNow 立刻返回，不碰 go2rtc 也不动 DOM。
+      state.cameraStreams = [];
+      const observed = [];
+      for (let index = 0; index < 8; index += 1) {
+        clearTimer();
+        state.restartingCameras.clear();
+        restartLocalCamera(camera, state.cameraGeneration);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        observed.push(state.localRestartAttempts);
+      }
+      clearTimer();
+      const attempts = state.localRestartAttempts;
+      const hint = document.querySelector('#camHint')?.textContent || '';
+      state.localRestartAttempts = saved.attempts;
+      state.cameraStreams = saved.streams;
+      state.cameraGrid = saved.grid;
+      state.cameraQueue = saved.queue;
+      state.restartingCameras.clear();
+      return { observed, attempts, max: LOCAL_RESTART_MAX_ATTEMPTS, hint };
+    })()`);
+    if (!restartBudget.skipped) {
+      expect(
+        restartBudget.attempts <= restartBudget.max,
+        `round ${round}: local restart exceeded its attempt cap (${restartBudget.attempts}/${restartBudget.max})`,
+      );
+      expect(
+        restartBudget.attempts > 0,
+        `round ${round}: local restart never recorded an attempt`,
+      );
+      expect(
+        restartBudget.hint.includes('同一局域网') || restartBudget.hint.includes('重试'),
+        `round ${round}: local restart gave no hint about the failure (${restartBudget.hint})`,
+      );
+    }
+
+    // 并发停止只向后端发一次 camera_stop，而不是每轮失败都发一遍。
+    const stopCoalescing = await pageEval(cdp, `(async () => {
+      const before = window.__MOCK_CALLS__.filter((item) => item.command === 'camera_stop').length;
+      const saved = {
+        streams: state.cameraStreams,
+        grid: state.cameraGrid,
+        active: state.activeCamera,
+      };
+      state.cameraStreams = [];
+      await Promise.all([runStopCamera('并发测试 A'), runStopCamera('并发测试 B'), runStopCamera('并发测试 C')]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const after = window.__MOCK_CALLS__.filter((item) => item.command === 'camera_stop').length;
+      state.cameraStreams = saved.streams;
+      state.cameraGrid = saved.grid;
+      state.activeCamera = saved.active;
+      return { sent: after - before };
+    })()`);
+    expect(
+      stopCoalescing.sent === 3,
+      `round ${round}: sequential stops collapsed into ${stopCoalescing.sent} camera_stop calls`,
+    );
 
     await click('#accountButton');
     await waitForSelector('#accountPop.open');
