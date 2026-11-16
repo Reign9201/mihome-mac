@@ -932,6 +932,7 @@
     state.devices = [];
     state.shown = [];
     state.scenes = [];
+    state.rooms = [];
     state.homeName = '';
     state.profiles = new WeakMap();
     state.values = new Map();
