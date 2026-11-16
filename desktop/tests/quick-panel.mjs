@@ -18,19 +18,24 @@ const mockSource = String.raw`
 (() => {
   const loggedOut = location.hash.includes('logged-out');
   const devices = [
-    { did: 'light-1', name: '客厅吸顶灯', model: 'yeelink.light.ceiling', home_id: 'home-1', room_id: 'room-1', room_name: '客厅', online: true, spec_type: 'spec-light', parent_id: null },
-    { did: 'plug-1', name: '书桌插座', model: 'chuangmi.plug.212a01', home_id: 'home-1', room_id: 'room-1', room_name: '书房', online: true, spec_type: 'spec-plug', parent_id: null },
-    { did: 'switch-1', name: '走廊开关', model: 'lumi.switch.b1nacn02', home_id: 'home-1', room_id: 'room-1', room_name: '走廊', online: true, spec_type: 'spec-switch', parent_id: null },
-    { did: 'sensor-1', name: '温湿度计', model: 'miaomiaoce.sensor_ht.t2', home_id: 'home-1', room_id: 'room-1', room_name: '客厅', online: true, spec_type: 'spec-sensor', parent_id: null },
-    { did: 'camera-1', name: '客厅摄像头', model: 'chuangmi.camera.069a01', home_id: 'home-1', room_id: 'room-1', room_name: '客厅', online: false, spec_type: 'spec-camera', parent_id: null },
+    { did: 'light-1', name: '客厅吸顶灯', model: 'yeelink.light.ceiling', home_id: 'home-1', room_id: 'room-11', room_name: '客厅', online: true, spec_type: 'spec-light', parent_id: null },
+    { did: 'plug-1', name: '书桌插座', model: 'chuangmi.plug.212a01', home_id: 'home-1', room_id: 'room-12', room_name: '书房', online: true, spec_type: 'spec-plug', parent_id: null },
+    { did: 'switch-1', name: '走廊开关', model: 'lumi.switch.b1nacn02', home_id: 'home-1', room_id: 'room-13', room_name: '走廊', online: true, spec_type: 'spec-switch', parent_id: null },
+    { did: 'sensor-1', name: '温湿度计', model: 'miaomiaoce.sensor_ht.t2', home_id: 'home-1', room_id: 'room-11', room_name: '客厅', online: true, spec_type: 'spec-sensor', parent_id: null },
+    { did: 'camera-1', name: '客厅摄像头', model: 'chuangmi.camera.069a01', home_id: 'home-1', room_id: 'room-11', room_name: '客厅', online: false, spec_type: 'spec-camera', parent_id: null },
     { did: 'unknown-1', name: '旧款空调', model: 'unknown.model', home_id: 'home-1', room_id: null, room_name: null, online: true, spec_type: null, parent_id: null },
   ];
   // 测设备上限时用，默认不加载，免得动到其它断言里的设备数。
   if (location.hash.includes('many-devices')) {
     for (let i = 1; i <= 8; i += 1) {
       devices.push({ did: 'extra-' + i, name: '备用插座 ' + i, model: 'chuangmi.plug.212a01',
-        home_id: 'home-1', room_id: 'room-2', room_name: '次卧', online: true, spec_type: 'spec-plug', parent_id: null });
+        home_id: 'home-1', room_id: 'room-22', room_name: '次卧', online: true, spec_type: 'spec-plug', parent_id: null });
     }
+  }
+  // 测路由器重启时用，同样默认不加载：路由器没有可开关的主属性，行内显示重启按钮。
+  if (location.hash.includes('with-router')) {
+    devices.push({ did: 'router-1', name: '客厅路由器', model: 'xiaomi.router.rc06',
+      home_id: 'home-1', room_id: 'room-11', room_name: '客厅', online: true, spec_type: 'spec-router', parent_id: null });
   }
   const specs = {
     'spec-light': { services: [{ iid: 2, type: 'urn:miot-spec-v2:service:light:00007802:mock:1', properties: [
@@ -50,6 +55,10 @@ const mockSource = String.raw`
     'spec-camera': { services: [{ iid: 2, type: 'urn:miot-spec-v2:service:camera:00007807:mock:1', properties: [
       { iid: 1, type: 'urn:miot-spec-v2:property:video-quality:000000A9:mock:1', format: 'uint8', access: ['read'], 'value-list': [{ value: 1, description: 'low' }, { value: 2, description: 'high' }] },
     ] }] },
+    // 路由器只有只读属性，没有可写的主开关，面板才会走重启分支。
+    'spec-router': { services: [{ iid: 2, type: 'urn:miot-spec-v2:service:router:0000780C:mock:1', properties: [
+      { iid: 1, type: 'urn:miot-spec-v2:property:connected-device-number:000000A1:mock:1', format: 'uint16', access: ['read', 'notify'] },
+    ] }] },
   };
   const values = {
     'light-1:2:1': true,
@@ -67,7 +76,15 @@ const mockSource = String.raw`
     invoke: async (command, args = {}) => {
       calls.push({ command, args });
       if (command === 'auth_resume') return loggedOut ? null : 'user-1';
-      if (command === 'list_homes') return [{ id: 'home-1', name: '我的家', dids: [] }];
+      if (command === 'list_homes') return [{
+        id: 'home-1', name: '我的家', dids: [],
+        rooms: [
+          { id: 'room-11', name: '客厅', dids: ['light-1', 'sensor-1', 'camera-1'] },
+          { id: 'room-12', name: '书房', dids: ['plug-1'] },
+          { id: 'room-13', name: '走廊', dids: ['switch-1'] },
+          { id: 'room-22', name: '次卧', dids: [] },
+        ],
+      }];
       if (command === 'list_devices') return devices;
       if (command === 'get_device_specs') {
         const result = {};
@@ -98,6 +115,8 @@ const mockSource = String.raw`
         return [{ code: 0 }];
       }
       if (command === 'quick_open_main') return null;
+      if (command === 'quick_hide') return null;
+      if (command === 'call_action') return [{ code: 0 }];
       // 页面重载会清掉 window 上的东西，配置放 localStorage 里跨重载保留。
       if (command === 'quick_prefs') {
         try {
@@ -450,6 +469,239 @@ const main = async () => {
       JSON.stringify(editLayout));
     await pageEval(cdp, `document.querySelector('#editCancel').click(); true`);
     await pageEval(cdp, "localStorage.removeItem('__QUICK_PREFS__'); true");
+
+    // 5.5 搜索：按设备名、房间名、拼音首字母都能命中，命中的是整个家庭的设备，
+    // 不受常用设备 12 台上限限制。
+    await pageEval(cdp, `location.reload(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length >= 5`));
+    const searchBase = await pageEval(cdp, `(() => ({
+      toolsHidden: document.querySelector('#deviceTools').hidden,
+      head: document.querySelector('#deviceHeadLabel').textContent,
+      rooms: [...document.querySelectorAll('#roomBar .room-chip')].map((node) => node.textContent),
+    }))()`);
+    check('有设备时显示搜索框', searchBase.toolsHidden === false, JSON.stringify(searchBase));
+    check('默认标题为常用设备', searchBase.head === '常用设备', searchBase.head);
+    check('房间筛选按家庭房间排列', JSON.stringify(searchBase.rooms)
+      === JSON.stringify(['全部6', '客厅3', '书房1', '走廊1', '未分配1']), JSON.stringify(searchBase.rooms));
+
+    await pageEval(cdp, `(() => {
+      const input = document.querySelector('#searchInput');
+      input.value = '书桌';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#deviceGrid .device-name')?.textContent === '书桌插座'`));
+    const searchByName = await pageEval(cdp, `({
+      names: [...document.querySelectorAll('#deviceGrid .device-name')].map((node) => node.textContent),
+      head: document.querySelector('#deviceHeadLabel').textContent,
+      count: document.querySelector('#deviceCount').textContent,
+    })`);
+    check('按设备名搜索命中一台', JSON.stringify(searchByName.names) === JSON.stringify(['书桌插座']),
+      JSON.stringify(searchByName.names));
+    check('搜索时标题改为搜索结果', searchByName.head === '搜索结果', searchByName.head);
+    check('搜索结果计数为 1/6', searchByName.count === '1/6', searchByName.count);
+
+    await pageEval(cdp, `(() => {
+      const input = document.querySelector('#searchInput');
+      input.value = 'kt';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length >= 2`));
+    const searchPinyin = await pageEval(cdp,
+      `[...document.querySelectorAll('#deviceGrid .device-name')].map((node) => node.textContent)`);
+    check('拼音首字母命中客厅与空调设备', JSON.stringify(searchPinyin)
+      === JSON.stringify(['客厅吸顶灯', '温湿度计', '客厅摄像头', '旧款空调']), JSON.stringify(searchPinyin));
+
+    await pageEval(cdp, `(() => {
+      const input = document.querySelector('#searchInput');
+      input.value = '不存在的设备';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor(() => pageEval(cdp, `Boolean(document.querySelector('#deviceGrid .empty'))`));
+    const emptySearch = await pageEval(cdp, `({
+      text: document.querySelector('#deviceGrid').textContent,
+      statusHidden: document.querySelector('#statusLine').hidden,
+    })`);
+    check('无匹配时给出提示', emptySearch.text.includes('没有匹配的设备'), emptySearch.text);
+
+    // Esc 在输入框里先清空搜索，不清空就把面板收起。
+    await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length >= 5`));
+    const afterEscapeSearch = await pageEval(cdp, `({
+      value: document.querySelector('#searchInput').value,
+      head: document.querySelector('#deviceHeadLabel').textContent,
+      hideCalls: window.__QUICK_CALLS__.filter((item) => item.command === 'quick_hide').length,
+    })`);
+    check('Esc 清空搜索词', afterEscapeSearch.value === '' && afterEscapeSearch.head === '常用设备',
+      JSON.stringify(afterEscapeSearch));
+    check('Esc 清空搜索时不收起面板', afterEscapeSearch.hideCalls === 0, String(afterEscapeSearch.hideCalls));
+
+    // 5.6 房间筛选：点房间只显示该房间的设备，再点全部恢复。
+    await pageEval(cdp, `[...document.querySelectorAll('#roomBar .room-chip')]
+      .find((node) => node.textContent.startsWith('客厅')).click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length === 3`));
+    const roomFiltered = await pageEval(cdp, `({
+      names: [...document.querySelectorAll('#deviceGrid .device-name')].map((node) => node.textContent),
+      active: document.querySelector('#roomBar .room-chip.active')?.textContent,
+      head: document.querySelector('#deviceHeadLabel').textContent,
+    })`);
+    check('房间筛选只显示该房间设备', JSON.stringify(roomFiltered.names)
+      === JSON.stringify(['客厅吸顶灯', '温湿度计', '客厅摄像头']), JSON.stringify(roomFiltered.names));
+    check('房间筛选项标为选中', String(roomFiltered.active).startsWith('客厅'), roomFiltered.active);
+    check('房间筛选时标题为搜索结果', roomFiltered.head === '搜索结果', roomFiltered.head);
+
+    await pageEval(cdp, `[...document.querySelectorAll('#roomBar .room-chip')]
+      .find((node) => node.textContent.startsWith('全部')).click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length === 6`));
+    const roomAll = await pageEval(cdp, `document.querySelector('#deviceHeadLabel').textContent`);
+    check('选全部恢复常用设备', roomAll === '常用设备', roomAll);
+
+    // 5.7 键盘导航：方向键按两列网格走位，回车切换主开关。
+    await pageEval(cdp, `(() => {
+      const row = [...document.querySelectorAll('#deviceGrid .device')]
+        .find((node) => node.textContent.includes('客厅吸顶灯'));
+      row.querySelector('.device-name').click();
+      return true;
+    })()`);
+    await waitFor(() => pageEval(cdp, `Boolean(document.querySelector('#detailView:not([hidden])'))`));
+    const detailState = await pageEval(cdp, `({
+      title: document.querySelector('.detail-title').textContent,
+      sub: document.querySelector('.detail-sub').textContent,
+      metrics: [...document.querySelectorAll('.metric-card')].map((node) => node.textContent),
+      switches: document.querySelectorAll('#detailView .switch').length,
+      envHidden: document.querySelector('#envCard').hidden,
+      gridHidden: document.querySelector('#deviceGrid').hidden,
+    })`);
+    check('点设备名打开详情', detailState.title === '客厅吸顶灯', detailState.title);
+    check('详情副标题含房间与型号', detailState.sub.includes('客厅') && detailState.sub.includes('yeelink'),
+      detailState.sub);
+    check('详情隐藏列表', detailState.envHidden === true && detailState.gridHidden === true,
+      JSON.stringify(detailState));
+    check('详情有主开关', detailState.switches === 1, String(detailState.switches));
+
+    await pageEval(cdp, `document.querySelector('#detailView .switch').click(); true`);
+    await waitFor(() => pageEval(cdp,
+      `window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').at(-1)?.args?.did === 'light-1'`));
+    const detailToggle = await pageEval(cdp,
+      `({ status: document.querySelector('#statusLine').textContent,
+         did: window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').at(-1)?.args?.did })`);
+    check('详情开关写入当前设备', detailToggle.did === 'light-1', JSON.stringify(detailToggle));
+
+    await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#deviceGrid').hidden === false`));
+    const afterDetailEsc = await pageEval(cdp, `({
+      gridHidden: document.querySelector('#deviceGrid').hidden,
+      detailHidden: document.querySelector('#detailView').hidden,
+      hideCalls: window.__QUICK_CALLS__.filter((item) => item.command === 'quick_hide').length,
+    })`);
+    check('详情里按 Esc 回到列表', afterDetailEsc.gridHidden === false && afterDetailEsc.detailHidden === true,
+      JSON.stringify(afterDetailEsc));
+    check('详情里按 Esc 不收起面板', afterDetailEsc.hideCalls === 0, String(afterDetailEsc.hideCalls));
+
+    await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
+    await waitFor(() => pageEval(cdp,
+      `window.__QUICK_CALLS__.some((item) => item.command === 'quick_hide')`));
+    const hideCalled = await pageEval(cdp,
+      `window.__QUICK_CALLS__.filter((item) => item.command === 'quick_hide').length`);
+    check('列表里按 Esc 收起面板', hideCalled === 1, String(hideCalled));
+
+    // 方向键在网格里走位：两列时向下跳 2、向右跳 1，到头不越界。
+    const walk = await pageEval(cdp, `(() => {
+      const selected = () => [...document.querySelectorAll('#deviceGrid .device')]
+        .findIndex((node) => node.classList.contains('selected'));
+      const key = (k) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      const start = selected();
+      key('ArrowRight');
+      const right = selected();
+      key('ArrowDown');
+      const down = selected();
+      key('ArrowLeft');
+      const left = selected();
+      key('ArrowUp');
+      const up = selected();
+      return { start, right, down, left, up };
+    })()`);
+    check('方向键按两列网格走位',
+      walk.right === walk.start + 1 && walk.down === walk.right + 2
+      && walk.left === walk.down - 1 && walk.up === walk.start,
+      JSON.stringify(walk));
+
+    // 回车：有主开关的设备直接切开关，没有主开关的设备打开详情。
+    await pageEval(cdp, `(() => {
+      const rows = [...document.querySelectorAll('#deviceGrid .device')];
+      const index = rows.findIndex((node) => node.textContent.includes('客厅吸顶灯'));
+      for (let i = 0; i < index; i += 1) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      }
+      return index;
+    })()`);
+    const beforeEnter = await pageEval(cdp,
+      `window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').length`);
+    await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); true`);
+    await waitFor(() => pageEval(cdp,
+      `window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').length > ${beforeEnter}`));
+    const afterEnter = await pageEval(cdp, `({
+      count: window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').length,
+      did: window.__QUICK_CALLS__.filter((item) => item.command === 'set_property').at(-1)?.args?.did,
+      detailHidden: document.querySelector('#detailView').hidden,
+    })`);
+    check('回车切换所选设备开关', afterEnter.count === beforeEnter + 1 && afterEnter.did === 'light-1',
+      JSON.stringify(afterEnter));
+    check('回车切开关不进详情', afterEnter.detailHidden === true, String(afterEnter.detailHidden));
+
+    // 5.8 路由器：没有主开关，行内给重启按钮，连点两次才真正下发。
+    await pageEval(cdp, `location.hash = '#with-router'; location.reload(); true`).catch(() => {});
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length === 7`));
+    const routerRow = await pageEval(cdp,
+      `[...document.querySelectorAll('#deviceGrid .device')].find((node) => node.textContent.includes('客厅路由器'))
+        ?.querySelector('.mini-action')?.textContent`);
+    check('路由器行内显示重启按钮', routerRow === '重启', String(routerRow));
+
+    await pageEval(cdp, `[...document.querySelectorAll('#deviceGrid .device')]
+      .find((node) => node.textContent.includes('客厅路由器')).querySelector('.mini-action').click(); true`);
+    const armedState = await pageEval(cdp, `({
+      text: [...document.querySelectorAll('#deviceGrid .device')]
+        .find((node) => node.textContent.includes('客厅路由器')).querySelector('.mini-action').textContent,
+      calls: window.__QUICK_CALLS__.filter((item) => item.command === 'call_action').length,
+      status: document.querySelector('#statusLine').textContent,
+    })`);
+    check('点一次只进入确认态', armedState.text === '确认' && armedState.calls === 0,
+      JSON.stringify(armedState));
+    check('确认态给出提示', armedState.status.includes('再次点击确认重启'), armedState.status);
+
+    await pageEval(cdp, `[...document.querySelectorAll('#deviceGrid .device')]
+      .find((node) => node.textContent.includes('客厅路由器')).querySelector('.mini-action').click(); true`);
+    await waitFor(() => pageEval(cdp,
+      `window.__QUICK_CALLS__.some((item) => item.command === 'call_action')`));
+    const rebooted = await pageEval(cdp, `(() => {
+      const call = window.__QUICK_CALLS__.filter((item) => item.command === 'call_action').at(-1);
+      return { call, status: document.querySelector('#statusLine').textContent,
+        text: [...document.querySelectorAll('#deviceGrid .device')]
+          .find((node) => node.textContent.includes('客厅路由器')).querySelector('.mini-action')?.textContent };
+    })()`);
+    check('点两次下发重启',
+      rebooted.call?.args?.did === 'router-1' && rebooted.call?.args?.siid === 2 && rebooted.call?.args?.aiid === 1,
+      JSON.stringify(rebooted.call));
+    check('重启后有提示', rebooted.status.includes('重启指令已发送'), rebooted.status);
+    check('重启后按钮复位', rebooted.text === '重启', String(rebooted.text));
+
+    const routerLayout = await pageEval(cdp, `(() => {
+      const panel = document.querySelector('#panel');
+      const button = document.querySelector('#openMain').getBoundingClientRect();
+      return { scrollHeight: panel.scrollHeight, clientHeight: panel.clientHeight,
+        buttonBottom: button.bottom, viewport: window.innerHeight };
+    })()`);
+    check('7 台设备时面板不溢出', routerLayout.scrollHeight <= routerLayout.clientHeight + 1,
+      JSON.stringify(routerLayout));
+    check('7 台设备时按钮仍在窗口内', routerLayout.buttonBottom <= routerLayout.viewport,
+      JSON.stringify(routerLayout));
+
+    await pageEval(cdp, `location.hash = ''; true`);
+    await pageEval(cdp, `location.reload(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceGrid .device').length >= 5`));
+
 
     // 5.4 设备数超过上限时：挑选模式仍列出全部设备，选到 12 台后拒绝再加，
     // 设备区自己滚动，面板不溢出。
