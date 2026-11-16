@@ -245,7 +245,12 @@
     "未挑选时显示前几个场景": "Without a selection, the first few scenes are shown",
     "还没有读取到设备": "No devices loaded yet",
     "当前家庭还没有手动场景": "This home has no manual scenes yet",
-    "先登录米家账号再挑选": "Sign in to Mi Home first, then choose"
+    "先登录米家账号再挑选": "Sign in to Mi Home first, then choose",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Local screen reconnection attempt {0}, waiting {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} screen has not recovered, retrying in {1} s (attempt {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} The local screen could not be established. Confirm the computer and the camera are on the same local network, or switch to the remote screen",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Local screen auto-reconnection stopped after {0} consecutive failures: {1}",
+    "已有停止请求在执行，合并：{0}": "A stop request is already running, merging: {0}"
   },
   "zh-Hant": {
     "设备": "裝置",
@@ -528,7 +533,12 @@
     "日均": "日均",
     "月均": "月均",
     "重试": "重試",
-    "执行": "執行"
+    "执行": "執行",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "本地畫面第 {0} 次重連，等待 {1} 秒：{2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 畫面未恢復，{1} 秒後重試（第 {2}/{3} 次）",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 本地畫面無法建立，請確認電腦和攝影機在同一區域網路，或改用遠端畫面",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "本地畫面自動重連已停止：連續失敗 {0} 次：{1}",
+    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}"
   },
   "zh-HK": {
     "设备": "裝置",
@@ -811,7 +821,12 @@
     "日均": "日均",
     "月均": "月均",
     "重试": "重試",
-    "执行": "執行"
+    "执行": "執行",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "本地畫面第 {0} 次重連，等待 {1} 秒：{2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 畫面未恢復，{1} 秒後重試（第 {2}/{3} 次）",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 本地畫面無法建立，請確認電腦和攝影機在同一區域網路，或改用遠端畫面",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "本地畫面自動重連已停止：連續失敗 {0} 次：{1}",
+    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}"
   },
   "ja": {
     "设备": "デバイス",
@@ -1053,7 +1068,12 @@
     "常用设备": "よく使うデバイス",
     "常用场景": "よく使うシーン",
     "选择常用设备": "よく使うデバイスを選択",
-    "选择常用场景": "よく使うシーンを選択"
+    "选择常用场景": "よく使うシーンを選択",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "ローカル画面の再接続 {0} 回目、{1} 秒待機：{2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 画面が復帰しません。{1} 秒後に再試行します（{2}/{3} 回目）",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} ローカル画面を確立できませんでした。パソコンとカメラが同じ LAN にあるか確認するか、リモート画面に切り替えてください",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "ローカル画面の自動再接続を停止しました：{0} 回連続で失敗：{1}",
+    "已有停止请求在执行，合并：{0}": "停止要求が実行中です。統合します：{0}"
   },
   "ko": {
     "设备": "장치",
@@ -1295,7 +1315,12 @@
     "常用设备": "자주 쓰는 장치",
     "常用场景": "자주 쓰는 씬",
     "选择常用设备": "자주 쓰는 장치 선택",
-    "选择常用场景": "자주 쓰는 씬 선택"
+    "选择常用场景": "자주 쓰는 씬 선택",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "로컬 화면 재연결 {0}회차, {1}초 대기: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 화면이 복구되지 않았습니다. {1}초 후 재시도합니다({2}/{3}회차)",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 로컬 화면을 연결하지 못했습니다. 컴퓨터와 카메라가 같은 로컬 네트워크에 있는지 확인하거나 원격 화면으로 전환하세요",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "로컬 화면 자동 재연결을 중지했습니다: {0}회 연속 실패: {1}",
+    "已有停止请求在执行，合并：{0}": "이미 중지 요청이 실행 중입니다. 병합합니다: {0}"
   },
   "de": {
     "设备": "Gerät",
@@ -1547,7 +1572,12 @@
     "未挑选时显示前几个场景": "Ohne Auswahl werden die ersten Szenen angezeigt",
     "还没有读取到设备": "Noch keine Geräte geladen",
     "当前家庭还没有手动场景": "Dieses Zuhause hat noch keine manuellen Szenen",
-    "先登录米家账号再挑选": "Zuerst bei Mi Home anmelden, dann auswählen"
+    "先登录米家账号再挑选": "Zuerst bei Mi Home anmelden, dann auswählen",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Lokaler Bildschirm, Reconnect-Versuch {0}, warte {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} Bildschirm nicht wiederhergestellt, neuer Versuch in {1} s ({2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Der lokale Bildschirm konnte nicht aufgebaut werden. Prüfe, ob Computer und Kamera im selben lokalen Netzwerk sind, oder wechsle zum Remote-Bildschirm",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatische Wiederverbindung des lokalen Bildschirms gestoppt: {0} Fehlversuche in Folge: {1}",
+    "已有停止请求在执行，合并：{0}": "Es läuft bereits eine Stoppanforderung, wird zusammengeführt: {0}"
   },
   "fr": {
     "设备": "Appareil",
@@ -1798,7 +1828,12 @@
     "未挑选时显示前几个场景": "Sans sélection, les premières scènes sont affichées",
     "还没有读取到设备": "Aucun appareil chargé pour l’instant",
     "当前家庭还没有手动场景": "Cette maison n’a pas encore de scènes manuelles",
-    "先登录米家账号再挑选": "Connectez-vous d’abord à Mi Home, puis choisissez"
+    "先登录米家账号再挑选": "Connectez-vous d’abord à Mi Home, puis choisissez",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconnexion de l'écran local, tentative {0}, attente {1} s : {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} l'écran n'est pas revenu, nouvelle tentative dans {1} s ({2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} L'écran local n'a pas pu être établi. Vérifiez que l'ordinateur et la caméra sont sur le même réseau local, ou passez à l'écran distant",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconnexion automatique de l'écran local arrêtée : {0} échecs consécutifs : {1}",
+    "已有停止请求在执行，合并：{0}": "Une demande d'arrêt est déjà en cours, fusion : {0}"
   },
   "es": {
     "设备": "Dispositivo",
@@ -2048,7 +2083,12 @@
     "未挑选时显示前几个场景": "Sin selección, se muestran las primeras escenas",
     "还没有读取到设备": "Aún no se han cargado dispositivos",
     "当前家庭还没有手动场景": "Esta casa aún no tiene escenas manuales",
-    "先登录米家账号再挑选": "Inicia sesión en Mi Home primero y luego elige"
+    "先登录米家账号再挑选": "Inicia sesión en Mi Home primero y luego elige",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconexión de la pantalla local, intento {0}, esperando {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} la pantalla no se ha recuperado, reintentando en {1} s (intento {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} No se pudo establecer la pantalla local. Comprueba que el ordenador y la cámara estén en la misma red local, o cambia a la pantalla remota",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexión automática de la pantalla local detenida: {0} fallos consecutivos: {1}",
+    "已有停止请求在执行，合并：{0}": "Ya hay una solicitud de detención en curso, fusionando: {0}"
   },
   "pt-BR": {
     "设备": "Dispositivo",
@@ -2297,7 +2337,12 @@
     "未挑选时显示前几个场景": "Sem seleção, as primeiras cenas são exibidas",
     "还没有读取到设备": "Nenhum dispositivo carregado ainda",
     "当前家庭还没有手动场景": "Esta casa ainda não tem cenas manuais",
-    "先登录米家账号再挑选": "Entre no Mi Home primeiro e depois escolha"
+    "先登录米家账号再挑选": "Entre no Mi Home primeiro e depois escolha",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconexão da tela local, tentativa {0}, aguardando {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} a tela não voltou, tentando novamente em {1} s (tentativa {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Não foi possível estabelecer a tela local. Confirme que o computador e a câmera estão na mesma rede local ou mude para a tela remota",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexão automática da tela local interrompida: {0} falhas consecutivas: {1}",
+    "已有停止请求在执行，合并：{0}": "Já existe uma solicitação de parada em execução, mesclando: {0}"
   },
   "pt-PT": {
     "设备": "Dispositivo",
@@ -2547,7 +2592,12 @@
     "未挑选时显示前几个场景": "Sem seleção, são apresentadas as primeiras cenas",
     "还没有读取到设备": "Ainda não há dispositivos carregados",
     "当前家庭还没有手动场景": "Esta casa ainda não tem cenários manuais",
-    "先登录米家账号再挑选": "Inicie sessão no Mi Home primeiro e depois escolha"
+    "先登录米家账号再挑选": "Inicie sessão no Mi Home primeiro e depois escolha",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconexão do ecrã local, tentativa {0}, a aguardar {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} o ecrã não recuperou, nova tentativa em {1} s (tentativa {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Não foi possível estabelecer o ecrã local. Confirme que o computador e a câmara estão na mesma rede local ou mude para o ecrã remoto",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexão automática do ecrã local interrompida: {0} falhas consecutivas: {1}",
+    "已有停止请求在执行，合并：{0}": "Já existe um pedido de paragem em execução, a agregar: {0}"
   },
   "it": {
     "设备": "Dispositivo",
@@ -2796,7 +2846,12 @@
     "未挑选时显示前几个场景": "Senza selezione, vengono mostrate le prime scene",
     "还没有读取到设备": "Nessun dispositivo caricato",
     "当前家庭还没有手动场景": "Questa casa non ha ancora scene manuali",
-    "先登录米家账号再挑选": "Accedi prima a Mi Home, poi scegli"
+    "先登录米家账号再挑选": "Accedi prima a Mi Home, poi scegli",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Riconnessione schermata locale, tentativo {0}, attesa {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} schermata non ripristinata, nuovo tentativo tra {1} s ({2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Impossibile stabilire la schermata locale. Verifica che computer e telecamera siano sulla stessa rete locale oppure passa alla schermata remota",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Riconnessione automatica della schermata locale interrotta: {0} errori consecutivi: {1}",
+    "已有停止请求在执行，合并：{0}": "È già in corso una richiesta di arresto, unione: {0}"
   },
   "nl": {
     "设备": "Apparaat",
@@ -3044,7 +3099,12 @@
     "未挑选时显示前几个场景": "Zonder selectie worden de eerste scènes getoond",
     "还没有读取到设备": "Nog geen apparaten geladen",
     "当前家庭还没有手动场景": "Dit huis heeft nog geen handmatige scènes",
-    "先登录米家账号再挑选": "Meld u eerst aan bij Mi Home en kies dan"
+    "先登录米家账号再挑选": "Meld u eerst aan bij Mi Home en kies dan",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Herverbinden lokaal scherm, poging {0}, wachten {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} scherm is niet hersteld, nieuwe poging over {1} s (poging {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Het lokale scherm kon niet tot stand worden gebracht. Controleer of de computer en de camera in hetzelfde lokale netwerk zitten, of schakel over naar het externe scherm",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisch herverbinden van het lokale scherm gestopt: {0} mislukkingen op rij: {1}",
+    "已有停止请求在执行，合并：{0}": "Er loopt al een stopverzoek, wordt samengevoegd: {0}"
   },
   "ru": {
     "设备": "Устройство",
@@ -3293,7 +3353,12 @@
     "未挑选时显示前几个场景": "Без выбора показываются первые сцены",
     "还没有读取到设备": "Устройства ещё не загружены",
     "当前家庭还没有手动场景": "В этом доме пока нет ручных сцен",
-    "先登录米家账号再挑选": "Сначала войдите в Mi Home, затем выбирайте"
+    "先登录米家账号再挑选": "Сначала войдите в Mi Home, затем выбирайте",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Переподключение локального экрана, попытка {0}, ожидание {1} с: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} экран не восстановился, повтор через {1} с (попытка {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Не удалось установить локальный экран. Убедитесь, что компьютер и камера в одной локальной сети, или переключитесь на удалённый экран",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Автоматическое переподключение локального экрана остановлено: {0} неудач подряд: {1}",
+    "已有停止请求在执行，合并：{0}": "Запрос на остановку уже выполняется, объединяю: {0}"
   },
   "uk": {
     "设备": "пристрій",
@@ -3544,7 +3609,12 @@
     "未挑选时显示前几个场景": "Без вибору показуються перші сцени",
     "还没有读取到设备": "Пристрої ще не завантажено",
     "当前家庭还没有手动场景": "У цьому домі ще немає ручних сцен",
-    "先登录米家账号再挑选": "Спочатку увійдіть у Mi Home, потім обирайте"
+    "先登录米家账号再挑选": "Спочатку увійдіть у Mi Home, потім обирайте",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Перепідключення локального екрана, спроба {0}, очікування {1} с: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} екран не відновився, повтор через {1} с (спроба {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Не вдалося встановити локальний екран. Переконайтеся, що комп'ютер і камера в одній локальній мережі, або перемкніться на віддалений екран",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Автоматичне перепідключення локального екрана зупинено: {0} невдач поспіль: {1}",
+    "已有停止请求在执行，合并：{0}": "Запит на зупинку вже виконується, об'єдную: {0}"
   },
   "pl": {
     "设备": "Urządzenie",
@@ -3793,7 +3863,12 @@
     "未挑选时显示前几个场景": "Bez wyboru wyświetlane są pierwsze sceny",
     "还没有读取到设备": "Nie wczytano jeszcze urządzeń",
     "当前家庭还没有手动场景": "Ten dom nie ma jeszcze scen ręcznych",
-    "先登录米家账号再挑选": "Najpierw zaloguj się do Mi Home, potem wybierz"
+    "先登录米家账号再挑选": "Najpierw zaloguj się do Mi Home, potem wybierz",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Ponowne połączenie lokalnego ekranu, próba {0}, oczekiwanie {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ekran nie wrócił, ponowna próba za {1} s (próba {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Nie udało się ustanowić lokalnego ekranu. Sprawdź, czy komputer i kamera są w tej samej sieci lokalnej, albo przełącz na ekran zdalny",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatyczne ponowne łączenie lokalnego ekranu zatrzymane: {0} nieudanych prób z rzędu: {1}",
+    "已有停止请求在执行，合并：{0}": "Żądanie zatrzymania już trwa, scalanie: {0}"
   },
   "cs": {
     "设备": "Zařízení",
@@ -4043,7 +4118,12 @@
     "未挑选时显示前几个场景": "Bez výběru se zobrazí první scény",
     "还没有读取到设备": "Zatím nejsou načtena žádná zařízení",
     "当前家庭还没有手动场景": "Tento domov zatím nemá ruční scény",
-    "先登录米家账号再挑选": "Nejprve se přihlaste k Mi Home, poté vyberte"
+    "先登录米家账号再挑选": "Nejprve se přihlaste k Mi Home, poté vyberte",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Opětovné připojení místní obrazovky, pokus {0}, čekání {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} obrazovka se neobnovila, další pokus za {1} s (pokus {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Místní obrazovku se nepodařilo navázat. Ověřte, že počítač a kamera jsou ve stejné místní síti, nebo přepněte na vzdálenou obrazovku",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatické opětovné připojení místní obrazovky zastaveno: {0} neúspěchů v řadě: {1}",
+    "已有停止请求在执行，合并：{0}": "Žádost o zastavení již probíhá, slučuji: {0}"
   },
   "sk": {
     "设备": "Zariadenie",
@@ -4293,7 +4373,12 @@
     "未挑选时显示前几个场景": "Bez výberu sa zobrazia prvé scény",
     "还没有读取到设备": "Zatiaľ nie sú načítané žiadne zariadenia",
     "当前家庭还没有手动场景": "Tento domov zatiaľ nemá ručné scény",
-    "先登录米家账号再挑选": "Najprv sa prihláste k Mi Home, potom vyberte"
+    "先登录米家账号再挑选": "Najprv sa prihláste k Mi Home, potom vyberte",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Opätovné pripojenie miestnej obrazovky, pokus {0}, čakanie {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} obrazovka sa neobnovila, ďalší pokus o {1} s (pokus {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Miestnu obrazovku sa nepodarilo nadviazať. Overte, že počítač a kamera sú v tej istej miestnej sieti, alebo prepnite na vzdialenú obrazovku",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatické opätovné pripojenie miestnej obrazovky zastavené: {0} neúspechov za sebou: {1}",
+    "已有停止请求在执行，合并：{0}": "Žiadosť o zastavenie už prebieha, zlučujem: {0}"
   },
   "hu": {
     "设备": "Eszköz",
@@ -4536,7 +4621,12 @@
     "常用场景": "Gyakori jelenetek",
     "选择常用设备": "Gyakori eszközök kiválasztása",
     "选择常用场景": "Gyakori jelenetek kiválasztása",
-    "清空": "Törlés"
+    "清空": "Törlés",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Helyi képernyő újracsatlakozása, {0}. kísérlet, várakozás {1} mp: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} a képernyő nem állt helyre, újrapróbálás {1} mp múlva ({2}/{3}. kísérlet)",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} A helyi képernyőt nem sikerült létrehozni. Ellenőrizze, hogy a számítógép és a kamera ugyanazon a helyi hálózaton van-e, vagy váltson távképernyőre",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "A helyi képernyő automatikus újracsatlakozása leállt: {0} egymást követő hiba: {1}",
+    "已有停止请求在执行，合并：{0}": "Már fut egy leállítási kérés, összevonás: {0}"
   },
   "ro": {
     "设备": "Dispozitiv",
@@ -4785,7 +4875,12 @@
     "未挑选时显示前几个场景": "Fără selecție, sunt afișate primele scene",
     "还没有读取到设备": "Nu au fost încărcate dispozitive",
     "当前家庭还没有手动场景": "Această casă nu are încă scene manuale",
-    "先登录米家账号再挑选": "Conectați-vă mai întâi la Mi Home, apoi alegeți"
+    "先登录米家账号再挑选": "Conectați-vă mai întâi la Mi Home, apoi alegeți",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconectarea ecranului local, încercarea {0}, așteptare {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ecranul nu a revenit, se reîncearcă în {1} s (încercarea {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Ecranul local nu a putut fi stabilit. Verificați dacă computerul și camera sunt în aceeași rețea locală sau treceți la ecranul de la distanță",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconectarea automată a ecranului local a fost oprită: {0} eșecuri consecutive: {1}",
+    "已有停止请求在执行，合并：{0}": "O cerere de oprire rulează deja, se îmbină: {0}"
   },
   "el": {
     "设备": "Συσκευή",
@@ -5029,7 +5124,12 @@
     "常用场景": "Συχνές σκηνές",
     "选择常用设备": "Επιλογή συχνών συσκευών",
     "选择常用场景": "Επιλογή συχνών σκηνών",
-    "清空": "Καθαρισμός"
+    "清空": "Καθαρισμός",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Επανασύνδεση τοπικής οθόνης, προσπάθεια {0}, αναμονή {1} δευτ.: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} η οθόνη δεν επανήλθε, νέα προσπάθεια σε {1} δευτ. (προσπάθεια {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Δεν ήταν δυνατή η δημιουργία της τοπικής οθόνης. Ελέγξτε ότι ο υπολογιστής και η κάμερα βρίσκονται στο ίδιο τοπικό δίκτυο ή μεταβείτε στην απομακρυσμένη οθόνη",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Η αυτόματη επανασύνδεση της τοπικής οθόνης σταμάτησε: {0} διαδοχικές αποτυχίες: {1}",
+    "已有停止请求在执行，合并：{0}": "Υπάρχει ήδη αίτημα διακοπής σε εξέλιξη, συγχώνευση: {0}"
   },
   "tr": {
     "设备": "Cihaz",
@@ -5276,7 +5376,12 @@
     "未挑选时显示前几个场景": "Seçim yoksa ilk birkaç sahne gösterilir",
     "还没有读取到设备": "Henüz cihaz yüklenmedi",
     "当前家庭还没有手动场景": "Bu evde henüz manuel sahne yok",
-    "先登录米家账号再挑选": "Önce Mi Home’a giriş yapın, sonra seçin"
+    "先登录米家账号再挑选": "Önce Mi Home’a giriş yapın, sonra seçin",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Yerel ekran yeniden bağlanma {0}. deneme, {1} sn bekleniyor: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ekran geri gelmedi, {1} sn sonra yeniden denenecek ({2}/{3}. deneme)",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Yerel ekran kurulamadı. Bilgisayarın ve kameranın aynı yerel ağda olduğunu doğrulayın ya da uzak ekrana geçin",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Yerel ekran otomatik yeniden bağlanması durduruldu: {0} ardışık hata: {1}",
+    "已有停止请求在执行，合并：{0}": "Zaten çalışan bir durdurma isteği var, birleştiriliyor: {0}"
   },
   "ar": {
     "设备": "الجهاز",
@@ -5525,7 +5630,12 @@
     "未挑选时显示前几个场景": "بدون تحديد، تُعرض المشاهد الأولى",
     "还没有读取到设备": "لم يتم تحميل أي أجهزة بعد",
     "当前家庭还没有手动场景": "لا توجد مشاهد يدوية في هذا المنزل بعد",
-    "先登录米家账号再挑选": "سجّل الدخول إلى Mi Home أولاً ثم اختر"
+    "先登录米家账号再挑选": "سجّل الدخول إلى Mi Home أولاً ثم اختر",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "إعادة اتصال الشاشة المحلية، المحاولة {0}، الانتظار {1} ثانية: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} لم تعد الشاشة، ستتم إعادة المحاولة خلال {1} ثانية (المحاولة {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} تعذّر إنشاء الشاشة المحلية. تأكد من أن الحاسوب والكاميرا على الشبكة المحلية نفسها، أو بدّل إلى الشاشة البعيدة",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "تم إيقاف إعادة الاتصال التلقائي بالشاشة المحلية: {0} إخفاقات متتالية: {1}",
+    "已有停止请求在执行，合并：{0}": "هناك طلب إيقاف قيد التنفيذ بالفعل، يتم الدمج: {0}"
   },
   "he": {
     "设备": "מכשיר",
@@ -5786,7 +5896,12 @@
     "未挑选时显示前几个场景": "ללא בחירה, יוצגו הסצנות הראשונות",
     "还没有读取到设备": "לא נטענו מכשירים עדיין",
     "当前家庭还没有手动场景": "אין עדיין סצנות ידניות בבית הזה",
-    "先登录米家账号再挑选": "היכנסו תחילה ל-Mi Home ואז בחרו"
+    "先登录米家账号再挑选": "היכנסו תחילה ל-Mi Home ואז בחרו",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "חיבור מחדש של המסך המקומי, ניסיון {0}, המתנה {1} שנ׳: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} המסך לא התאושש, ניסיון חוזר בעוד {1} שנ׳ (ניסיון {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} לא ניתן היה להקים את המסך המקומי. ודא שהמחשב והמצלמה נמצאים באותה רשת מקומית, או עבור למסך המרוחק",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "החיבור מחדש האוטומטי של המסך המקומי הופסק: {0} כשלים רצופים: {1}",
+    "已有停止请求在执行，合并：{0}": "בקשת עצירה כבר פועלת, ממזג: {0}"
   },
   "hi": {
     "设备": "युक्ति",
@@ -6035,7 +6150,12 @@
     "未挑选时显示前几个场景": "चयन न होने पर पहले कुछ दृश्य दिखाए जाते हैं",
     "还没有读取到设备": "अभी कोई डिवाइस लोड नहीं हुआ",
     "当前家庭还没有手动场景": "इस घर में अभी कोई मैन्युअल दृश्य नहीं है",
-    "先登录米家账号再挑选": "पहले Mi Home में साइन इन करें, फिर चुनें"
+    "先登录米家账号再挑选": "पहले Mi Home में साइन इन करें, फिर चुनें",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "स्थानीय स्क्रीन पुनः कनेक्ट, प्रयास {0}, {1} सेकंड प्रतीक्षा: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} स्क्रीन बहाल नहीं हुई, {1} सेकंड में पुनः प्रयास (प्रयास {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} स्थानीय स्क्रीन स्थापित नहीं हो सकी। जाँचें कि कंप्यूटर और कैमरा एक ही स्थानीय नेटवर्क पर हैं, या दूरस्थ स्क्रीन पर स्विच करें",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "स्थानीय स्क्रीन का स्वतः पुनः कनेक्शन रुका: लगातार {0} विफलताएँ: {1}",
+    "已有停止请求在执行，合并：{0}": "रोकने का अनुरोध पहले से चल रहा है, विलय किया जा रहा है: {0}"
   },
   "th": {
     "设备": "อุปกรณ์",
@@ -6283,7 +6403,12 @@
     "未挑选时显示前几个场景": "หากไม่ได้เลือก จะแสดงฉากแรก ๆ",
     "还没有读取到设备": "ยังไม่ได้โหลดอุปกรณ์",
     "当前家庭还没有手动场景": "บ้านนี้ยังไม่มีฉากแบบกำหนดเอง",
-    "先登录米家账号再挑选": "ลงชื่อเข้าใช้ Mi Home ก่อนแล้วจึงเลือก"
+    "先登录米家账号再挑选": "ลงชื่อเข้าใช้ Mi Home ก่อนแล้วจึงเลือก",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "เชื่อมต่อหน้าจอภายในเครื่องใหม่ ครั้งที่ {0} รอ {1} วินาที: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} หน้าจอยังไม่กลับมา จะลองใหม่ใน {1} วินาที (ครั้งที่ {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} สร้างหน้าจอภายในเครื่องไม่สำเร็จ ตรวจสอบว่าคอมพิวเตอร์และกล้องอยู่ในเครือข่ายเดียวกัน หรือสลับไปที่หน้าจอระยะไกล",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "หยุดการเชื่อมต่อหน้าจอภายในเครื่องอัตโนมัติแล้ว: ล้มเหลวติดต่อกัน {0} ครั้ง: {1}",
+    "已有停止请求在执行，合并：{0}": "มีคำขอหยุดที่กำลังทำงานอยู่ รวมเป็นคำขอเดียว: {0}"
   },
   "vi": {
     "设备": "Thiết bị",
@@ -6531,7 +6656,12 @@
     "未挑选时显示前几个场景": "Nếu chưa chọn, vài cảnh đầu tiên sẽ hiển thị",
     "还没有读取到设备": "Chưa tải được thiết bị nào",
     "当前家庭还没有手动场景": "Nhà này chưa có cảnh thủ công",
-    "先登录米家账号再挑选": "Đăng nhập Mi Home trước rồi chọn"
+    "先登录米家账号再挑选": "Đăng nhập Mi Home trước rồi chọn",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Kết nối lại màn hình cục bộ, lần {0}, chờ {1} giây: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} màn hình chưa phục hồi, thử lại sau {1} giây (lần {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Không thể thiết lập màn hình cục bộ. Hãy xác nhận máy tính và camera cùng một mạng nội bộ, hoặc chuyển sang màn hình từ xa",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Đã dừng tự động kết nối lại màn hình cục bộ: {0} lần thất bại liên tiếp: {1}",
+    "已有停止请求在执行，合并：{0}": "Đã có yêu cầu dừng đang chạy, đang gộp: {0}"
   },
   "id": {
     "设备": "Perangkat",
@@ -6779,7 +6909,12 @@
     "未挑选时显示前几个场景": "Tanpa pilihan, beberapa adegan pertama ditampilkan",
     "还没有读取到设备": "Belum ada perangkat yang dimuat",
     "当前家庭还没有手动场景": "Rumah ini belum punya adegan manual",
-    "先登录米家账号再挑选": "Masuk ke Mi Home dulu, lalu pilih"
+    "先登录米家账号再挑选": "Masuk ke Mi Home dulu, lalu pilih",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Menyambung ulang layar lokal, percobaan {0}, menunggu {1} dtk: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} layar belum pulih, mencoba lagi dalam {1} dtk (percobaan {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Layar lokal tidak dapat dibangun. Pastikan komputer dan kamera berada di jaringan lokal yang sama, atau beralih ke layar jarak jauh",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Penyambungan ulang otomatis layar lokal dihentikan: {0} kegagalan berturut-turut: {1}",
+    "已有停止请求在执行，合并：{0}": "Permintaan berhenti sudah berjalan, menggabungkan: {0}"
   },
   "ms": {
     "设备": "Peranti",
@@ -7027,7 +7162,12 @@
     "未挑选时显示前几个场景": "Tanpa pilihan, beberapa adegan pertama dipaparkan",
     "还没有读取到设备": "Belum ada peranti dimuatkan",
     "当前家庭还没有手动场景": "Rumah ini belum ada adegan manual",
-    "先登录米家账号再挑选": "Log masuk ke Mi Home dahulu, kemudian pilih"
+    "先登录米家账号再挑选": "Log masuk ke Mi Home dahulu, kemudian pilih",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Menyambung semula skrin setempat, cubaan {0}, menunggu {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skrin belum pulih, cuba lagi dalam {1} s (cubaan {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Skrin setempat tidak dapat diwujudkan. Pastikan komputer dan kamera berada pada rangkaian setempat yang sama, atau tukar ke skrin jauh",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Penyambungan semula automatik skrin setempat dihentikan: {0} kegagalan berturut-turut: {1}",
+    "已有停止请求在执行，合并：{0}": "Permintaan henti sudah berjalan, menggabungkan: {0}"
   },
   "ca": {
     "设备": "Dispositiu",
@@ -7275,7 +7415,12 @@
     "未挑选时显示前几个场景": "Sense selecció, es mostren les primeres escenes",
     "还没有读取到设备": "Encara no s’han carregat dispositius",
     "当前家庭还没有手动场景": "Aquesta llar encara no té escenes manuals",
-    "先登录米家账号再挑选": "Inicia la sessió a Mi Home i després tria"
+    "先登录米家账号再挑选": "Inicia la sessió a Mi Home i després tria",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Reconnexió de la pantalla local, intent {0}, esperant {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} la pantalla no s'ha recuperat, reintent en {1} s (intent {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} No s'ha pogut establir la pantalla local. Comprova que l'ordinador i la càmera són a la mateixa xarxa local, o canvia a la pantalla remota",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconnexió automàtica de la pantalla local aturada: {0} errors consecutius: {1}",
+    "已有停止请求在执行，合并：{0}": "Ja hi ha una sol·licitud d'aturada en curs, fusionant: {0}"
   },
   "da": {
     "设备": "Enhed",
@@ -7522,7 +7667,12 @@
     "未挑选时显示前几个场景": "Uden valg vises de første scener",
     "还没有读取到设备": "Der er endnu ikke indlæst enheder",
     "当前家庭还没有手动场景": "Dette hjem har endnu ingen manuelle scener",
-    "先登录米家账号再挑选": "Log ind på Mi Home først, og vælg derefter"
+    "先登录米家账号再挑选": "Log ind på Mi Home først, og vælg derefter",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Genopkobling af lokal skærm, forsøg {0}, venter {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skærmen er ikke gendannet, prøver igen om {1} s (forsøg {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokale skærm kunne ikke oprettes. Kontrollér, at computeren og kameraet er på samme lokale netværk, eller skift til fjer nskærmen",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk genopkobling af den lokale skærm er stoppet: {0} fejl i træk: {1}",
+    "已有停止请求在执行，合并：{0}": "Der kører allerede en stopanmodning, sammenfletter: {0}"
   },
   "fi": {
     "设备": "Laite",
@@ -7770,7 +7920,12 @@
     "未挑选时显示前几个场景": "Ilman valintaa näytetään ensimmäiset kohtaukset",
     "还没有读取到设备": "Laitteita ei ole vielä ladattu",
     "当前家庭还没有手动场景": "Tässä kodissa ei ole vielä manuaalisia kohtauksia",
-    "先登录米家账号再挑选": "Kirjaudu ensin Mi Homeen ja valitse sitten"
+    "先登录米家账号再挑选": "Kirjaudu ensin Mi Homeen ja valitse sitten",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Paikallisen näytön uudelleenyhdistäminen, yritys {0}, odotus {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} näyttö ei palannut, yritetään uudelleen {1} s kuluttua (yritys {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Paikallista näyttöä ei saatu muodostettua. Varmista, että tietokone ja kamera ovat samassa lähiverkossa, tai vaihda etänäyttöön",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Paikallisen näytön automaattinen uudelleenyhdistäminen pysäytetty: {0} peräkkäistä epäonnistumista: {1}",
+    "已有停止请求在执行，合并：{0}": "Pysäytyspyyntö on jo käynnissä, yhdistetään: {0}"
   },
   "nb": {
     "设备": "Enhet",
@@ -8018,7 +8173,12 @@
     "未挑选时显示前几个场景": "Uten valg vises de første scenene",
     "还没有读取到设备": "Ingen enheter er lastet ennå",
     "当前家庭还没有手动场景": "Dette hjemmet har ingen manuelle scener ennå",
-    "先登录米家账号再挑选": "Logg på Mi Home først, velg deretter"
+    "先登录米家账号再挑选": "Logg på Mi Home først, velg deretter",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Gjenkobling av lokal skjerm, forsøk {0}, venter {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skjermen er ikke gjenopprettet, prøver igjen om {1} s (forsøk {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokale skjermen kunne ikke etableres. Kontroller at datamaskinen og kameraet er på samme lokale nettverk, eller bytt til ekstern skjerm",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk gjenkobling av den lokale skjermen er stoppet: {0} feil på rad: {1}",
+    "已有停止请求在执行，合并：{0}": "Det kjører allerede en stoppforespørsel, slår sammen: {0}"
   },
   "sv": {
     "设备": "Enhet",
@@ -8267,7 +8427,12 @@
     "未挑选时显示前几个场景": "Utan urval visas de första scenerna",
     "还没有读取到设备": "Inga enheter har laddats än",
     "当前家庭还没有手动场景": "Det här hemmet har inga manuella scener än",
-    "先登录米家账号再挑选": "Logga in på Mi Home först och välj sedan"
+    "先登录米家账号再挑选": "Logga in på Mi Home först och välj sedan",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Återanslutning av lokal skärm, försök {0}, väntar {1} s: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skärmen har inte återställts, försöker igen om {1} s (försök {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokala skärmen kunde inte upprättas. Kontrollera att datorn och kameran är på samma lokala nätverk, eller byt till fjärrskärmen",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk återanslutning av den lokala skärmen stoppades: {0} misslyckanden i rad: {1}",
+    "已有停止请求在执行，合并：{0}": "En stoppbegäran körs redan, slår ihop: {0}"
   },
   "sr": {
     "设备": "Уређај",
@@ -8517,13 +8682,23 @@
     "未挑选时显示前几个场景": "Без избора приказују се прве сцене",
     "还没有读取到设备": "Уређаји још нису учитани",
     "当前家庭还没有手动场景": "Овај дом још нема ручне сцене",
-    "先登录米家账号再挑选": "Прво се пријавите на Mi Home, затим изаберите"
+    "先登录米家账号再挑选": "Прво се пријавите на Mi Home, затим изаберите",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "Поновно повезивање локалног екрана, покушај {0}, чекање {1} с: {2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} екран се није вратио, нови покушај за {1} с (покушај {2}/{3})",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Локални екран није могао бити успостављен. Проверите да ли су рачунар и камера на истој локалној мрежи или пређите на удаљени екран",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Аутоматско поновно повезивање локалног екрана је заустављено: {0} узастопних неуспеха: {1}",
+    "已有停止请求在执行，合并：{0}": "Захтев за заустављање већ траје, спајам: {0}"
   },
   "zh-Hans": {
     "界面风格": "界面风格",
     "现代列表与经典设备卡片可随时切换": "现代列表与经典设备卡片可随时切换",
     "现代": "现代",
     "经典": "经典",
-    "耗材不足": "耗材不足"
+    "耗材不足": "耗材不足",
+    "本地画面第 {0} 次重连，等待 {1} 秒：{2}": "本地画面第 {0} 次重连，等待 {1} 秒：{2}",
+    "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）",
+    "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面",
+    "本地画面自动重连已停止：连续失败 {0} 次：{1}": "本地画面自动重连已停止：连续失败 {0} 次：{1}",
+    "已有停止请求在执行，合并：{0}": "已有停止请求在执行，合并：{0}"
   }
 }

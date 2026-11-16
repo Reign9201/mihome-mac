@@ -7,6 +7,12 @@ const MAX_LOCAL_GRID_STREAMS = 9;
 const MAX_REMOTE_START_CONCURRENCY = 3;
 const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
 const CAMERA_STALL_INTERVALS = 3;
+// 本地通道重建只有有限次机会：摄像头不在同一网段时，每一轮都要起 go2rtc 和
+// ffmpeg、等满超时、再全部拆掉，无限重试会把主线程拖死。三个常量分别对应
+// 单次重建的退避基数、退避上限和连续失败多少次后停止自动重试。
+const LOCAL_RESTART_BACKOFF_MS = 5000;
+const LOCAL_RESTART_MAX_BACKOFF_MS = 60000;
+const LOCAL_RESTART_MAX_ATTEMPTS = 4;
 const DEVICE_PRESENCE_REFRESH_MS = 15000;
 const log = window.MiLog || Object.freeze({
   debug() {}, info() {}, warn() {}, error() {},
@@ -91,9 +97,11 @@ const state = {
   deviceFilter: 'all', deviceQuery: '', cameraQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
   remoteWatch: null, remoteWatches: [], cameraWatches: new Map(),
   cameraGeneration: 0, cameraControlsRequest: 0,
-  cameraStopSequence: 0,
+  cameraStopSequence: 0, cameraStopping: null,
   cameraQueue: Promise.resolve(),
   restartingCameras: new Set(), restartTimers: new Map(), restartAttempts: new Map(), cardProps: new Map(),
+  // 本地通道的连续失败次数和它对应的 5→10→20→40 秒退避计时器。
+  localRestartAttempts: 0, localRestartTimer: null,
   environmentValues: new Map(), environmentRequest: 0, environmentRevision: 0,
   environmentRefreshing: false, environmentSyncAt: 0,
   remoteAudio: new Map(),
@@ -4724,8 +4732,18 @@ function bindGridTile(tile, camera, remote) {
   };
 }
 
+// 用户主动打开本地画面（选摄像头、切宫格、进页面）时清掉上一次的连续失败
+// 计数，重新给满 LOCAL_RESTART_MAX_ATTEMPTS 次机会。自动重连走的是
+// startCameraSetNow，不会重置，否则熔断永远攒不起来。
 function startCameraSet(cameras, grid) {
-  return queueCameraOperation(() => startCameraSetNow(cameras, grid));
+  return queueCameraOperation(() => {
+    state.localRestartAttempts = 0;
+    if (state.localRestartTimer) {
+      clearTimeout(state.localRestartTimer);
+      state.localRestartTimer = null;
+    }
+    return startCameraSetNow(cameras, grid);
+  });
 }
 
 async function startCameraSetNow(cameras, grid) {
@@ -4774,7 +4792,7 @@ async function startCameraSetNow(cameras, grid) {
         if (!status) {
           status = el('button', 'cam-tile-status', '没有画面，点击重试');
           status.type = 'button';
-          status.onclick = () => restartLocalCamera(camera, generation);
+          status.onclick = () => retryLocalCameraNow(camera, generation);
           tile.append(status);
         }
         status.hidden = false;
@@ -4784,6 +4802,8 @@ async function startCameraSetNow(cameras, grid) {
           if (generation !== state.cameraGeneration) return;
           stalled.delete(camera.did);
           status.hidden = true;
+          // 真出画了才算这一轮重建成功，退避计数回到起点。
+          state.localRestartAttempts = 0;
           watchRemote(video, camera, () => onTileStall(camera, tile, video), generation);
         }, { once: true });
         if (stalled.size >= streams.length) restartLocalCamera(camera, generation);
@@ -4819,6 +4839,8 @@ async function startCameraSetNow(cameras, grid) {
       video.onloadeddata = () => {
         if (generation === state.cameraGeneration && !state.remoteActive) {
           log.info('Camera', `本地首帧已加载：${usable[0].name}`);
+          // 出首帧才算重建成功，退避计数回到起点。
+          state.localRestartAttempts = 0;
           $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 本地实时画面`;
           $('#camTransport').textContent = '本地首帧已加载';
           $('#camLatency').textContent = '本地';
@@ -5005,16 +5027,66 @@ async function restartRemoteCamera(camera, video, generation) {
   }
 }
 
+// 用户点「重试」是明确要求再试一次，清零计数并取消待发的退避，立即重建。
+function retryLocalCameraNow(camera, generation) {
+  if (generation !== state.cameraGeneration) return;
+  state.localRestartAttempts = 0;
+  if (state.localRestartTimer) {
+    clearTimeout(state.localRestartTimer);
+    state.localRestartTimer = null;
+  }
+  restartLocalCamera(camera, generation);
+}
+
+// 宫格里所有分屏共用同一个 go2rtc，重建一次就是整片重来；单画面也一样要
+// 重起一次 go2rtc 加 ffmpeg。摄像头不在同一网段时这一步注定失败，所以这里
+// 必须退避并设上限，否则前端会在「重建 → 超时 → 重建」里空转。
 async function restartLocalCamera(camera, generation) {
   const key = `local:${camera.did}`;
   if (generation !== state.cameraGeneration || state.restartingCameras.has(key)) return;
+  if (state.localRestartTimer) return;
+  if (state.localRestartAttempts >= LOCAL_RESTART_MAX_ATTEMPTS) {
+    log.warn('Camera', uiText('本地画面自动重连已停止：连续失败 {0} 次：{1}', [state.localRestartAttempts, camera.name]));
+    $('#camHint').textContent = uiText(
+      '{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面',
+      [camera.name],
+    );
+    return;
+  }
   state.restartingCameras.add(key);
+  // 失败一次就把计数加一，只有重建真正出画后 startCameraSetNow 才会清零。
+  // 这样计数反映的是连续失败次数，退避间隔随之拉长。
+  state.localRestartAttempts += 1;
+  const attempt = state.localRestartAttempts;
+  if (attempt > 1) {
+    const delay = Math.min(
+      LOCAL_RESTART_MAX_BACKOFF_MS,
+      LOCAL_RESTART_BACKOFF_MS * 2 ** (attempt - 2),
+    );
+    log.warn('Camera', uiText('本地画面第 {0} 次重连，等待 {1} 秒：{2}', [attempt, Math.round(delay / 1000), camera.name]));
+    $('#camHint').textContent = uiText('{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）', [
+      camera.name,
+      Math.round(delay / 1000),
+      attempt,
+      LOCAL_RESTART_MAX_ATTEMPTS,
+    ]);
+    state.restartingCameras.delete(key);
+    state.localRestartTimer = setTimeout(() => {
+      state.localRestartTimer = null;
+      if (generation !== state.cameraGeneration) return;
+      restartLocalCamera(camera, generation);
+    }, delay);
+    return;
+  }
   log.warn('Camera', `本地画面重连：${camera.name}`);
   $('#camHint').textContent = `${camera.name} 画面停住，正在重建本地通道…`;
   try {
     const activeDids = new Set(state.cameraStreams.map((stream) => stream.id));
     const cameras = state.cameras.filter((item) => activeDids.has(item.did));
-    await startCameraSet(cameras.length ? cameras : [camera], state.cameraGrid);
+    // 直接走 Now 版本：startCameraSet 会把失败计数清零，自动重连不能清零，
+    // 否则每次尝试都从头计数，熔断永远触发不了。
+    await queueCameraOperation(() =>
+      startCameraSetNow(cameras.length ? cameras : [camera], state.cameraGrid));
   } finally {
     state.restartingCameras.delete(key);
   }
@@ -5024,7 +5096,20 @@ function stopCamera() {
   return queueCameraOperation(() => stopCameraNow('页面或账号切换'));
 }
 
-async function stopCameraNow(reason = '未知') {
+// 正在进行的停止动作。重启风暴里 stopCameraNow 会被连着调很多次，把并发的
+// 那几次并到同一个 promise 上，后端只收到一次 camera_stop，DOM 也只拆一遍。
+function stopCameraNow(reason = '未知') {
+  if (state.cameraStopping) {
+    log.debug('Camera', uiText('已有停止请求在执行，合并：{0}', [reason]));
+    return state.cameraStopping;
+  }
+  state.cameraStopping = runStopCamera(reason).finally(() => {
+    state.cameraStopping = null;
+  });
+  return state.cameraStopping;
+}
+
+async function runStopCamera(reason) {
   const requestId = ++state.cameraStopSequence;
   log.debug('Camera', `停止摄像头页面：${reason} request=${requestId}`);
   state.cameraGeneration += 1;
@@ -5046,6 +5131,10 @@ async function stopCameraNow(reason = '未知') {
   state.restartTimers.clear();
   state.restartAttempts.clear();
   state.restartingCameras.clear();
+  if (state.localRestartTimer) {
+    clearTimeout(state.localRestartTimer);
+    state.localRestartTimer = null;
+  }
   $('#camControls').hidden = true;
   const video = $('#camVideo');
   video.pause();
