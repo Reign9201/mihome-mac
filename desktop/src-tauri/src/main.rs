@@ -928,6 +928,15 @@ fn quick_open_main(app: tauri::AppHandle) {
     }
 }
 
+/// 面板里按 Esc 收起。走 set_quick_visible 而不是直接 hide()，是为了把
+/// QUICK_VISIBLE 一起改掉，否则下次点菜单栏图标会以为面板还开着、反而把它关掉。
+#[tauri::command]
+fn quick_hide(app: tauri::AppHandle) {
+    if let Some(quick) = app.get_webview_window("quick") {
+        set_quick_visible(&quick, false);
+    }
+}
+
 /// 面板配置：用户在设置里挑的常用设备和场景，按挑选顺序返回。
 #[tauri::command]
 async fn quick_prefs(state: State<'_, Arc<AppState>>) -> Result<QuickPrefs, String> {
@@ -2437,6 +2446,7 @@ fn main() {
             list_scenes,
             run_scene,
             quick_open_main,
+            quick_hide,
             quick_prefs,
             save_quick_prefs,
             ui_ready,

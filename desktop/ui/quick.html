@@ -9,7 +9,7 @@
 <body>
 <main class="panel" id="panel">
   <header class="head">
-    <span class="brand">米家速控</span>
+    <span class="brand" id="brand">米家速控</span>
     <span class="head-tools">
       <span class="clock" id="clock">--:--</span>
       <button class="icon-btn" id="editPrefs" type="button" aria-pressed="false" aria-label="设置面板显示哪些设备和场景">
@@ -27,13 +27,20 @@
     <span class="env-dot" id="envDot" aria-hidden="true"></span>
   </section>
 
-  <div class="section-head"><span>常用设备</span><span class="muted" id="deviceCount"></span></div>
+  <div class="device-tools" id="deviceTools" hidden>
+    <input id="searchInput" class="search" type="search" placeholder="搜索设备或房间" autocomplete="off" spellcheck="false" aria-label="搜索设备或房间">
+    <div class="room-bar" id="roomBar" role="tablist" aria-label="房间筛选" hidden></div>
+  </div>
+
+  <div class="section-head" id="deviceHead"><span id="deviceHeadLabel">常用设备</span><span class="muted" id="deviceCount"></span></div>
   <div class="device-grid" id="deviceGrid">
     <div class="empty">正在读取设备…</div>
   </div>
 
-  <div class="section-head"><span>场景</span><span class="muted" id="sceneCount"></span></div>
+  <div class="section-head" id="sceneHead"><span>场景</span><span class="muted" id="sceneCount"></span></div>
   <div class="scenes" id="scenes"></div>
+
+  <section class="detail-view" id="detailView" hidden></section>
 
   <div class="status-line" id="statusLine" hidden></div>
 
