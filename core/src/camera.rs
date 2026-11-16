@@ -152,6 +152,21 @@ impl Go2Rtc {
                     .join("；")
             ),
         );
+        // 摄像头只有在同一个局域网里才能直连取流，源不可达时 go2rtc 会先花
+        // 5 秒等 UDP 超时，再把流登记成不存在，于是 ffmpeg 拿到 404 退出。
+        // 这里提前判掉，省掉那一整轮空转，也能给出「不在同一网段」的明确原因。
+        let reachable = local_source_reachable(cameras);
+        if reachable.is_empty() {
+            return Err(anyhow!(
+                "电脑和摄像头不在同一局域网，无法建立本地通道：{}",
+                cameras
+                    .iter()
+                    .map(|camera| format!("{}（{}）", camera.name, camera.ip.as_deref().unwrap_or("无地址")))
+                    .collect::<Vec<_>>()
+                    .join("；")
+            ));
+        }
+        let cameras = reachable.as_slice();
         let ffmpeg = local_transcode_ffmpeg();
         if let Some(path) = ffmpeg.as_deref() {
             let encoder = detect_local_video_encoder(path);
@@ -634,6 +649,88 @@ fn spawn_local_transcoder(ffmpeg: &Path, args: &[String], id: &str) -> Result<Ch
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("启动本地 H.264 转码失败（id={id}）：{}", ffmpeg.display()))
+}
+
+/// 本机是不是和摄像头处在同一个局域网。
+///
+/// go2rtc 的 xiaomi 源要先跟摄像头做一次 UDP 直连握手。电脑换了网络（例如
+/// 从家里的 192.168.31.x 换到外面的 10.2.19.x）之后，摄像头的局域网地址就
+/// 只是云端记下的历史值，握手包发出去没有任何回应，go2rtc 等满超时后把这个
+/// 流登记成不存在，ffmpeg 于是拿到 404 退出。这一整轮大约十几秒，前端还会
+/// 无限重试，界面因此卡死。
+///
+/// 这里只比较网段，不去 ping 摄像头：摄像头可能对 ICMP 不作回应，但同网段
+/// 时仍然可以正常取流，用 ping 判断会误杀正常场景。
+fn local_source_reachable(cameras: &[CameraDevice]) -> Vec<CameraDevice> {
+    // 拿不到本机网段时不做筛选，交回给 go2rtc 按原逻辑处理，避免误伤。
+    let Some(networks) = local_ipv4_networks() else {
+        return cameras.to_vec();
+    };
+    cameras
+        .iter()
+        .filter(|camera| match camera.ip.as_deref() {
+            None => false,
+            Some(ip) => ipv4_in_networks(ip, &networks),
+        })
+        .cloned()
+        .collect()
+}
+
+/// 地址是否落在给定网段内。非 IPv4 的取值放行，交给 go2rtc 自己判断。
+fn ipv4_in_networks(ip: &str, networks: &[(u32, u32)]) -> bool {
+    let Some(address) = parse_ipv4(ip) else {
+        return true;
+    };
+    networks
+        .iter()
+        .any(|(network, mask)| address & mask == *network)
+}
+
+/// 读出本机所有 IPv4 网段（网络地址 + 掩码）。读不到时返回 None。
+fn local_ipv4_networks() -> Option<Vec<(u32, u32)>> {
+    let output = Command::new("ifconfig").output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut networks = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        // 形如：inet 10.2.19.188 netmask 0xfffffc00 broadcast 10.2.19.255
+        let Some(rest) = line.strip_prefix("inet ") else {
+            continue;
+        };
+        let mut parts = rest.split_whitespace();
+        let Some(ip) = parts.next().and_then(parse_ipv4) else {
+            continue;
+        };
+        let Some(mask) = parts
+            .nth(1)
+            .and_then(|value| value.strip_prefix("0x"))
+            .and_then(|value| u32::from_str_radix(value, 16).ok())
+        else {
+            continue;
+        };
+        if ip == u32::from_be_bytes([127, 0, 0, 1]) || mask == 0 {
+            continue;
+        }
+        networks.push((ip & mask, mask));
+    }
+    if networks.is_empty() {
+        None
+    } else {
+        Some(networks)
+    }
+}
+
+fn parse_ipv4(text: &str) -> Option<u32> {
+    let mut octets = [0u8; 4];
+    let mut count = 0;
+    for part in text.split('.') {
+        if count == 4 {
+            return None;
+        }
+        octets[count] = part.parse().ok()?;
+        count += 1;
+    }
+    (count == 4).then(|| u32::from_be_bytes(octets))
 }
 
 fn wait_for_tcp_listener(port: u16, timeout: Duration) -> Result<()> {
@@ -1648,6 +1745,62 @@ mod tests {
         assert!(yaml.contains("channel=0"));
         assert!(!yaml.contains("channel=1"));
         assert!(yaml.contains("subtype=sd"));
+    }
+
+    fn camera_at(ip: Option<&str>) -> CameraDevice {
+        CameraDevice {
+            did: "1053392676".into(),
+            name: "摄像头".into(),
+            model: "chuangmi.camera.039a01".into(),
+            ip: ip.map(str::to_string),
+            online: true,
+            subtype: "hd".into(),
+            channel: 0,
+            spec_type: None,
+        }
+    }
+
+    #[test]
+    fn parse_ipv4_reads_dotted_quad() {
+        assert_eq!(parse_ipv4("192.168.31.186"), Some(u32::from_be_bytes([192, 168, 31, 186])));
+        assert_eq!(parse_ipv4("10.2.19.188"), Some(u32::from_be_bytes([10, 2, 19, 188])));
+        assert_eq!(parse_ipv4("192.168.31"), None);
+        assert_eq!(parse_ipv4("192.168.31.1.2"), None);
+        assert_eq!(parse_ipv4("192.168.31.999"), None);
+        assert_eq!(parse_ipv4(""), None);
+    }
+
+    // 摄像头在家里的 192.168.31.x，本机却在办公网 10.2.19.x，
+    // 这种情况必须判成不可达，否则 go2rtc 会白等一轮 UDP 超时。
+    #[test]
+    fn ipv4_network_match_rejects_other_subnets() {
+        let mask = 0xffff_ff00u32;
+        let office = vec![(parse_ipv4("10.2.19.0").unwrap() & mask, mask)];
+        assert!(!ipv4_in_networks("192.168.31.186", &office));
+        assert!(ipv4_in_networks("10.2.19.50", &office));
+
+        // 两个网段都在时，两台摄像头都能直连。
+        let both = vec![
+            (parse_ipv4("10.2.19.0").unwrap() & mask, mask),
+            (parse_ipv4("192.168.31.0").unwrap() & mask, mask),
+        ];
+        assert!(ipv4_in_networks("192.168.31.186", &both));
+        assert!(ipv4_in_networks("10.2.19.50", &both));
+
+        // /22 的办公网要能覆盖 10.2.19.188 这类地址。
+        let wide = vec![(parse_ipv4("10.2.16.0").unwrap() & 0xffff_fc00u32, 0xffff_fc00u32)];
+        assert!(ipv4_in_networks("10.2.19.188", &wide));
+        assert!(!ipv4_in_networks("10.2.24.1", &wide));
+    }
+
+    #[test]
+    fn local_source_reachable_drops_cameras_without_address() {
+        let cameras = vec![camera_at(Some("10.2.19.50")), camera_at(None)];
+        // 本机网段读不到时不做筛选，全部放行，避免误伤正常场景。
+        assert!(local_ipv4_networks().is_none() || !local_ipv4_networks().unwrap().is_empty());
+        let reachable = local_source_reachable(&cameras);
+        let expected = if local_ipv4_networks().is_some() { 1 } else { 2 };
+        assert_eq!(reachable.len(), expected);
     }
 
     #[test]
