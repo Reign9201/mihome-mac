@@ -971,3 +971,10 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* 开关滑块的位移在减弱动效时去掉，颜色变化保留。 */
+@media (prefers-reduced-motion: reduce) {
+  .switch::after {
+    transition: none;
+  }
+}
