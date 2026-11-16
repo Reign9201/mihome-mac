@@ -600,6 +600,19 @@ const main = async () => {
       JSON.stringify(afterDetailEsc));
     check('详情里按 Esc 不收起面板', afterDetailEsc.hideCalls === 0, String(afterDetailEsc.hideCalls));
 
+    // 没有公开规格的设备不能停在「正在读取」，要给一条明确的说明。
+    await pageEval(cdp, `[...document.querySelectorAll('#deviceGrid .device-name')]
+      .find((node) => node.textContent.includes('旧款空调')).click(); true`);
+    await waitFor(() => pageEval(cdp, `Boolean(document.querySelector('.empty-note'))`));
+    const noSpecDetail = await pageEval(cdp, `({
+      note: document.querySelector('.empty-note').textContent,
+      controls: document.querySelectorAll('#detailView .switch').length,
+    })`);
+    check('无规格设备进详情给出说明', noSpecDetail.note.includes('没有可读的规格'), noSpecDetail.note);
+    check('无规格设备不给控件', noSpecDetail.controls === 0, String(noSpecDetail.controls));
+    await pageEval(cdp, `document.querySelector('.back-btn').click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#detailView').hidden === true`));
+
     await pageEval(cdp, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`);
     await waitFor(() => pageEval(cdp,
       `window.__QUICK_CALLS__.some((item) => item.command === 'quick_hide')`));
@@ -608,10 +621,12 @@ const main = async () => {
     check('列表里按 Esc 收起面板', hideCalled === 1, String(hideCalled));
 
     // 方向键在网格里走位：两列时向下跳 2、向右跳 1，到头不越界。
+    // 从详情返回会记住刚看的那台，先把选中拨回第一行再测。
     const walk = await pageEval(cdp, `(() => {
       const selected = () => [...document.querySelectorAll('#deviceGrid .device')]
         .findIndex((node) => node.classList.contains('selected'));
       const key = (k) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      for (let i = 0; i < 8; i += 1) key('ArrowUp');
       const start = selected();
       key('ArrowRight');
       const right = selected();
@@ -624,8 +639,7 @@ const main = async () => {
       return { start, right, down, left, up };
     })()`);
     check('方向键按两列网格走位',
-      walk.right === walk.start + 1 && walk.down === walk.right + 2
-      && walk.left === walk.down - 1 && walk.up === walk.start,
+      walk.start === 0 && walk.right === 1 && walk.down === 3 && walk.left === 2 && walk.up === 0,
       JSON.stringify(walk));
 
     // 回车：有主开关的设备直接切开关，没有主开关的设备打开详情。

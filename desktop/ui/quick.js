@@ -28,6 +28,8 @@
     draft: { devices: [], scenes: [] },
     saving: false,
     specs: new Map(),
+    // 规格读完仍然缺的类型。详情靠它区分「还在读」和「确实没有」。
+    specsMissing: new Set(),
     profiles: new WeakMap(),
     values: new Map(),
     loading: false,
@@ -829,9 +831,10 @@
     if (!profile) {
       const note = document.createElement('div');
       note.className = 'empty-note';
-      note.textContent = device.spec_type
-        ? '正在读取设备规格…'
-        : '这台设备没有公开规格，无法在面板内控制。';
+      const unreadable = !device.spec_type || state.specsMissing.has(device.spec_type);
+      note.textContent = unreadable
+        ? '这台设备没有可读的规格，无法在面板内控制。'
+        : '正在读取设备规格…';
       box.append(note);
       return;
     }
@@ -908,7 +911,7 @@
   function render() {
     const detail = state.view === 'detail' && !state.editing && Boolean(state.detailDid);
     const hasDevices = Boolean(state.devices.length);
-    $('#deviceTools').hidden = state.editing || !hasDevices;
+    $('#deviceTools').hidden = detail || state.editing || !hasDevices;
     $('#envCard').hidden = detail;
     $('#deviceHead').hidden = detail;
     $('#deviceGrid').hidden = detail;
@@ -1007,6 +1010,7 @@
       }
 
       const types = [...new Set(state.devices.map((device) => device.spec_type).filter(Boolean))];
+      state.specsMissing = new Set();
       for (let offset = 0; offset < types.length; offset += SPEC_BATCH_SIZE) {
         const chunk = types.slice(offset, offset + SPEC_BATCH_SIZE);
         try {
@@ -1016,6 +1020,10 @@
           }
         } catch (_) {
           // 规格读取失败时设备仍可用于打开主窗口，面板不整块报错。
+        }
+        // 这一批里没拿回来的类型记下来，详情页才不会一直停在「正在读取」。
+        for (const type of chunk) {
+          if (!state.specs.has(type)) state.specsMissing.add(type);
         }
       }
 
