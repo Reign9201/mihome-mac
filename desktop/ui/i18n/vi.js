@@ -426,7 +426,6 @@ window.MihomeI18nData["vi"] = {
   "请先登录米家账号": "Đăng nhập tài khoản Mi Home trước",
   "读取失败：{0}": "Tải thất bại: {0}",
   "读取摄像头失败：": "Không đọc được camera:",
-  "跟随当前应用设置": "Thực hiện theo cài đặt ứng dụng hiện tại",
   "路摄像头取流失败": "Không thể truyền phát camera",
   "路远程画面已启动": "Màn hình từ xa đường được kích hoạt",
   "输入要播报的文字": "Văn bản cần đọc to",

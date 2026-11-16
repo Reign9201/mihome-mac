@@ -426,7 +426,6 @@ window.MihomeI18nData["fi"] = {
   "请先登录米家账号": "Kirjaudu ensin Mi Home -tilille",
   "读取失败：{0}": "Lataus epäonnistui: {0}",
   "读取摄像头失败：": "Kameran lukeminen epäonnistui:",
-  "跟随当前应用设置": "Seuraa nykyisiä sovellusasetuksia",
   "路摄像头取流失败": "Kameran suoratoisto epäonnistui",
   "路远程画面已启动": "Tien kaukosäätimen näyttö on aktivoitu",
   "输入要播报的文字": "Ääneen luettava teksti",

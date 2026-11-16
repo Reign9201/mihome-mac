@@ -426,7 +426,6 @@ window.MihomeI18nData["pt-PT"] = {
   "请先登录米家账号": "Faça login numa conta Mi Home primeiro",
   "读取失败：{0}": "Falha ao carregar: {0}",
   "读取摄像头失败：": "Falha ao ler a câmara:",
-  "跟随当前应用设置": "Siga as definições atuais do aplicativo",
   "路摄像头取流失败": "Falha ao transmitir a câmera",
   "路远程画面已启动": "O ecrã do controlo remoto da estrada está ativado",
   "输入要播报的文字": "Texto para ler em voz alta",

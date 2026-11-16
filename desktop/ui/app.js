@@ -76,7 +76,11 @@ function toast(message, error = false) {
 
 const state = {
   homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
-  page: 'overview', theme: localStorage.getItem('mihome-theme') || 'light',
+  page: 'overview',
+  // auto 表示跟随系统；这里存的是设置值，不是渲染后的明暗。
+  theme: ['light', 'dark'].includes(localStorage.getItem('mihome-theme'))
+    ? localStorage.getItem('mihome-theme')
+    : 'auto',
   density: localStorage.getItem('mihome-density') || 'comfortable',
   style: localStorage.getItem('mihome-style') === 'classic' ? 'classic' : 'modern',
   overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
@@ -5523,18 +5527,39 @@ async function logoutAccount() {
   setShellEnabled(state.loggedIn);
 }
 
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+// 设置值是 light / dark / auto 三态，渲染出来只有明和暗两种。auto 时取系统偏好。
+function resolvedTheme(theme) {
+  if (theme === 'light' || theme === 'dark') return theme;
+  return darkQuery.matches ? 'dark' : 'light';
+}
+
 function applyTheme(theme) {
-  state.theme = theme;
-  document.body.dataset.theme = theme;
-  localStorage.setItem('mihome-theme', theme);
+  state.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
+  const scheme = resolvedTheme(state.theme);
+  // data-theme 落在 <html> 上：body 上的话根滚动条和原生控件不跟着换色。
+  document.documentElement.dataset.theme = scheme;
+  document.body.dataset.theme = scheme;
+  // 让 color-scheme 跟着 <meta> 走；auto 时写回 light dark，交还给系统。
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (meta) meta.content = state.theme === 'auto' ? 'light dark' : state.theme;
+  if (state.theme === 'auto') localStorage.removeItem('mihome-theme');
+  else localStorage.setItem('mihome-theme', state.theme);
   const button = $('#btnTheme');
   if (button) {
-    button.innerHTML = uiIcon(theme === 'light' ? 'moon' : 'sun');
-    button.setAttribute('aria-label', theme === 'light' ? '切换到深色外观' : '切换到浅色外观');
-    button.title = theme === 'light' ? '切换到深色外观' : '切换到浅色外观';
+    button.innerHTML = uiIcon(scheme === 'light' ? 'moon' : 'sun');
+    const label = scheme === 'light' ? '切换到深色外观' : '切换到浅色外观';
+    button.setAttribute('aria-label', label);
+    button.title = label;
   }
   updateSettingsSelection();
 }
+
+// 只有跟随系统时才需要听系统变化；钉死明暗时这个监听什么也不做。
+darkQuery.addEventListener('change', () => {
+  if (state.theme === 'auto') applyTheme('auto');
+});
 
 function applyStyle(style) {
   state.style = style === 'classic' ? 'classic' : 'modern';
@@ -5843,7 +5868,9 @@ $('#btnMenuBar2').onclick = (event) => {
   event.stopPropagation();
   toggleQuickPanel();
 };
-$('#btnTheme').onclick = () => applyTheme(state.theme === 'light' ? 'dark' : 'light');
+// 标题栏按钮按当前渲染出来的明暗切换，所以每次点都会真的换色；
+// 至于回到「跟随系统」，放在设置里的三态选项里。
+$('#btnTheme').onclick = () => applyTheme(resolvedTheme(state.theme) === 'dark' ? 'light' : 'dark');
 $('#btnAddRoom').onclick = () => toast('房间由米家 App 管理；当前接口不支持在本机创建房间', true);
 $('#btnHud').onclick = () => toggleHud();
 $('#hudClose').onclick = () => toggleHud(false);

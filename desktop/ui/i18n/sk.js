@@ -426,7 +426,6 @@ window.MihomeI18nData["sk"] = {
   "请先登录米家账号": "Najprv sa prihláste do účtu Mi Home",
   "读取失败：{0}": "Načítanie zlyhalo: {0}",
   "读取摄像头失败：": "Nepodarilo sa prečítať fotoaparát:",
-  "跟随当前应用设置": "Postupujte podľa aktuálnych nastavení aplikácie",
   "路摄像头取流失败": "Streamovanie kamery zlyhalo",
   "路远程画面已启动": "Diaľková obrazovka cesty je aktivovaná",
   "输入要播报的文字": "Text na prečítanie nahlas",

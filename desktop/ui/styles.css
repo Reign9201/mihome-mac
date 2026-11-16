@@ -32,6 +32,13 @@
   --row-pad: 13px;
   --sidebar: 236px;
   --inspector: 384px;
+  color-scheme: light dark;
+}
+
+/* data-theme 落在 <html> 上，值是渲染后的明暗（「自动」时取系统当前偏好）。
+   这里把它写回根的 color-scheme，否则根滚动条和原生控件仍按系统偏好渲染；
+   深色那份在下面的 [data-theme="dark"] 块里，这里只补浅色。 */
+:root[data-theme="light"] {
   color-scheme: light;
 }
 

@@ -426,7 +426,6 @@ window.MihomeI18nData["id"] = {
   "请先登录米家账号": "Masuk ke akun Mi Home terlebih dahulu",
   "读取失败：{0}": "Gagal memuat: {0}",
   "读取摄像头失败：": "Gagal membaca kamera:",
-  "跟随当前应用设置": "Ikuti pengaturan aplikasi saat ini",
   "路摄像头取流失败": "Gagal melakukan streaming kamera",
   "路远程画面已启动": "Layar jarak jauh jalan diaktifkan",
   "输入要播报的文字": "Teks untuk dibacakan",

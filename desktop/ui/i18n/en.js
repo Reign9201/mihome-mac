@@ -426,7 +426,6 @@ window.MihomeI18nData["en"] = {
   "请先登录米家账号": "Sign in to a Mi Home account first",
   "读取失败：{0}": "Load failed: {0}",
   "读取摄像头失败：": "Failed to read camera:",
-  "跟随当前应用设置": "Follow current app settings",
   "路摄像头取流失败": "Failed to stream camera",
   "路远程画面已启动": "Road remote screen is activated",
   "输入要播报的文字": "Text to read aloud",

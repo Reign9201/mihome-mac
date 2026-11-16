@@ -44,12 +44,17 @@
     rebootTimer: null,
   };
 
+  // 主题设置由主窗口写入，可能是 light / dark，也可能没有值（跟随系统）。
+  // 面板只按最终明暗渲染，三种设置在这里收敛成两种。
   function applyTheme() {
-    const theme = localStorage.getItem(THEME_KEY);
-    if (theme === 'light' || theme === 'dark') {
-      document.documentElement.dataset.theme = theme;
-    }
+    const stored = localStorage.getItem(THEME_KEY);
+    const scheme = stored === 'light' || stored === 'dark'
+      ? stored
+      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = scheme;
   }
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
   function iconSvg(kind) {
     const icons = window.MiIcons?.icons || {};

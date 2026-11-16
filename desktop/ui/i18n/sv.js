@@ -426,7 +426,6 @@ window.MihomeI18nData["sv"] = {
   "请先登录米家账号": "Logga in på ett Mi Home-konto först",
   "读取失败：{0}": "Det gick inte att läsa in: {0}",
   "读取摄像头失败：": "Det gick inte att läsa kameran:",
-  "跟随当前应用设置": "Följ aktuella appinställningar",
   "路摄像头取流失败": "Det gick inte att streama kameran",
   "路远程画面已启动": "Vägfjärrskärmen är aktiverad",
   "输入要播报的文字": "Text att läsa upp",

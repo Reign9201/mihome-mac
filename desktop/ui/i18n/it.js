@@ -426,7 +426,6 @@ window.MihomeI18nData["it"] = {
   "请先登录米家账号": "Accedi prima a un account Mi Home",
   "读取失败：{0}": "Caricamento non riuscito: {0}",
   "读取摄像头失败：": "Impossibile leggere la fotocamera:",
-  "跟随当前应用设置": "Segui le impostazioni attuali dell'app",
   "路摄像头取流失败": "Impossibile eseguire lo streaming dalla videocamera",
   "路远程画面已启动": "La schermata del telecomando stradale è attivata",
   "输入要播报的文字": "Testo da leggere ad alta voce",

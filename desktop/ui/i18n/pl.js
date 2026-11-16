@@ -426,7 +426,6 @@ window.MihomeI18nData["pl"] = {
   "请先登录米家账号": "Najpierw zaloguj się na konto Mi Home",
   "读取失败：{0}": "Nie udało się wczytać: {0}",
   "读取摄像头失败：": "Nie udało się odczytać kamery:",
-  "跟随当前应用设置": "Postępuj zgodnie z bieżącymi ustawieniami aplikacji",
   "路摄像头取流失败": "Nie udało się przesłać strumieniowo z kamery",
   "路远程画面已启动": "Aktywowano zdalny ekran drogowy",
   "输入要播报的文字": "Tekst do odczytania",

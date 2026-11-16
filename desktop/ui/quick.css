@@ -15,7 +15,13 @@
   --switch-off: rgba(20, 20, 15, 0.16);
 }
 
+/* data-theme 是渲染后的明暗，钉住后原生控件的颜色要跟着走，不跟系统。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --surface: rgba(23, 23, 20, 0.92);
   --surface-2: rgba(255, 255, 255, 0.055);
   --ink: #f1eee4;

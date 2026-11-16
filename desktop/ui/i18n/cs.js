@@ -426,7 +426,6 @@ window.MihomeI18nData["cs"] = {
   "请先登录米家账号": "Nejprve se přihlaste k účtu Mi Home",
   "读取失败：{0}": "Načtení se nezdařilo: {0}",
   "读取摄像头失败：": "Fotoaparát se nepodařilo přečíst:",
-  "跟随当前应用设置": "Postupujte podle aktuálního nastavení aplikace",
   "路摄像头取流失败": "Streamování kamery se nezdařilo",
   "路远程画面已启动": "Je aktivována obrazovka dálkového ovládání",
   "输入要播报的文字": "Text k přečtení nahlas",

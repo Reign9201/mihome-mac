@@ -426,7 +426,6 @@ window.MihomeI18nData["de"] = {
   "请先登录米家账号": "Melden Sie sich zunächst bei einem Mi Home-Konto an",
   "读取失败：{0}": "Laden fehlgeschlagen: {0}",
   "读取摄像头失败：": "Kamera konnte nicht gelesen werden:",
-  "跟随当前应用设置": "Befolgen Sie die aktuellen App-Einstellungen",
   "路摄像头取流失败": "Kamera konnte nicht gestreamt werden",
   "路远程画面已启动": "Der Straßenfernbedienungsbildschirm ist aktiviert",
   "输入要播报的文字": "Text zum Vorlesen",

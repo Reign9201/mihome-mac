@@ -426,7 +426,6 @@ window.MihomeI18nData["nl"] = {
   "请先登录米家账号": "Meld u eerst aan bij een Mi Home-account",
   "读取失败：{0}": "Laden mislukt: {0}",
   "读取摄像头失败：": "Kan de camera niet lezen:",
-  "跟随当前应用设置": "Volg de huidige app-instellingen",
   "路摄像头取流失败": "Kan de camera niet streamen",
   "路远程画面已启动": "Het wegafstandsbedieningsscherm is geactiveerd",
   "输入要播报的文字": "Tekst om voor te lezen",

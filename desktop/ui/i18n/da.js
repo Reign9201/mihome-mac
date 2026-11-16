@@ -426,7 +426,6 @@ window.MihomeI18nData["da"] = {
   "请先登录米家账号": "Log først ind på en Mi Home-konto",
   "读取失败：{0}": "Indlæsning mislykkedes: {0}",
   "读取摄像头失败：": "Kunne ikke læse kamera:",
-  "跟随当前应用设置": "Følg de aktuelle appindstillinger",
   "路摄像头取流失败": "Kameraet kunne ikke streames",
   "路远程画面已启动": "Vejfjernbetjeningsskærmen er aktiveret",
   "输入要播报的文字": "Tekst der skal læses op",

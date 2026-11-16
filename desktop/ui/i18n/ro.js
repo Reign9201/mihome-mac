@@ -426,7 +426,6 @@ window.MihomeI18nData["ro"] = {
   "请先登录米家账号": "Conectați-vă mai întâi la un cont Mi Home",
   "读取失败：{0}": "Încărcarea a eșuat: {0}",
   "读取摄像头失败：": "Nu s-a putut citi camera:",
-  "跟随当前应用设置": "Urmați setările curente ale aplicației",
   "路摄像头取流失败": "Nu s-a putut transmite în flux camera",
   "路远程画面已启动": "Ecranul de la distanță de drum este activat",
   "输入要播报的文字": "Text de citit cu voce tare",

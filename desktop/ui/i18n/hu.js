@@ -426,7 +426,6 @@ window.MihomeI18nData["hu"] = {
   "请先登录米家账号": "Először jelentkezzen be egy Mi Home fiókba",
   "读取失败：{0}": "A betöltés sikertelen: {0}",
   "读取摄像头失败：": "Nem sikerült beolvasni a kamerát:",
-  "跟随当前应用设置": "Kövesse az alkalmazás aktuális beállításait",
   "路摄像头取流失败": "Nem sikerült streamelni a kamerát",
   "路远程画面已启动": "Az út távirányító képernyője aktiválva van",
   "输入要播报的文字": "Felolvasandó szöveg",

@@ -426,7 +426,6 @@ window.MihomeI18nData["tr"] = {
   "请先登录米家账号": "Önce bir Mi Home hesabında oturum açın",
   "读取失败：{0}": "Yüklenemedi: {0}",
   "读取摄像头失败：": "Kamera okunamadı:",
-  "跟随当前应用设置": "Mevcut uygulama ayarlarını takip edin",
   "路摄像头取流失败": "Kamera akışı gerçekleştirilemedi",
   "路远程画面已启动": "Yol uzak ekranı etkinleştirildi",
   "输入要播报的文字": "Sesli okunacak metin",
