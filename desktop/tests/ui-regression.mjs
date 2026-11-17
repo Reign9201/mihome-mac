@@ -1144,6 +1144,30 @@ try {
       `round ${round}: sequential stops collapsed into ${stopCoalescing.sent} camera_stop calls`,
     );
 
+    // 本地通道建不起来（后端报「不在同一局域网」）时必须自动落到远程，
+    // 不能停在空白宫格上。
+    await pageEval(cdp, `window.__MOCK_LOCAL_ERROR__ = '电脑和摄像头不在同一局域网，无法建立本地通道：mock-camera（192.168.31.200）'; true`);
+    const fallbackRemoteBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length`);
+    await click('#camLocalButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length > ${fallbackRemoteBefore}`,
+    ));
+    const localFallback = await pageEval(cdp, `({
+      hint: document.querySelector('#camHint')?.textContent || '',
+      remoteActive: state.remoteActive,
+    })`);
+    expect(
+      localFallback.remoteActive === true,
+      `round ${round}: local failure did not fall back to the remote channel`,
+    );
+    expect(
+      localFallback.hint.includes('远程'),
+      `round ${round}: local fallback gave no hint about the remote channel (${localFallback.hint})`,
+    );
+    await screenshot(`r${round}-20b-local-fallback-remote`);
+    await pageEval(cdp, `window.__MOCK_LOCAL_ERROR__ = null; true`);
+
     await click('#accountButton');
     await waitForSelector('#accountPop.open');
     const accountSwitcher = await pageEval(cdp, `({

@@ -534,6 +534,7 @@ export const mockSource = String.raw`
       if (command === 'run_scene') return null;
       if (command === 'list_cameras') return clone(accountCameras[activeUserId] || []);
       if (command === 'camera_start') {
+        if (window.__MOCK_LOCAL_ERROR__) throw new Error(window.__MOCK_LOCAL_ERROR__);
         return args.dids.map((did) => ({ id: did, url: 'http://127.0.0.1:9/mock.m3u8', host: 'local', prefer_mse: true, video_only: true }));
       }
       if (command === 'camera_remote_start') {
