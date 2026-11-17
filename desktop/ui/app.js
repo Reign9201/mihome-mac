@@ -4884,8 +4884,24 @@ async function startCameraSetNow(cameras, grid) {
     log.error('Camera', `本地画面启动失败：${error}`);
     if (generation !== undefined && generation !== state.cameraGeneration) return;
     await stopCameraNow('本地启动失败');
+    // 本地通道建不起来时不能把画面停在空白宫格。远程走中继、不受网段限制，
+    // 直接换成远程画面，和单画面「15 秒无首帧自动切远程」保持一致。
+    if (localErrorNeedsRemote(error)) {
+      log.warn('Camera', `本地通道不可用，改用远程画面：grid=${grid}`);
+      $('#camHint').textContent = '本地画面未出画，已自动切换远程';
+      toast('本地画面未出画，已自动切换远程');
+      // 当前还在 cameraQueue 里，直接调会把队列串成死锁，放到下一轮任务再切。
+      setTimeout(() => { startRemoteCameraSet(usable, grid); }, 0);
+      return;
+    }
     $('#camHint').textContent = `启动摄像头失败：${error}`;
   }
+}
+
+// 后端把「不在同一网段」和「没有局域网地址」都报成启动错误，这两种情况下
+// 本地通道都不会出画，只有远程能救回来。
+function localErrorNeedsRemote(error) {
+  return /同一局域网|局域网地址|没有 localip/.test(String(error));
 }
 
 function watchRemote(video, camera, onStall, generation) {
