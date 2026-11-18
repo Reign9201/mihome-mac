@@ -719,6 +719,7 @@ window.MihomeI18nData["en"] = {
   "启用模型": "enable model",
   "命令面板": "command panel",
   "回调路径": "Callback path",
+  "固定画面": "Fixed view",
   "在线设备": "Online devices",
   "在途请求": "In-flight requests",
   "复制令牌": "Copy token",

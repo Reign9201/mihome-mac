@@ -108,13 +108,10 @@ impl MissClient {
         self.conn.send_command(CMD_ENCODED, &encrypted)
     }
 
-    pub fn start_video(&self, quality: u8, audio: bool) -> Result<()> {
+    pub fn start_video(&self, quality: u8, audio: bool, channel: u32) -> Result<()> {
         self.send_encrypted(
             CMD_VIDEO_START,
-            &format!(
-                "{{\"videoquality\":{quality},\"enableaudio\":{}}}",
-                if audio { 1 } else { 0 }
-            ),
+            &video_start_payload(quality, audio, channel),
         )
     }
 
@@ -166,5 +163,37 @@ impl MissClient {
         }
         let command = u32::from_be_bytes([message[0], message[1], message[2], message[3]]);
         Some((command, message[4..].to_vec()))
+    }
+}
+
+/// 主镜头用 `videoquality`；双摄的副镜头改用 `videoquality2`，
+/// 主镜头以 -1 关闭。这与 go2rtc 的 MISS 实现一致。
+fn video_start_payload(quality: u8, audio: bool, channel: u32) -> String {
+    let audio = if audio { 1 } else { 0 };
+    if channel == 0 {
+        format!("{{\"videoquality\":{quality},\"enableaudio\":{audio}}}")
+    } else {
+        format!("{{\"videoquality\":-1,\"videoquality2\":{quality},\"enableaudio\":{audio}}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::video_start_payload;
+
+    #[test]
+    fn primary_channel_uses_videoquality() {
+        assert_eq!(
+            video_start_payload(2, true, 0),
+            "{\"videoquality\":2,\"enableaudio\":1}"
+        );
+    }
+
+    #[test]
+    fn secondary_channel_uses_videoquality2() {
+        assert_eq!(
+            video_start_payload(3, false, 1),
+            "{\"videoquality\":-1,\"videoquality2\":3,\"enableaudio\":0}"
+        );
     }
 }

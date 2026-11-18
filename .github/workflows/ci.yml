@@ -62,6 +62,9 @@ jobs:
         working-directory: desktop
         env:
           UI_REGRESSION_ROUNDS: 10
+      - name: Run dual-lens camera check
+        run: npm run test:dual
+        working-directory: desktop
       - name: Run 150-camera scale check
         run: npm run test:perf
         working-directory: desktop

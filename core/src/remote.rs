@@ -27,6 +27,7 @@ impl RemoteCamera {
         did: &str,
         quality: u8,
         audio: bool,
+        channel: u32,
         timeout: Duration,
     ) -> Result<Self> {
         let started = std::time::Instant::now();
@@ -36,7 +37,7 @@ impl RemoteCamera {
         app_log::info(
             "MISS",
             format!(
-                "请求远程通道：did={} quality={quality} audio={audio}",
+                "请求远程通道：did={} channel={channel} quality={quality} audio={audio}",
                 app_log::mask_id(did)
             ),
         );
@@ -81,7 +82,7 @@ impl RemoteCamera {
                 started.elapsed().as_millis()
             ),
         );
-        client.start_video(quality, audio)?;
+        client.start_video(quality, audio, channel)?;
         Ok(Self {
             client,
             vendor_id: vendor.vendor_id,

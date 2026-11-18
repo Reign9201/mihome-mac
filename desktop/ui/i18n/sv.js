@@ -719,6 +719,7 @@ window.MihomeI18nData["sv"] = {
   "启用模型": "aktivera modellen",
   "命令面板": "kommandopanelen",
   "回调路径": "Återuppringningsväg",
+  "固定画面": "Fast vy",
   "在线设备": "Onlineenheter",
   "在途请求": "Förfrågningar under flygning",
   "复制令牌": "Kopiera token",

@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
         .and_then(|value| value.parse().ok())
         .unwrap_or(30);
     let session = Session::restore()?.ok_or_else(|| anyhow::anyhow!("没有登录会话"))?;
-    let stream = RemoteStream::start(session, &did, quality, true)?;
+    let stream = RemoteStream::start(session, &did, quality, true, 0)?;
     println!("STREAM {}", stream.url());
     println!("WEBRTC {}", stream.webrtc_url());
     thread::sleep(Duration::from_secs(seconds));

@@ -1154,8 +1154,13 @@ async fn list_cameras(state: State<'_, Arc<AppState>>) -> Result<Vec<CameraDevic
     app_log::info(
         "Camera",
         format!(
-            "已读取 {} 台摄像头：在线 {}，带局域网地址 {}",
+            "已读取 {} 路摄像头（{} 台设备）：在线 {}，带局域网地址 {}",
             cameras.len(),
+            cameras
+                .iter()
+                .map(|camera| camera.physical_did.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
             cameras.iter().filter(|camera| camera.online).count(),
             cameras
                 .iter()
@@ -1170,9 +1175,12 @@ async fn list_cameras(state: State<'_, Arc<AppState>>) -> Result<Vec<CameraDevic
             cameras
                 .iter()
                 .map(|camera| format!(
-                    "{} did={} model={} ip={} online={}",
+                    "{} did={} physical={} channel={}/{} model={} ip={} online={}",
                     camera.name,
                     app_log::mask_id(&camera.did),
+                    app_log::mask_id(&camera.physical_did),
+                    camera.channel,
+                    camera.channel_count,
                     camera.model,
                     camera.ip.as_deref().unwrap_or("无"),
                     camera.online
@@ -1227,6 +1235,18 @@ async fn prune_remote_lock(state: &Arc<AppState>, did: &str) {
     {
         locks.remove(did);
     }
+}
+
+/// 取流身份拆回物理 did 与通道号。双摄用 `{physical}:ch{n}`，单摄的裸 did
+/// 直接透传为 `(did, 0)`。只认末尾的 `:ch{数字}`，物理 did 里含冒号也不会误伤。
+fn split_camera_did(did: &str) -> (&str, u32) {
+    let Some((physical, suffix)) = did.rsplit_once(":ch") else {
+        return (did, 0);
+    };
+    let Ok(channel) = suffix.parse::<u32>() else {
+        return (did, 0);
+    };
+    (physical, channel)
 }
 
 #[tauri::command]
@@ -1362,9 +1382,13 @@ async fn camera_remote_start(
 ) -> Result<CameraStream, String> {
     let state = state.inner().clone();
     let _account_lifecycle = state.account_lifecycle.read().await;
+    // `did` 是取流身份（双摄为 `{physical}:ch{n}`），云端只用物理 did。
+    let (physical_did, channel) = split_camera_did(&did);
+    let physical_did = physical_did.to_string();
     let start_lock = remote_lock(&state, &did).await;
     let start_guard = start_lock.lock().await;
-    let result = camera_remote_start_locked(&state, &did, quality, audio).await;
+    let result =
+        camera_remote_start_locked(&state, &did, &physical_did, channel, quality, audio).await;
     drop(start_guard);
     drop(start_lock);
     prune_remote_lock(&state, &did).await;
@@ -1374,13 +1398,15 @@ async fn camera_remote_start(
 async fn camera_remote_start_locked(
     state: &Arc<AppState>,
     did: &str,
+    physical_did: &str,
+    channel: u32,
     quality: Option<u8>,
     audio: Option<bool>,
 ) -> Result<CameraStream, String> {
     app_log::info(
         "Camera",
         format!(
-            "请求远程画面：did={} quality={} audio={}",
+            "请求远程画面：did={} channel={channel} quality={} audio={}",
             app_log::mask_id(did),
             quality.unwrap_or(2),
             audio.unwrap_or(false)
@@ -1400,6 +1426,7 @@ async fn camera_remote_start_locked(
         let mut map = state.remote_cameras.lock().await;
         let compatible = map.get(did).is_some_and(|stream| {
             stream.quality() == quality
+                && stream.channel() == channel
                 && stream.has_audio() == audio
                 && stream.health_reason().is_none()
         });
@@ -1425,7 +1452,7 @@ async fn camera_remote_start_locked(
         app_log::info(
             "Camera",
             format!(
-                "远程画面参数已变化，重建缓存：did={} quality={quality} audio={audio}",
+                "远程画面参数已变化，重建缓存：did={} channel={channel} quality={quality} audio={audio}",
                 app_log::mask_id(did)
             ),
         );
@@ -1465,14 +1492,20 @@ async fn camera_remote_start_locked(
     if local.is_some() {
         drop_off_runtime(local).await;
     }
-    let did_for_worker = did.to_string();
+    // 云端与 P2P 层使用物理 did；本地缓存与 UI 用取流身份。
+    let physical_did_for_worker = physical_did.to_string();
     let epoch_state = Arc::clone(state);
     let stream = tauri::async_runtime::spawn_blocking(move || {
         // A stop, a local start or another grid page bumps the epoch; give
         // up the relay handshake right away instead of finishing it.
-        RemoteStream::start_cancellable(session, &did_for_worker, quality, audio, || {
-            epoch_state.remote_camera_epoch.load(Ordering::SeqCst) != remote_generation
-        })
+        RemoteStream::start_cancellable(
+            session,
+            &physical_did_for_worker,
+            quality,
+            audio,
+            channel,
+            || epoch_state.remote_camera_epoch.load(Ordering::SeqCst) != remote_generation,
+        )
     })
     .await
     .map_err(error_text)?
@@ -2494,6 +2527,29 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MiHome Mac");
+}
+
+#[cfg(test)]
+mod camera_identity_tests {
+    use super::split_camera_did;
+
+    #[test]
+    fn bare_did_is_the_primary_lens() {
+        assert_eq!(split_camera_did("1178828157"), ("1178828157", 0));
+    }
+
+    #[test]
+    fn dual_lens_did_splits_into_physical_and_channel() {
+        assert_eq!(split_camera_did("1178828157:ch0"), ("1178828157", 0));
+        assert_eq!(split_camera_did("1178828157:ch1"), ("1178828157", 1));
+        assert_eq!(split_camera_did("a:b:ch2"), ("a:b", 2));
+    }
+
+    #[test]
+    fn malformed_suffix_stays_on_the_primary_channel() {
+        assert_eq!(split_camera_did("1178828157:ch"), ("1178828157:ch", 0));
+        assert_eq!(split_camera_did("1178828157:chx"), ("1178828157:chx", 0));
+    }
 }
 
 #[cfg(test)]

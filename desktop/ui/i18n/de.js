@@ -719,6 +719,7 @@ window.MihomeI18nData["de"] = {
   "启用模型": "Modell aktivieren",
   "命令面板": "Befehlsfeld",
   "回调路径": "Rückrufpfad",
+  "固定画面": "Festes Bild",
   "在线设备": "Online-Geräte",
   "在途请求": "Anfragen während des Fluges",
   "复制令牌": "Token kopieren",

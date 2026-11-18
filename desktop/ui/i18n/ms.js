@@ -719,6 +719,7 @@ window.MihomeI18nData["ms"] = {
   "启用模型": "membolehkan model",
   "命令面板": "panel arahan",
   "回调路径": "Laluan panggil balik",
+  "固定画面": "Paparan tetap",
   "在线设备": "Peranti dalam talian",
   "在途请求": "Permintaan dalam penerbangan",
   "复制令牌": "Salin token",

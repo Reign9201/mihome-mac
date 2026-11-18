@@ -391,7 +391,7 @@ impl MiCloud {
         };
         Ok(devices
             .into_iter()
-            .filter_map(|device| {
+            .flat_map(|device| {
                 let mut raw = device.raw.clone();
                 if let Some(info) = network.get(&device.did) {
                     if raw
@@ -413,6 +413,8 @@ impl MiCloud {
                     device.online,
                     &raw,
                 )
+                .map(crate::camera::expand_camera_channels)
+                .unwrap_or_default()
             })
             .collect())
     }

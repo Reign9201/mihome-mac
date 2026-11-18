@@ -39,7 +39,7 @@ fn main() -> Result<()> {
 
     let session = Session::restore()?.ok_or_else(|| anyhow!("没有已保存的登录 session"))?;
     println!("[probe] 建立远程通道 did={did} quality={quality} audio={audio}");
-    let stream = RemoteStream::start(session, &did, quality, audio)?;
+    let stream = RemoteStream::start(session, &did, quality, audio, 0)?;
     println!("[probe] 播放地址 {}", stream.url());
     println!("[probe] WebRTC 地址 {}", stream.webrtc_url());
 

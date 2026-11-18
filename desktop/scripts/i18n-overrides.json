@@ -250,7 +250,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} screen has not recovered, retrying in {1} s (attempt {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} The local screen could not be established. Confirm the computer and the camera are on the same local network, or switch to the remote screen",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Local screen auto-reconnection stopped after {0} consecutive failures: {1}",
-    "已有停止请求在执行，合并：{0}": "A stop request is already running, merging: {0}"
+    "已有停止请求在执行，合并：{0}": "A stop request is already running, merging: {0}",
+    "固定画面": "Fixed view"
   },
   "zh-Hant": {
     "设备": "裝置",
@@ -538,7 +539,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 畫面未恢復，{1} 秒後重試（第 {2}/{3} 次）",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 本地畫面無法建立，請確認電腦和攝影機在同一區域網路，或改用遠端畫面",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "本地畫面自動重連已停止：連續失敗 {0} 次：{1}",
-    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}"
+    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}",
+    "固定画面": "固定畫面"
   },
   "zh-HK": {
     "设备": "裝置",
@@ -826,7 +828,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 畫面未恢復，{1} 秒後重試（第 {2}/{3} 次）",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 本地畫面無法建立，請確認電腦和攝影機在同一區域網路，或改用遠端畫面",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "本地畫面自動重連已停止：連續失敗 {0} 次：{1}",
-    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}"
+    "已有停止请求在执行，合并：{0}": "已有停止請求在執行，合併：{0}",
+    "固定画面": "固定畫面"
   },
   "ja": {
     "设备": "デバイス",
@@ -1073,7 +1076,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 画面が復帰しません。{1} 秒後に再試行します（{2}/{3} 回目）",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} ローカル画面を確立できませんでした。パソコンとカメラが同じ LAN にあるか確認するか、リモート画面に切り替えてください",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "ローカル画面の自動再接続を停止しました：{0} 回連続で失敗：{1}",
-    "已有停止请求在执行，合并：{0}": "停止要求が実行中です。統合します：{0}"
+    "已有停止请求在执行，合并：{0}": "停止要求が実行中です。統合します：{0}",
+    "固定画面": "固定画面"
   },
   "ko": {
     "设备": "장치",
@@ -1320,7 +1324,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} 화면이 복구되지 않았습니다. {1}초 후 재시도합니다({2}/{3}회차)",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} 로컬 화면을 연결하지 못했습니다. 컴퓨터와 카메라가 같은 로컬 네트워크에 있는지 확인하거나 원격 화면으로 전환하세요",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "로컬 화면 자동 재연결을 중지했습니다: {0}회 연속 실패: {1}",
-    "已有停止请求在执行，合并：{0}": "이미 중지 요청이 실행 중입니다. 병합합니다: {0}"
+    "已有停止请求在执行，合并：{0}": "이미 중지 요청이 실행 중입니다. 병합합니다: {0}",
+    "固定画面": "고정 화면"
   },
   "de": {
     "设备": "Gerät",
@@ -1577,7 +1582,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} Bildschirm nicht wiederhergestellt, neuer Versuch in {1} s ({2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Der lokale Bildschirm konnte nicht aufgebaut werden. Prüfe, ob Computer und Kamera im selben lokalen Netzwerk sind, oder wechsle zum Remote-Bildschirm",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatische Wiederverbindung des lokalen Bildschirms gestoppt: {0} Fehlversuche in Folge: {1}",
-    "已有停止请求在执行，合并：{0}": "Es läuft bereits eine Stoppanforderung, wird zusammengeführt: {0}"
+    "已有停止请求在执行，合并：{0}": "Es läuft bereits eine Stoppanforderung, wird zusammengeführt: {0}",
+    "固定画面": "Festes Bild"
   },
   "fr": {
     "设备": "Appareil",
@@ -1833,7 +1839,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} l'écran n'est pas revenu, nouvelle tentative dans {1} s ({2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} L'écran local n'a pas pu être établi. Vérifiez que l'ordinateur et la caméra sont sur le même réseau local, ou passez à l'écran distant",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconnexion automatique de l'écran local arrêtée : {0} échecs consécutifs : {1}",
-    "已有停止请求在执行，合并：{0}": "Une demande d'arrêt est déjà en cours, fusion : {0}"
+    "已有停止请求在执行，合并：{0}": "Une demande d'arrêt est déjà en cours, fusion : {0}",
+    "固定画面": "Vue fixe"
   },
   "es": {
     "设备": "Dispositivo",
@@ -2088,7 +2095,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} la pantalla no se ha recuperado, reintentando en {1} s (intento {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} No se pudo establecer la pantalla local. Comprueba que el ordenador y la cámara estén en la misma red local, o cambia a la pantalla remota",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexión automática de la pantalla local detenida: {0} fallos consecutivos: {1}",
-    "已有停止请求在执行，合并：{0}": "Ya hay una solicitud de detención en curso, fusionando: {0}"
+    "已有停止请求在执行，合并：{0}": "Ya hay una solicitud de detención en curso, fusionando: {0}",
+    "固定画面": "Vista fija"
   },
   "pt-BR": {
     "设备": "Dispositivo",
@@ -2342,7 +2350,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} a tela não voltou, tentando novamente em {1} s (tentativa {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Não foi possível estabelecer a tela local. Confirme que o computador e a câmera estão na mesma rede local ou mude para a tela remota",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexão automática da tela local interrompida: {0} falhas consecutivas: {1}",
-    "已有停止请求在执行，合并：{0}": "Já existe uma solicitação de parada em execução, mesclando: {0}"
+    "已有停止请求在执行，合并：{0}": "Já existe uma solicitação de parada em execução, mesclando: {0}",
+    "固定画面": "Visão fixa"
   },
   "pt-PT": {
     "设备": "Dispositivo",
@@ -2597,7 +2606,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} o ecrã não recuperou, nova tentativa em {1} s (tentativa {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Não foi possível estabelecer o ecrã local. Confirme que o computador e a câmara estão na mesma rede local ou mude para o ecrã remoto",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconexão automática do ecrã local interrompida: {0} falhas consecutivas: {1}",
-    "已有停止请求在执行，合并：{0}": "Já existe um pedido de paragem em execução, a agregar: {0}"
+    "已有停止请求在执行，合并：{0}": "Já existe um pedido de paragem em execução, a agregar: {0}",
+    "固定画面": "Vista fixa"
   },
   "it": {
     "设备": "Dispositivo",
@@ -2851,7 +2861,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} schermata non ripristinata, nuovo tentativo tra {1} s ({2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Impossibile stabilire la schermata locale. Verifica che computer e telecamera siano sulla stessa rete locale oppure passa alla schermata remota",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Riconnessione automatica della schermata locale interrotta: {0} errori consecutivi: {1}",
-    "已有停止请求在执行，合并：{0}": "È già in corso una richiesta di arresto, unione: {0}"
+    "已有停止请求在执行，合并：{0}": "È già in corso una richiesta di arresto, unione: {0}",
+    "固定画面": "Vista fissa"
   },
   "nl": {
     "设备": "Apparaat",
@@ -3104,7 +3115,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} scherm is niet hersteld, nieuwe poging over {1} s (poging {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Het lokale scherm kon niet tot stand worden gebracht. Controleer of de computer en de camera in hetzelfde lokale netwerk zitten, of schakel over naar het externe scherm",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisch herverbinden van het lokale scherm gestopt: {0} mislukkingen op rij: {1}",
-    "已有停止请求在执行，合并：{0}": "Er loopt al een stopverzoek, wordt samengevoegd: {0}"
+    "已有停止请求在执行，合并：{0}": "Er loopt al een stopverzoek, wordt samengevoegd: {0}",
+    "固定画面": "Vast beeld"
   },
   "ru": {
     "设备": "Устройство",
@@ -3358,7 +3370,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} экран не восстановился, повтор через {1} с (попытка {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Не удалось установить локальный экран. Убедитесь, что компьютер и камера в одной локальной сети, или переключитесь на удалённый экран",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Автоматическое переподключение локального экрана остановлено: {0} неудач подряд: {1}",
-    "已有停止请求在执行，合并：{0}": "Запрос на остановку уже выполняется, объединяю: {0}"
+    "已有停止请求在执行，合并：{0}": "Запрос на остановку уже выполняется, объединяю: {0}",
+    "固定画面": "Фиксированный вид"
   },
   "uk": {
     "设备": "пристрій",
@@ -3614,7 +3627,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} екран не відновився, повтор через {1} с (спроба {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Не вдалося встановити локальний екран. Переконайтеся, що комп'ютер і камера в одній локальній мережі, або перемкніться на віддалений екран",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Автоматичне перепідключення локального екрана зупинено: {0} невдач поспіль: {1}",
-    "已有停止请求在执行，合并：{0}": "Запит на зупинку вже виконується, об'єдную: {0}"
+    "已有停止请求在执行，合并：{0}": "Запит на зупинку вже виконується, об'єдную: {0}",
+    "固定画面": "Фіксований вид"
   },
   "pl": {
     "设备": "Urządzenie",
@@ -3868,7 +3882,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ekran nie wrócił, ponowna próba za {1} s (próba {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Nie udało się ustanowić lokalnego ekranu. Sprawdź, czy komputer i kamera są w tej samej sieci lokalnej, albo przełącz na ekran zdalny",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatyczne ponowne łączenie lokalnego ekranu zatrzymane: {0} nieudanych prób z rzędu: {1}",
-    "已有停止请求在执行，合并：{0}": "Żądanie zatrzymania już trwa, scalanie: {0}"
+    "已有停止请求在执行，合并：{0}": "Żądanie zatrzymania już trwa, scalanie: {0}",
+    "固定画面": "Widok stały"
   },
   "cs": {
     "设备": "Zařízení",
@@ -4123,7 +4138,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} obrazovka se neobnovila, další pokus za {1} s (pokus {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Místní obrazovku se nepodařilo navázat. Ověřte, že počítač a kamera jsou ve stejné místní síti, nebo přepněte na vzdálenou obrazovku",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatické opětovné připojení místní obrazovky zastaveno: {0} neúspěchů v řadě: {1}",
-    "已有停止请求在执行，合并：{0}": "Žádost o zastavení již probíhá, slučuji: {0}"
+    "已有停止请求在执行，合并：{0}": "Žádost o zastavení již probíhá, slučuji: {0}",
+    "固定画面": "Pevný pohled"
   },
   "sk": {
     "设备": "Zariadenie",
@@ -4378,7 +4394,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} obrazovka sa neobnovila, ďalší pokus o {1} s (pokus {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Miestnu obrazovku sa nepodarilo nadviazať. Overte, že počítač a kamera sú v tej istej miestnej sieti, alebo prepnite na vzdialenú obrazovku",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatické opätovné pripojenie miestnej obrazovky zastavené: {0} neúspechov za sebou: {1}",
-    "已有停止请求在执行，合并：{0}": "Žiadosť o zastavenie už prebieha, zlučujem: {0}"
+    "已有停止请求在执行，合并：{0}": "Žiadosť o zastavenie už prebieha, zlučujem: {0}",
+    "固定画面": "Pevný pohľad"
   },
   "hu": {
     "设备": "Eszköz",
@@ -4626,7 +4643,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} a képernyő nem állt helyre, újrapróbálás {1} mp múlva ({2}/{3}. kísérlet)",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} A helyi képernyőt nem sikerült létrehozni. Ellenőrizze, hogy a számítógép és a kamera ugyanazon a helyi hálózaton van-e, vagy váltson távképernyőre",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "A helyi képernyő automatikus újracsatlakozása leállt: {0} egymást követő hiba: {1}",
-    "已有停止请求在执行，合并：{0}": "Már fut egy leállítási kérés, összevonás: {0}"
+    "已有停止请求在执行，合并：{0}": "Már fut egy leállítási kérés, összevonás: {0}",
+    "固定画面": "Rögzített kép"
   },
   "ro": {
     "设备": "Dispozitiv",
@@ -4880,7 +4898,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ecranul nu a revenit, se reîncearcă în {1} s (încercarea {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Ecranul local nu a putut fi stabilit. Verificați dacă computerul și camera sunt în aceeași rețea locală sau treceți la ecranul de la distanță",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconectarea automată a ecranului local a fost oprită: {0} eșecuri consecutive: {1}",
-    "已有停止请求在执行，合并：{0}": "O cerere de oprire rulează deja, se îmbină: {0}"
+    "已有停止请求在执行，合并：{0}": "O cerere de oprire rulează deja, se îmbină: {0}",
+    "固定画面": "Vedere fixă"
   },
   "el": {
     "设备": "Συσκευή",
@@ -5129,7 +5148,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} η οθόνη δεν επανήλθε, νέα προσπάθεια σε {1} δευτ. (προσπάθεια {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Δεν ήταν δυνατή η δημιουργία της τοπικής οθόνης. Ελέγξτε ότι ο υπολογιστής και η κάμερα βρίσκονται στο ίδιο τοπικό δίκτυο ή μεταβείτε στην απομακρυσμένη οθόνη",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Η αυτόματη επανασύνδεση της τοπικής οθόνης σταμάτησε: {0} διαδοχικές αποτυχίες: {1}",
-    "已有停止请求在执行，合并：{0}": "Υπάρχει ήδη αίτημα διακοπής σε εξέλιξη, συγχώνευση: {0}"
+    "已有停止请求在执行，合并：{0}": "Υπάρχει ήδη αίτημα διακοπής σε εξέλιξη, συγχώνευση: {0}",
+    "固定画面": "Σταθερή προβολή"
   },
   "tr": {
     "设备": "Cihaz",
@@ -5381,7 +5401,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} ekran geri gelmedi, {1} sn sonra yeniden denenecek ({2}/{3}. deneme)",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Yerel ekran kurulamadı. Bilgisayarın ve kameranın aynı yerel ağda olduğunu doğrulayın ya da uzak ekrana geçin",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Yerel ekran otomatik yeniden bağlanması durduruldu: {0} ardışık hata: {1}",
-    "已有停止请求在执行，合并：{0}": "Zaten çalışan bir durdurma isteği var, birleştiriliyor: {0}"
+    "已有停止请求在执行，合并：{0}": "Zaten çalışan bir durdurma isteği var, birleştiriliyor: {0}",
+    "固定画面": "Sabit görünüm"
   },
   "ar": {
     "设备": "الجهاز",
@@ -5635,7 +5656,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} لم تعد الشاشة، ستتم إعادة المحاولة خلال {1} ثانية (المحاولة {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} تعذّر إنشاء الشاشة المحلية. تأكد من أن الحاسوب والكاميرا على الشبكة المحلية نفسها، أو بدّل إلى الشاشة البعيدة",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "تم إيقاف إعادة الاتصال التلقائي بالشاشة المحلية: {0} إخفاقات متتالية: {1}",
-    "已有停止请求在执行，合并：{0}": "هناك طلب إيقاف قيد التنفيذ بالفعل، يتم الدمج: {0}"
+    "已有停止请求在执行，合并：{0}": "هناك طلب إيقاف قيد التنفيذ بالفعل، يتم الدمج: {0}",
+    "固定画面": "عرض ثابت"
   },
   "he": {
     "设备": "מכשיר",
@@ -5901,7 +5923,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} המסך לא התאושש, ניסיון חוזר בעוד {1} שנ׳ (ניסיון {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} לא ניתן היה להקים את המסך המקומי. ודא שהמחשב והמצלמה נמצאים באותה רשת מקומית, או עבור למסך המרוחק",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "החיבור מחדש האוטומטי של המסך המקומי הופסק: {0} כשלים רצופים: {1}",
-    "已有停止请求在执行，合并：{0}": "בקשת עצירה כבר פועלת, ממזג: {0}"
+    "已有停止请求在执行，合并：{0}": "בקשת עצירה כבר פועלת, ממזג: {0}",
+    "固定画面": "תצוגה קבועה"
   },
   "hi": {
     "设备": "युक्ति",
@@ -6155,7 +6178,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} स्क्रीन बहाल नहीं हुई, {1} सेकंड में पुनः प्रयास (प्रयास {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} स्थानीय स्क्रीन स्थापित नहीं हो सकी। जाँचें कि कंप्यूटर और कैमरा एक ही स्थानीय नेटवर्क पर हैं, या दूरस्थ स्क्रीन पर स्विच करें",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "स्थानीय स्क्रीन का स्वतः पुनः कनेक्शन रुका: लगातार {0} विफलताएँ: {1}",
-    "已有停止请求在执行，合并：{0}": "रोकने का अनुरोध पहले से चल रहा है, विलय किया जा रहा है: {0}"
+    "已有停止请求在执行，合并：{0}": "रोकने का अनुरोध पहले से चल रहा है, विलय किया जा रहा है: {0}",
+    "固定画面": "स्थिर दृश्य"
   },
   "th": {
     "设备": "อุปกรณ์",
@@ -6408,7 +6432,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} หน้าจอยังไม่กลับมา จะลองใหม่ใน {1} วินาที (ครั้งที่ {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} สร้างหน้าจอภายในเครื่องไม่สำเร็จ ตรวจสอบว่าคอมพิวเตอร์และกล้องอยู่ในเครือข่ายเดียวกัน หรือสลับไปที่หน้าจอระยะไกล",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "หยุดการเชื่อมต่อหน้าจอภายในเครื่องอัตโนมัติแล้ว: ล้มเหลวติดต่อกัน {0} ครั้ง: {1}",
-    "已有停止请求在执行，合并：{0}": "มีคำขอหยุดที่กำลังทำงานอยู่ รวมเป็นคำขอเดียว: {0}"
+    "已有停止请求在执行，合并：{0}": "มีคำขอหยุดที่กำลังทำงานอยู่ รวมเป็นคำขอเดียว: {0}",
+    "固定画面": "มุมมองคงที่"
   },
   "vi": {
     "设备": "Thiết bị",
@@ -6661,7 +6686,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} màn hình chưa phục hồi, thử lại sau {1} giây (lần {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Không thể thiết lập màn hình cục bộ. Hãy xác nhận máy tính và camera cùng một mạng nội bộ, hoặc chuyển sang màn hình từ xa",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Đã dừng tự động kết nối lại màn hình cục bộ: {0} lần thất bại liên tiếp: {1}",
-    "已有停止请求在执行，合并：{0}": "Đã có yêu cầu dừng đang chạy, đang gộp: {0}"
+    "已有停止请求在执行，合并：{0}": "Đã có yêu cầu dừng đang chạy, đang gộp: {0}",
+    "固定画面": "Khung hình cố định"
   },
   "id": {
     "设备": "Perangkat",
@@ -6914,7 +6940,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} layar belum pulih, mencoba lagi dalam {1} dtk (percobaan {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Layar lokal tidak dapat dibangun. Pastikan komputer dan kamera berada di jaringan lokal yang sama, atau beralih ke layar jarak jauh",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Penyambungan ulang otomatis layar lokal dihentikan: {0} kegagalan berturut-turut: {1}",
-    "已有停止请求在执行，合并：{0}": "Permintaan berhenti sudah berjalan, menggabungkan: {0}"
+    "已有停止请求在执行，合并：{0}": "Permintaan berhenti sudah berjalan, menggabungkan: {0}",
+    "固定画面": "Tampilan tetap"
   },
   "ms": {
     "设备": "Peranti",
@@ -7167,7 +7194,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skrin belum pulih, cuba lagi dalam {1} s (cubaan {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Skrin setempat tidak dapat diwujudkan. Pastikan komputer dan kamera berada pada rangkaian setempat yang sama, atau tukar ke skrin jauh",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Penyambungan semula automatik skrin setempat dihentikan: {0} kegagalan berturut-turut: {1}",
-    "已有停止请求在执行，合并：{0}": "Permintaan henti sudah berjalan, menggabungkan: {0}"
+    "已有停止请求在执行，合并：{0}": "Permintaan henti sudah berjalan, menggabungkan: {0}",
+    "固定画面": "Paparan tetap"
   },
   "ca": {
     "设备": "Dispositiu",
@@ -7420,7 +7448,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} la pantalla no s'ha recuperat, reintent en {1} s (intent {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} No s'ha pogut establir la pantalla local. Comprova que l'ordinador i la càmera són a la mateixa xarxa local, o canvia a la pantalla remota",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Reconnexió automàtica de la pantalla local aturada: {0} errors consecutius: {1}",
-    "已有停止请求在执行，合并：{0}": "Ja hi ha una sol·licitud d'aturada en curs, fusionant: {0}"
+    "已有停止请求在执行，合并：{0}": "Ja hi ha una sol·licitud d'aturada en curs, fusionant: {0}",
+    "固定画面": "Vista fixa"
   },
   "da": {
     "设备": "Enhed",
@@ -7672,7 +7701,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skærmen er ikke gendannet, prøver igen om {1} s (forsøg {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokale skærm kunne ikke oprettes. Kontrollér, at computeren og kameraet er på samme lokale netværk, eller skift til fjer nskærmen",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk genopkobling af den lokale skærm er stoppet: {0} fejl i træk: {1}",
-    "已有停止请求在执行，合并：{0}": "Der kører allerede en stopanmodning, sammenfletter: {0}"
+    "已有停止请求在执行，合并：{0}": "Der kører allerede en stopanmodning, sammenfletter: {0}",
+    "固定画面": "Fast visning"
   },
   "fi": {
     "设备": "Laite",
@@ -7925,7 +7955,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} näyttö ei palannut, yritetään uudelleen {1} s kuluttua (yritys {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Paikallista näyttöä ei saatu muodostettua. Varmista, että tietokone ja kamera ovat samassa lähiverkossa, tai vaihda etänäyttöön",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Paikallisen näytön automaattinen uudelleenyhdistäminen pysäytetty: {0} peräkkäistä epäonnistumista: {1}",
-    "已有停止请求在执行，合并：{0}": "Pysäytyspyyntö on jo käynnissä, yhdistetään: {0}"
+    "已有停止请求在执行，合并：{0}": "Pysäytyspyyntö on jo käynnissä, yhdistetään: {0}",
+    "固定画面": "Kiinteä näkymä"
   },
   "nb": {
     "设备": "Enhet",
@@ -8178,7 +8209,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skjermen er ikke gjenopprettet, prøver igjen om {1} s (forsøk {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokale skjermen kunne ikke etableres. Kontroller at datamaskinen og kameraet er på samme lokale nettverk, eller bytt til ekstern skjerm",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk gjenkobling av den lokale skjermen er stoppet: {0} feil på rad: {1}",
-    "已有停止请求在执行，合并：{0}": "Det kjører allerede en stoppforespørsel, slår sammen: {0}"
+    "已有停止请求在执行，合并：{0}": "Det kjører allerede en stoppforespørsel, slår sammen: {0}",
+    "固定画面": "Fast visning"
   },
   "sv": {
     "设备": "Enhet",
@@ -8432,7 +8464,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} skärmen har inte återställts, försöker igen om {1} s (försök {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Den lokala skärmen kunde inte upprättas. Kontrollera att datorn och kameran är på samma lokala nätverk, eller byt till fjärrskärmen",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Automatisk återanslutning av den lokala skärmen stoppades: {0} misslyckanden i rad: {1}",
-    "已有停止请求在执行，合并：{0}": "En stoppbegäran körs redan, slår ihop: {0}"
+    "已有停止请求在执行，合并：{0}": "En stoppbegäran körs redan, slår ihop: {0}",
+    "固定画面": "Fast vy"
   },
   "sr": {
     "设备": "Уређај",
@@ -8687,7 +8720,8 @@
     "{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）": "{0} екран се није вратио, нови покушај за {1} с (покушај {2}/{3})",
     "{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面": "{0} Локални екран није могао бити успостављен. Проверите да ли су рачунар и камера на истој локалној мрежи или пређите на удаљени екран",
     "本地画面自动重连已停止：连续失败 {0} 次：{1}": "Аутоматско поновно повезивање локалног екрана је заустављено: {0} узастопних неуспеха: {1}",
-    "已有停止请求在执行，合并：{0}": "Захтев за заустављање већ траје, спајам: {0}"
+    "已有停止请求在执行，合并：{0}": "Захтев за заустављање већ траје, спајам: {0}",
+    "固定画面": "Фиксни приказ"
   },
   "zh-Hans": {
     "界面风格": "界面风格",

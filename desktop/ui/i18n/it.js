@@ -719,6 +719,7 @@ window.MihomeI18nData["it"] = {
   "启用模型": "abilita il modello",
   "命令面板": "pannello di comando",
   "回调路径": "Percorso di richiamata",
+  "固定画面": "Vista fissa",
   "在线设备": "Dispositivi online",
   "在途请求": "Richieste in volo",
   "复制令牌": "Copia gettone",

@@ -664,14 +664,15 @@ function updateChrome() {
   const pageTitle = MihomeI18n?.t(PAGE_TITLES[state.page] || '总览') || PAGE_TITLES[state.page] || '总览';
   $('#windowTitle').textContent = `${room}${pageTitle} — ${home}`;
   const online = state.devices.filter((device) => device.online).length;
-  const localCameras = state.cameras.filter((camera) => camera.online && camera.ip).length;
-  const remoteCameras = state.cameras.filter((camera) => camera.online && !camera.ip).length;
+  const physicalCameras = primaryCameras();
+  const localCameras = physicalCameras.filter((camera) => camera.online && camera.ip).length;
+  const remoteCameras = physicalCameras.filter((camera) => camera.online && !camera.ip).length;
   const remote = remoteCameras ? ` · ${uiText('仅远程 {0}', [remoteCameras])}` : '';
   $('#statusPath').textContent = state.loggedIn
     ? uiText('在线 {0}/{1} · 本地摄像头 {2}{3}', [online, state.devices.length, localCameras, remote])
     : uiText('等待连接');
   setNavCount('devicesCount', state.devices.length);
-  setNavCount('cameraCountNav', state.cameras.length);
+  setNavCount('cameraCountNav', physicalCameras.length);
   updateCameraCount();
   $('#topnavCaption').textContent = localCameras
     ? uiText('本地摄像头可达：{0}', [localCameras])
@@ -895,7 +896,7 @@ function syncCameraPresence(devices) {
   const online = new Map(devices.map((device) => [device.did, Boolean(device.online)]));
   let changed = false;
   const cameras = state.cameras.map((camera) => {
-    const value = online.get(camera.did);
+    const value = online.get(cameraPhysicalDid(camera));
     if (value === undefined || value === camera.online) return camera;
     changed = true;
     return { ...camera, online: value };
@@ -1496,7 +1497,9 @@ function inlineDeviceSwitch(device, def) {
 }
 
 function openCameraDevice(device) {
-  const camera = state.cameras.find((item) => item.did === device.did);
+  const camera = state.cameras.find(
+    (item) => cameraPhysicalDid(item) === device.did && isPrimaryLens(item),
+  ) || state.cameras.find((item) => cameraPhysicalDid(item) === device.did);
   if (camera) {
     state.selectedCameraDid = camera.did;
     showCameras();
@@ -2112,7 +2115,7 @@ function overviewCameraCard(camera) {
     el('span', 'cam-thumb-badge', camera.online ? 'LIVE' : 'OFFLINE'),
   );
   const info = el('div', 'overview-cam-info');
-  info.append(el('strong', '', camera.name));
+  info.append(el('strong', '', cameraDisplayName(camera)));
   info.append(el('span', '', camera.ip ? '局域网可达' : '仅远程通道'));
   button.append(art, info);
   button.onclick = () => {
@@ -2159,7 +2162,8 @@ function renderOverview(preserveScroll = false) {
   const temperature = Number(sensorValues.temperature);
   const humidity = Number(sensorValues.humidity);
   const online = state.devices.filter((device) => device.online).length;
-  const localCameras = state.cameras.filter((camera) => camera.online && camera.ip).length;
+  const physicalCameras = primaryCameras();
+  const localCameras = physicalCameras.filter((camera) => camera.online && camera.ip).length;
   const title = state.roomFilter === 'all'
     ? greeting()
     : groups.find((group) => group.id === state.roomFilter)?.name || greeting();
@@ -2196,7 +2200,7 @@ function renderOverview(preserveScroll = false) {
       </div>
       <div class="metric">
         <div class="metric-label">${uiIcon('camera')} 本地监控</div>
-        <div class="metric-value">${localCameras}<small>/ ${state.cameras.length}</small></div>
+        <div class="metric-value">${localCameras}<small>/ ${physicalCameras.length}</small></div>
         <div class="metric-foot ${localCameras ? 'good' : ''}">${localCameras ? '局域网可达' : '等待本地连接'}</div>
       </div>
       <div class="metric">
@@ -2228,13 +2232,13 @@ function renderOverview(preserveScroll = false) {
     const cams = el('section', 'overview-cams');
     const head = el('div', 'overview-cams-head');
     const copy = el('div');
-    copy.append(el('div', 'eyebrow', '实时监控'), el('h3', '', uiText('摄像头：{0}', [state.cameras.length])));
+    copy.append(el('div', 'eyebrow', '实时监控'), el('h3', '', uiText('摄像头：{0}', [primaryCameras().length])));
     const openAll = el('button', 'text-btn', '打开监控台');
     openAll.type = 'button';
     openAll.onclick = showCameras;
     head.append(copy, openAll);
     const grid = el('div', 'overview-cam-grid');
-    for (const camera of state.cameras.slice(0, 3)) grid.append(overviewCameraCard(camera));
+    for (const camera of primaryCameras().slice(0, 3)) grid.append(overviewCameraCard(camera));
     cams.append(head, grid);
     box.append(cams);
   }
@@ -4045,7 +4049,7 @@ async function loadCameras(options = {}) {
     if (request !== state.camerasRequest) return;
     const changed = !background || JSON.stringify(cameras) !== JSON.stringify(state.cameras);
     state.cameras = cameras;
-    setNavCount('cameraCount', state.cameras.length);
+    setNavCount('cameraCount', primaryCameras().length);
     if (changed) {
       log.info('Camera', `摄像头列表已加载：${cameras.length} 台`);
       renderCameras();
@@ -4073,13 +4077,39 @@ function deviceSearchText(device) {
 }
 
 function cameraSearchText(camera, devices) {
-  const device = devices.get(camera.did);
-  const parts = [camera.name, camera.model || '', camera.ip || '', device ? roomName(device) : ''];
+  const device = devices.get(cameraPhysicalDid(camera));
+  const parts = [
+    camera.name,
+    camera.model || '',
+    camera.ip || '',
+    device ? roomName(device) : '',
+    isPrimaryLens(camera) ? '' : uiText('固定画面'),
+  ];
   return window.MiPinyin?.searchable(parts) ?? parts.join(' ').toLowerCase();
 }
 
 function cameraQuery() {
   return state.cameraQuery.trim().toLowerCase();
+}
+
+// 多摄设备在列表里按通道展开，did 是取流身份；云端与设备信息仍用物理 did。
+function cameraPhysicalDid(camera) {
+  return camera.physical_did || camera.did;
+}
+
+function isPrimaryLens(camera) {
+  return !camera.channel;
+}
+
+function cameraDisplayName(camera) {
+  return isPrimaryLens(camera)
+    ? camera.name
+    : `${camera.name} · ${uiText('固定画面')}`;
+}
+
+// 顶部计数和总览按物理设备统计；监控页与宫格按实际取流路数统计。
+function primaryCameras() {
+  return state.cameras.filter(isPrimaryLens);
 }
 
 function devicesByDid() {
@@ -4155,7 +4185,7 @@ function renderCameras() {
       state.selectedCameraDid = camera.did;
       markSelectedCamera();
       if (state.selectedCameraDid === camera.did) {
-        $('#camEmpty').textContent = `已选择 ${camera.name}，点击“本地”或“远程”打开。`;
+        $('#camEmpty').textContent = `已选择 ${cameraDisplayName(camera)}，点击“本地”或“远程”打开。`;
         updateCameraStage(camera, null, false);
       }
     };
@@ -4172,7 +4202,7 @@ function renderCameras() {
     );
     card.append(art);
     const copy = el('div', 'cam-card-info');
-    copy.append(el('strong', '', camera.name));
+    copy.append(el('strong', '', cameraDisplayName(camera)));
     copy.append(el('span', '', camera.ip ? `局域网 · ${camera.ip}` : '远程通道'));
     copy.title = camera.model;
     card.append(copy);
@@ -4226,7 +4256,7 @@ function applyCameraPresence(changedDids) {
   let touched = 0;
   for (const card of $('#camList').querySelectorAll('.cam-card')) {
     const camera = byDid.get(card.dataset.did);
-    if (!camera || !changedDids.has(camera.did)) continue;
+    if (!camera || !changedDids.has(cameraPhysicalDid(camera))) continue;
     touched += 1;
     card.classList.toggle('offline', !camera.online);
     const dot = card.querySelector('.live-dot');
@@ -4242,11 +4272,12 @@ function applyCameraPresence(changedDids) {
 
 function updateCameraStage(camera, stream, remote) {
   if (!camera) return;
-  $('#camTitle').textContent = camera.name;
-  const cameraDevice = state.devices.find((device) => device.did === camera.did);
+  $('#camTitle').textContent = cameraDisplayName(camera);
+  const cameraDevice = state.devices.find((device) => device.did === cameraPhysicalDid(camera));
   const cameraFallback = MihomeI18n?.t('摄像头') || '摄像头';
   const modelFallback = MihomeI18n?.t('米家摄像头') || '米家摄像头';
-  $('#camSubtitle').textContent = `${cameraDevice ? roomName(cameraDevice) : cameraFallback} · ${camera.model || modelFallback}`;
+  const lensLabel = isPrimaryLens(camera) ? '' : ` · ${uiText('固定画面')}`;
+  $('#camSubtitle').textContent = `${cameraDevice ? roomName(cameraDevice) : cameraFallback} · ${camera.model || modelFallback}${lensLabel}`;
   $('#camSpec').textContent = camera.ip ? '局域网通道' : '远程通道';
   $('#camLatency').textContent = remote ? '远程' : camera.ip ? '本地' : '等待连接';
   $('#camTransport').textContent = stream ? '通道已建立' : '未连接';
@@ -4255,7 +4286,7 @@ function updateCameraStage(camera, stream, remote) {
   $('#camLivePill').classList.toggle('replay', !camera.online);
   $('#camLivePill').innerHTML = `<i></i>${camera.online ? 'LIVE' : 'OFFLINE'}`;
   const ptz = $('#camPtzOverlay');
-  const supportsPtz = !String(camera.model || '').includes('039a01');
+  const supportsPtz = isPrimaryLens(camera) && !String(camera.model || '').includes('039a01');
   ptz.hidden = !remote || !supportsPtz;
   ptz.setAttribute('aria-hidden', String(ptz.hidden));
   for (const button of ptz.querySelectorAll('[data-ptz-dir]')) {
@@ -4350,7 +4381,7 @@ async function startRemoteCameraSetNow(cameras, grid) {
   $('#camEmpty').hidden = false;
   $('#camEmpty').textContent = '正在连接远程画面…首次约 10–20 秒';
   const selected = grid ? usable.slice(0, MAX_REMOTE_STREAMS) : usable;
-  $('#camHint').textContent = grid ? `正在建立 ${selected.length} 路远程画面` : `正在建立远程通道：${usable[0].name}`;
+  $('#camHint').textContent = grid ? `正在建立 ${selected.length} 路远程画面` : `正在建立远程通道：${cameraDisplayName(usable[0])}`;
   $('#camGridToggle').textContent = grid ? '单画面' : '宫格';
   updateCameraGridPager();
 
@@ -4364,7 +4395,7 @@ async function startRemoteCameraSetNow(cameras, grid) {
     for (const camera of selected) {
       const tile = el('div', 'cam-tile');
       bindGridTile(tile, camera, true);
-      tile.append(el('span', 'cam-tile-title', camera.name));
+      tile.append(el('span', 'cam-tile-title', cameraDisplayName(camera)));
       const status = el('span', 'cam-tile-status', '正在连接…');
       tile.append(status);
       $('#camGrid').append(tile);
@@ -4386,7 +4417,7 @@ async function startRemoteCameraSetNow(cameras, grid) {
       // Prewarm audio on its own low-latency channel. Playback stays muted
       // until the user enables it, so toggling sound never rebuilds video.
       const stream = await invoke('camera_remote_start', {
-        did: camera.did, quality: 1, audio: !grid,
+        did: camera.did, quality: 1, audio: !grid && isPrimaryLens(camera),
       });
       if (generation !== state.cameraGeneration) return null;
       state.cameraStreams = [
@@ -4503,9 +4534,11 @@ async function finishRemoteCameraSet(starts, { generation, grid, selected, failu
 
 async function setCameraProp(camera, def, value) {
   try {
-    await invoke('set_property', { did: camera.did, siid: def.siid, piid: def.piid, value });
-    state.cardProps.set(propKey(camera.did, def.siid, def.piid), value);
-    refreshDeviceCard(camera);
+    const physicalDid = cameraPhysicalDid(camera);
+    await invoke('set_property', { did: physicalDid, siid: def.siid, piid: def.piid, value });
+    state.cardProps.set(propKey(physicalDid, def.siid, def.piid), value);
+    const device = state.devices.find((item) => item.did === physicalDid);
+    if (device) refreshDeviceCard(device);
     log.info('Camera', `设置已提交：${camera.name} ${def.label}=${value}`);
     return true;
   } catch (error) {
@@ -4526,10 +4559,11 @@ async function renderCameraControls(camera, remote) {
   }
   box.hidden = false;
   box.replaceChildren();
-  const supportsPtz = !String(camera.model || '').includes('039a01');
+  const supportsPtz = isPrimaryLens(camera) && !String(camera.model || '').includes('039a01');
 
   const video = $('#camVideo');
-  {
+  // 双摄的固定镜头没有麦克风，声音开关只对主镜头显示。
+  if (isPrimaryLens(camera)) {
     const sound = el('div', 'cam-settings');
     const soundRow = el('div', 'cam-control');
     soundRow.append(el('span', '', '声音'));
@@ -4615,7 +4649,7 @@ async function renderCameraControls(camera, remote) {
     def.type === 'toggle' || def.type === 'segments' || def.type === 'range');
   const requests = controls
     .filter((def) => def.readable !== false)
-    .map((def) => ({ did: camera.did, siid: def.siid, piid: def.piid }));
+    .map((def) => ({ did: cameraPhysicalDid(camera), siid: def.siid, piid: def.piid }));
   let values = new Map();
   log.info('Camera', `渲染控制项：${camera.name} controls=${controls.length} remote=${remote}`);
   if (requests.length) {
@@ -4625,9 +4659,9 @@ async function renderCameraControls(camera, remote) {
         || generation !== state.cameraGeneration
         || state.activeCamera?.did !== camera.did) return;
       for (const item of Array.isArray(result) ? result : []) {
-        if (!item || item.did !== camera.did || (item.code && item.code !== 0)) continue;
+        if (!item || item.did !== cameraPhysicalDid(camera) || (item.code && item.code !== 0)) continue;
         values.set(`${item.siid}:${item.piid}`, item.value);
-        state.cardProps.set(propKey(camera.did, item.siid, item.piid), item.value);
+        state.cardProps.set(propKey(cameraPhysicalDid(camera), item.siid, item.piid), item.value);
       }
     } catch (error) {
       log.error('Camera', `读取摄像头设置失败：${camera.name} ${error}`);
@@ -4713,7 +4747,7 @@ async function diagnoseLocalTimeout(camera, video, generation) {
 // Clicking a grid tile opens that camera alone over the same transport.
 function bindGridTile(tile, camera, remote) {
   tile.classList.add('openable');
-  tile.title = camera.name;
+  tile.title = cameraDisplayName(camera);
   tile.tabIndex = 0;
   const open = () => {
     state.selectedCameraDid = camera.did;
@@ -4812,7 +4846,7 @@ async function startCameraSetNow(cameras, grid) {
         const camera = usable.find((item) => item.did === stream.id);
         const tile = el('div', 'cam-tile');
         if (camera) bindGridTile(tile, camera, false);
-        tile.append(el('span', 'cam-tile-title', camera?.name || stream.id));
+        tile.append(el('span', 'cam-tile-title', camera ? cameraDisplayName(camera) : stream.id));
         const video = document.createElement('video');
         video.autoplay = true;
         video.muted = true;
@@ -5008,7 +5042,7 @@ async function restartRemoteCamera(camera, video, generation) {
     await new Promise((resolve) => setTimeout(resolve, 1200));
     if (generation !== state.cameraGeneration) return;
     const stream = await invoke('camera_remote_start', {
-      did: camera.did, quality: 1, audio: !state.cameraGrid,
+      did: camera.did, quality: 1, audio: !state.cameraGrid && isPrimaryLens(camera),
     });
     if (generation !== state.cameraGeneration) return;
     state.cameraStreams = state.cameraStreams.map((item) => item.id === camera.did ? stream : item);
@@ -5396,6 +5430,8 @@ function updateCameraToolState() {
   const soundOn = Boolean(camera && state.remoteAudio.get(camera.did));
   pause.classList.toggle('active', state.cameraPaused);
   sound.classList.toggle('active', soundOn);
+  // 固定镜头没有麦克风，工具条上的声音按钮一并禁用。
+  sound.disabled = Boolean(camera && !isPrimaryLens(camera));
   pause.innerHTML = `${uiIcon(state.cameraPaused ? 'play' : 'pause')}${state.cameraPaused ? '继续' : '暂停'}`;
   sound.innerHTML = `${uiIcon('volume')}${soundOn ? '静音' : '声音'}`;
 }
@@ -5448,7 +5484,7 @@ $('#camSnapshot').onclick = () => {
     const link = document.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     link.href = url;
-    link.download = `${camera.name.replace(/[\\/:*?"<>|]/g, '-')}-${stamp}.png`;
+    link.download = `${cameraDisplayName(camera).replace(/[\\/:*?"<>|]/g, '-')}-${stamp}.png`;
     link.hidden = true;
     document.body.append(link);
     link.click();

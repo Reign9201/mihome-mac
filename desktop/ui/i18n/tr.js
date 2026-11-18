@@ -719,6 +719,7 @@ window.MihomeI18nData["tr"] = {
   "启用模型": "modeli etkinleştir",
   "命令面板": "komut paneli",
   "回调路径": "Geri arama yolu",
+  "固定画面": "Sabit görünüm",
   "在线设备": "Çevrimiçi cihazlar",
   "在途请求": "Uçuş sırasındaki talepler",
   "复制令牌": "Jetonu kopyala",

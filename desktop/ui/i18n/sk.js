@@ -719,6 +719,7 @@ window.MihomeI18nData["sk"] = {
   "启用模型": "povoliť model",
   "命令面板": "príkazový panel",
   "回调路径": "Cesta spätného volania",
+  "固定画面": "Pevný pohľad",
   "在线设备": "Online zariadenia",
   "在途请求": "Žiadosti počas letu",
   "复制令牌": "Kopírovať token",

@@ -719,6 +719,7 @@ window.MihomeI18nData["ro"] = {
   "启用模型": "activați modelul",
   "命令面板": "panoul de comandă",
   "回调路径": "Calea de apel invers",
+  "固定画面": "Vedere fixă",
   "在线设备": "Dispozitive online",
   "在途请求": "Cereri în timpul zborului",
   "复制令牌": "Token de copiere",

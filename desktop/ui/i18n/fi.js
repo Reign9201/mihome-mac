@@ -719,6 +719,7 @@ window.MihomeI18nData["fi"] = {
   "启用模型": "enable model",
   "命令面板": "command panel",
   "回调路径": "Takaisinsoittopolku",
+  "固定画面": "Kiinteä näkymä",
   "在线设备": "Verkkolaitteet",
   "在途请求": "Lennon aikana tehdyt pyynnöt",
   "复制令牌": "Kopioi tunnus",

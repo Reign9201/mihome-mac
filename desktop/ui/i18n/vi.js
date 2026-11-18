@@ -719,6 +719,7 @@ window.MihomeI18nData["vi"] = {
   "启用模型": "kích hoạt mô hình",
   "命令面板": "bảng lệnh",
   "回调路径": "Đường dẫn gọi lại",
+  "固定画面": "Khung hình cố định",
   "在线设备": "Thiết bị trực tuyến",
   "在途请求": "Yêu cầu trên chuyến bay",
   "复制令牌": "Sao chép mã thông báo",

@@ -40,14 +40,54 @@ static VERIFIED_BINARIES: OnceLock<Mutex<std::collections::HashSet<VerifiedBinar
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraDevice {
+    /// 取流身份。单摄沿用物理 did；多摄展开为 `{physical_did}:ch{n}`。
     pub did: String,
+    /// 云端使用的物理 did，双摄的两路共用同一个值。
+    #[serde(default)]
+    pub physical_did: String,
     pub name: String,
     pub model: String,
     pub ip: Option<String>,
     pub online: bool,
     pub subtype: String,
+    /// 镜头通道号：0 为主镜头，1 为双摄的固定镜头。
     pub channel: u32,
+    /// 该物理设备的镜头数。单摄为 1，双摄为 2。
+    #[serde(default = "default_channel_count")]
+    pub channel_count: u32,
     pub spec_type: Option<String>,
+}
+
+fn default_channel_count() -> u32 {
+    1
+}
+
+/// 小米官方 `camera_extra_info.yaml` 中声明 `channel_count: 2` 的机型。
+/// `/home/home_device_list` 不返回通道数，官方 SDK 同样用这张静态表补齐。
+const DUAL_LENS_MODELS: &[&str] = &[
+    "chuangmi.camera.068ac1",
+    "chuangmi.camera.111ac1",
+    "chuangmi.camera.72ac1",
+    "isa.camera.cw501d",
+    "isa.camera.hlmax",
+    "mxiang.camera.c500ch",
+    "xiaomi.camera.082ac1",
+];
+
+fn camera_channel_count(model: &str, raw: &serde_json::Value) -> u32 {
+    let reported = raw
+        .get("channel_count")
+        .or_else(|| raw.get("channelCount"))
+        .and_then(serde_json::Value::as_u64)
+        .filter(|value| *value > 0)
+        .map(|value| value.min(8) as u32);
+    // 已知双摄机型以官方表为准；云端即使误报 1 也不能把第二路吞掉。
+    // 未知机型如果云端明确给出多通道，则按云端值展开。
+    if DUAL_LENS_MODELS.contains(&model) {
+        reported.filter(|value| *value > 2).unwrap_or(2)
+    } else {
+        reported.unwrap_or(1)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,7 +201,11 @@ impl Go2Rtc {
                 "电脑和摄像头不在同一局域网，无法建立本地通道：{}",
                 cameras
                     .iter()
-                    .map(|camera| format!("{}（{}）", camera.name, camera.ip.as_deref().unwrap_or("无地址")))
+                    .map(|camera| format!(
+                        "{}（{}）",
+                        camera.name,
+                        camera.ip.as_deref().unwrap_or("无地址")
+                    ))
                     .collect::<Vec<_>>()
                     .join("；")
             ));
@@ -880,7 +924,7 @@ fn cameras_yaml(
             "xiaomi://{}:cn@{}?did={}&model={}&subtype={}&channel={}",
             user_id,
             ip,
-            camera.did,
+            physical_did(camera),
             camera.model,
             local_stream_subtype(),
             camera.channel
@@ -912,6 +956,14 @@ fn cameras_yaml(
         streams
     );
     Ok(yaml)
+}
+
+fn physical_did(camera: &CameraDevice) -> &str {
+    if camera.physical_did.is_empty() {
+        &camera.did
+    } else {
+        &camera.physical_did
+    }
 }
 
 fn local_stream_subtype() -> String {
@@ -1520,6 +1572,7 @@ pub fn camera_from_raw(
         .filter(|value| !value.is_empty())
         .unwrap_or("hd")
         .to_string();
+    let channel_count = camera_channel_count(&model, raw);
     let channel = raw
         .get("channel")
         .and_then(serde_json::Value::as_u64)
@@ -1532,6 +1585,7 @@ pub fn camera_from_raw(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     Some(CameraDevice {
+        physical_did: did.clone(),
         did,
         name,
         model,
@@ -1539,13 +1593,37 @@ pub fn camera_from_raw(
         online,
         subtype,
         channel,
+        channel_count,
         spec_type,
     })
 }
 
+/// 双摄在协议里是一台设备加两个视频通道。这里按通道拆成独立条目，
+/// 用 `{did}:ch{n}` 与单摄的裸 did 区分；单摄保持原样。
+pub fn expand_camera_channels(camera: CameraDevice) -> Vec<CameraDevice> {
+    if camera.channel_count <= 1 {
+        return vec![camera];
+    }
+    let physical = if camera.physical_did.is_empty() {
+        camera.did.clone()
+    } else {
+        camera.physical_did.clone()
+    };
+    (0..camera.channel_count)
+        .map(|channel| CameraDevice {
+            did: format!("{physical}:ch{channel}"),
+            physical_did: physical.clone(),
+            channel,
+            channel_count: camera.channel_count,
+            ..camera.clone()
+        })
+        .collect()
+}
+
 fn go2rtc_channel(raw_channel: u64) -> u32 {
-    // Xiaomi device lists use channel 1 for the primary lens. go2rtc uses
-    // channel 0 for the primary stream and channel 2 for a second lens.
+    // Xiaomi device lists use channel 1 for the primary lens. go2rtc treats
+    // zero/empty as the primary stream and any non-zero value as the secondary
+    // lens (videoquality2), so the primary must be normalized to 0.
     if raw_channel <= 1 {
         0
     } else {
@@ -1733,12 +1811,14 @@ mod tests {
     fn camera_config_uses_primary_channel() {
         let camera = CameraDevice {
             did: "1178828157".into(),
+            physical_did: "1178828157".into(),
             name: "摄像头".into(),
             model: "chuangmi.camera.069a01".into(),
             ip: Some("192.168.31.150".into()),
             online: true,
             subtype: "hd".into(),
             channel: 0,
+            channel_count: 1,
             spec_type: None,
         };
         let yaml = cameras_yaml(&[camera], "20373857", "secret", false).unwrap();
@@ -1747,23 +1827,138 @@ mod tests {
         assert!(yaml.contains("subtype=sd"));
     }
 
+    #[test]
+    fn dual_lens_models_expand_into_two_channels() {
+        let camera = camera_from_raw(
+            "1053392676".into(),
+            "CW500 双摄".into(),
+            "isa.camera.hlmax".into(),
+            true,
+            &serde_json::json!({"localip": "192.168.31.150"}),
+        )
+        .unwrap();
+        assert_eq!(camera.channel_count, 2);
+        let lenses = expand_camera_channels(camera);
+        assert_eq!(lenses.len(), 2);
+        assert_eq!(lenses[0].did, "1053392676:ch0");
+        assert_eq!(lenses[1].did, "1053392676:ch1");
+        assert_eq!(lenses[0].physical_did, "1053392676");
+        assert_eq!(lenses[1].physical_did, "1053392676");
+        assert_eq!(lenses[0].channel, 0);
+        assert_eq!(lenses[1].channel, 1);
+    }
+
+    #[test]
+    fn single_lens_model_keeps_bare_did() {
+        let camera = camera_from_raw(
+            "1053392676".into(),
+            "C400".into(),
+            "chuangmi.camera.039a04".into(),
+            true,
+            &serde_json::json!({"localip": "192.168.31.150"}),
+        )
+        .unwrap();
+        let lenses = expand_camera_channels(camera);
+        assert_eq!(lenses.len(), 1);
+        assert_eq!(lenses[0].did, "1053392676");
+        assert_eq!(lenses[0].channel_count, 1);
+    }
+
+    #[test]
+    fn known_dual_model_ignores_a_reported_single_channel() {
+        let camera = camera_from_raw(
+            "42".into(),
+            "CW500 双摄".into(),
+            "isa.camera.hlmax".into(),
+            true,
+            &serde_json::json!({"localip": "192.168.31.150", "channel_count": 1}),
+        )
+        .unwrap();
+        assert_eq!(camera.channel_count, 2);
+    }
+
+    #[test]
+    fn cloud_channel_count_wins_over_the_model_table() {
+        let camera = camera_from_raw(
+            "42".into(),
+            "未知多摄".into(),
+            "chuangmi.camera.999z99".into(),
+            true,
+            &serde_json::json!({"localip": "192.168.31.150", "channel_count": 3}),
+        )
+        .unwrap();
+        assert_eq!(camera.channel_count, 3);
+        assert_eq!(expand_camera_channels(camera).len(), 3);
+    }
+
+    #[test]
+    fn dual_lens_config_creates_two_distinct_streams() {
+        let camera = CameraDevice {
+            did: "1178828157".into(),
+            physical_did: "1178828157".into(),
+            name: "摄像头".into(),
+            model: "isa.camera.hlmax".into(),
+            ip: Some("192.168.31.150".into()),
+            online: true,
+            subtype: "hd".into(),
+            channel: 0,
+            channel_count: 2,
+            spec_type: None,
+        };
+        let lenses = expand_camera_channels(camera);
+        let yaml = cameras_yaml(&lenses, "20373857", "secret", false).unwrap();
+        assert!(yaml.contains("\"1178828157ch0\""));
+        assert!(yaml.contains("\"1178828157ch1\""));
+        assert!(yaml.contains("channel=0"));
+        assert!(yaml.contains("channel=1"));
+    }
+
+    #[test]
+    fn dual_lens_second_channel_uses_physical_did_and_channel_one() {
+        let camera = CameraDevice {
+            did: "1178828157:ch1".into(),
+            physical_did: "1178828157".into(),
+            name: "摄像头".into(),
+            model: "isa.camera.hlmax".into(),
+            ip: Some("192.168.31.150".into()),
+            online: true,
+            subtype: "hd".into(),
+            channel: 1,
+            channel_count: 2,
+            spec_type: None,
+        };
+        let yaml = cameras_yaml(&[camera], "20373857", "secret", false).unwrap();
+        assert!(yaml.contains("did=1178828157&"));
+        assert!(yaml.contains("channel=1"));
+        assert!(yaml.contains("\"1178828157ch1\""));
+        assert!(!yaml.contains("did=1178828157:ch1"));
+    }
+
     fn camera_at(ip: Option<&str>) -> CameraDevice {
         CameraDevice {
             did: "1053392676".into(),
+            physical_did: "1053392676".into(),
             name: "摄像头".into(),
             model: "chuangmi.camera.039a01".into(),
             ip: ip.map(str::to_string),
             online: true,
             subtype: "hd".into(),
             channel: 0,
+            channel_count: 1,
             spec_type: None,
         }
     }
 
     #[test]
     fn parse_ipv4_reads_dotted_quad() {
-        assert_eq!(parse_ipv4("192.168.31.186"), Some(u32::from_be_bytes([192, 168, 31, 186])));
-        assert_eq!(parse_ipv4("10.2.19.188"), Some(u32::from_be_bytes([10, 2, 19, 188])));
+        assert_eq!(
+            parse_ipv4("192.168.31.186"),
+            Some(u32::from_be_bytes([192, 168, 31, 186]))
+        );
+        assert_eq!(
+            parse_ipv4("10.2.19.188"),
+            Some(u32::from_be_bytes([10, 2, 19, 188]))
+        );
         assert_eq!(parse_ipv4("192.168.31"), None);
         assert_eq!(parse_ipv4("192.168.31.1.2"), None);
         assert_eq!(parse_ipv4("192.168.31.999"), None);
@@ -1788,18 +1983,26 @@ mod tests {
         assert!(ipv4_in_networks("10.2.19.50", &both));
 
         // /22 的办公网要能覆盖 10.2.19.188 这类地址。
-        let wide = vec![(parse_ipv4("10.2.16.0").unwrap() & 0xffff_fc00u32, 0xffff_fc00u32)];
+        let wide = vec![(
+            parse_ipv4("10.2.16.0").unwrap() & 0xffff_fc00u32,
+            0xffff_fc00u32,
+        )];
         assert!(ipv4_in_networks("10.2.19.188", &wide));
         assert!(!ipv4_in_networks("10.2.24.1", &wide));
     }
 
     #[test]
     fn local_source_reachable_drops_cameras_without_address() {
-        let cameras = vec![camera_at(Some("10.2.19.50")), camera_at(None)];
-        // 本机网段读不到时不做筛选，全部放行，避免误伤正常场景。
-        assert!(local_ipv4_networks().is_none() || !local_ipv4_networks().unwrap().is_empty());
+        // 用本机实际网段构造一个可达地址，避免测试依赖运行机器的网络配置。
+        let (reachable_ip, expected) = match local_ipv4_networks().as_deref() {
+            // 本机网段读不到时不做筛选，全部放行，避免误伤正常场景。
+            None => ("10.2.19.50".to_string(), 2),
+            // 读到了但一个网段都没有：除了缺地址的，其余都会被筛掉。
+            Some([]) => ("10.2.19.50".to_string(), 0),
+            Some([(network, _), ..]) => (std::net::Ipv4Addr::from(*network | 1).to_string(), 1),
+        };
+        let cameras = vec![camera_at(Some(&reachable_ip)), camera_at(None)];
         let reachable = local_source_reachable(&cameras);
-        let expected = if local_ipv4_networks().is_some() { 1 } else { 2 };
         assert_eq!(reachable.len(), expected);
     }
 
@@ -1807,12 +2010,14 @@ mod tests {
     fn camera_config_uses_low_latency_h264_transcode_when_available() {
         let camera = CameraDevice {
             did: "1178828157".into(),
+            physical_did: "1178828157".into(),
             name: "摄像头".into(),
             model: "chuangmi.camera.069a01".into(),
             ip: Some("192.168.31.150".into()),
             online: true,
             subtype: "hd".into(),
             channel: 0,
+            channel_count: 1,
             spec_type: None,
         };
         let yaml = cameras_yaml(&[camera], "20373857", "secret", true).unwrap();

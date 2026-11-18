@@ -719,6 +719,7 @@ window.MihomeI18nData["fr"] = {
   "启用模型": "activer le modèle",
   "命令面板": "panneau de commande",
   "回调路径": "Chemin de rappel",
+  "固定画面": "Vue fixe",
   "在线设备": "Appareils en ligne",
   "在途请求": "Demandes en vol",
   "复制令牌": "Copier le jeton",

@@ -719,6 +719,7 @@ window.MihomeI18nData["hu"] = {
   "启用模型": "modell engedélyezése",
   "命令面板": "parancspanel",
   "回调路径": "Visszahívási útvonal",
+  "固定画面": "Rögzített kép",
   "在线设备": "Online eszközök",
   "在途请求": "Repülés közbeni kérések",
   "复制令牌": "Token másolása",

@@ -719,6 +719,7 @@ window.MihomeI18nData["da"] = {
   "启用模型": "aktivere model",
   "命令面板": "kommandopanel",
   "回调路径": "Tilbagekaldssti",
+  "固定画面": "Fast visning",
   "在线设备": "Onlineenheder",
   "在途请求": "Anmodninger under flyvningen",
   "复制令牌": "Kopiér token",

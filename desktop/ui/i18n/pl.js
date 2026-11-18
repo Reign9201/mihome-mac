@@ -719,6 +719,7 @@ window.MihomeI18nData["pl"] = {
   "启用模型": "włącz model",
   "命令面板": "panel poleceń",
   "回调路径": "Ścieżka wywołania zwrotnego",
+  "固定画面": "Widok stały",
   "在线设备": "Urządzenia online",
   "在途请求": "Żądania w locie",
   "复制令牌": "Skopiuj token",

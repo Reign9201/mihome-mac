@@ -719,6 +719,7 @@ window.MihomeI18nData["ca"] = {
   "启用模型": "activar el model",
   "命令面板": "panell de comandaments",
   "回调路径": "Camí de retorn de trucada",
+  "固定画面": "Vista fixa",
   "在线设备": "Dispositius en línia",
   "在途请求": "Sol·licituds en vol",
   "复制令牌": "Copia el testimoni",

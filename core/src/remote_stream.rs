@@ -71,6 +71,7 @@ enum VideoEncoder {
 pub struct RemoteStream {
     camera: Arc<RemoteCamera>,
     quality: u8,
+    channel: u32,
     ffmpeg: Mutex<Child>,
     audio_ffmpeg: Mutex<Option<Child>>,
     relay: Go2Rtc,
@@ -164,8 +165,14 @@ impl Drop for StartupResources {
 
 impl RemoteStream {
     /// Blocking entry point. Call it from a worker thread, not the UI thread.
-    pub fn start(session: Session, did: &str, quality: u8, audio: bool) -> Result<Self> {
-        Self::start_cancellable(session, did, quality, audio, || false)
+    pub fn start(
+        session: Session,
+        did: &str,
+        quality: u8,
+        audio: bool,
+        channel: u32,
+    ) -> Result<Self> {
+        Self::start_cancellable(session, did, quality, audio, channel, || false)
     }
 
     /// Like [`RemoteStream::start`], but gives up as soon as `cancelled`
@@ -178,6 +185,7 @@ impl RemoteStream {
         did: &str,
         quality: u8,
         audio: bool,
+        channel: u32,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
         cleanup_stale_remote_dirs();
@@ -185,7 +193,7 @@ impl RemoteStream {
         app_log::info(
             "Remote",
             format!(
-                "开始建立远程画面：did={} quality={quality} audio={audio}",
+                "开始建立远程画面：did={} channel={channel} quality={quality} audio={audio}",
                 app_log::mask_id(did)
             ),
         );
@@ -215,7 +223,14 @@ impl RemoteStream {
             .build()
             .context("创建摄像头运行时失败")?;
         let camera_result = runtime.block_on(until_cancelled(
-            RemoteCamera::open(&session, did, quality, audio, Duration::from_secs(90)),
+            RemoteCamera::open(
+                &session,
+                did,
+                quality,
+                audio,
+                channel,
+                Duration::from_secs(90),
+            ),
             &cancelled,
             Duration::from_millis(250),
         ));
@@ -244,16 +259,17 @@ impl RemoteStream {
             error
         })?;
         let relay = relay_result?;
-        let stream = Self::from_camera(camera, quality, audio, relay).map_err(|error| {
-            app_log::error(
-                "Remote",
-                format!(
-                    "远程画面启动失败：did={} error={error:#}",
-                    app_log::mask_id(did)
-                ),
-            );
-            error
-        })?;
+        let stream =
+            Self::from_camera(camera, quality, audio, channel, relay).map_err(|error| {
+                app_log::error(
+                    "Remote",
+                    format!(
+                        "远程画面启动失败：did={} error={error:#}",
+                        app_log::mask_id(did)
+                    ),
+                );
+                error
+            })?;
         app_log::info(
             "Remote",
             format!(
@@ -265,7 +281,13 @@ impl RemoteStream {
         Ok(stream)
     }
 
-    fn from_camera(camera: RemoteCamera, quality: u8, audio: bool, relay: Go2Rtc) -> Result<Self> {
+    fn from_camera(
+        camera: RemoteCamera,
+        quality: u8,
+        audio: bool,
+        channel: u32,
+        relay: Go2Rtc,
+    ) -> Result<Self> {
         let started = Instant::now();
         let camera = Arc::new(camera);
         let first = first_video_packet(&camera, Duration::from_secs(20))?;
@@ -631,6 +653,7 @@ impl RemoteStream {
         Ok(Self {
             camera,
             quality,
+            channel,
             ffmpeg: Mutex::new(ffmpeg),
             audio_ffmpeg: Mutex::new(audio_ffmpeg),
             relay,
@@ -661,6 +684,10 @@ impl RemoteStream {
 
     pub fn quality(&self) -> u8 {
         self.quality
+    }
+
+    pub fn channel(&self) -> u32 {
+        self.channel
     }
 
     pub fn has_audio(&self) -> bool {

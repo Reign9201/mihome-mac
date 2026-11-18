@@ -262,6 +262,42 @@ export const mockSource = String.raw`
     values[did + ':2:1'] = true;
     values[did + ':2:2'] = 0;
   }
+  // 双摄设备按小米官方口径展开成两路：物理 did + ch0/ch1。
+  for (let index = 0; index < Math.max(0, Number(scale.dualCameras) || 0); index += 1) {
+    const did = 'cam-dual-' + index;
+    const [roomId, roomName] = scaledRooms[index % scaledRooms.length];
+    const name = '小米室外摄像机CW500双摄版';
+    const model = 'isa.camera.hlmax';
+    const spec = 'urn:miot-spec-v2:device:camera:0000A009:mock:1';
+    const ip = '192.0.2.' + (30 + index);
+    for (const channel of [0, 1]) {
+      cameras.push({
+        did: did + ':ch' + channel,
+        physical_did: did,
+        name,
+        model,
+        ip,
+        online: true,
+        subtype: 'camera',
+        channel,
+        channel_count: 2,
+        spec_type: spec,
+      });
+    }
+    devices.push({
+      did,
+      name,
+      model,
+      home_id: 'home1',
+      room_id: roomId,
+      room_name: roomName,
+      online: true,
+      spec_type: spec,
+      parent_id: null,
+    });
+    scaledDids[roomId].push(did);
+    values[did + ':2:1'] = true;
+  }
   for (let index = 0; index < Math.max(0, Number(scale.lights) || 0); index += 1) {
     const did = 'light-scale-' + index;
     const [roomId, roomName] = scaledRooms[index % scaledRooms.length];

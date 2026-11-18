@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
         let tx = tx.clone();
         thread::spawn(move || {
             let start = Instant::now();
-            let result = RemoteStream::start(session, did, quality, true);
+            let result = RemoteStream::start(session, did, quality, true, 0);
             match result {
                 Ok(stream) => {
                     let url = stream.url();

@@ -719,6 +719,7 @@ window.MihomeI18nData["es"] = {
   "启用模型": "habilitar modelo",
   "命令面板": "panel de comando",
   "回调路径": "Ruta de devolución de llamada",
+  "固定画面": "Vista fija",
   "在线设备": "Dispositivos en línea",
   "在途请求": "Solicitudes a bordo",
   "复制令牌": "Copiar ficha",

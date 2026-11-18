@@ -719,6 +719,7 @@ window.MihomeI18nData["nl"] = {
   "启用模型": "model inschakelen",
   "命令面板": "commando paneel",
   "回调路径": "Terugbelpad",
+  "固定画面": "Vast beeld",
   "在线设备": "Online apparaten",
   "在途请求": "Verzoeken tijdens de vlucht",
   "复制令牌": "Kopieer token",

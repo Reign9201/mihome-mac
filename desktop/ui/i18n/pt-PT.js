@@ -719,6 +719,7 @@ window.MihomeI18nData["pt-PT"] = {
   "启用模型": "habilitar modelo",
   "命令面板": "painel de comando",
   "回调路径": "Caminho de retorno de chamada",
+  "固定画面": "Vista fixa",
   "在线设备": "Dispositivos on-line",
   "在途请求": "Solicitações durante o voo",
   "复制令牌": "Copiar token",
