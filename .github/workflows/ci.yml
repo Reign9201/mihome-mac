@@ -101,7 +101,27 @@ jobs:
           - desktop/src-tauri
     steps:
       - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      # Run cargo-audit directly instead of rustsec/audit-check. That action
+      # reports through the Checks API, and on push events the run has no
+      # matching check suite, so it fails with "Not Found - checks/runs" even
+      # when no vulnerability exists. cargo-audit's exit status is the whole
+      # answer, which is all this job needs.
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: ${{ matrix.manifest }}
+          tool: cargo-audit
+      # Two informational advisories are ignored for the desktop binary, and
+      # only there: glib 0.18 and proc-macro-error reach the graph solely
+      # through tauri's Linux/BSD target (gtk 0.18, webkit2gtk 2), which a
+      # macOS build never compiles. gtk 0.18 pins glib ^0.18, so the patched
+      # glib 0.20 cannot be selected until tauri moves off gtk 0.18.
+      # --deny makes every-other warning and every vulnerability fail the job,
+      # so a new advisory still breaks CI. Drop the ignores once tauri updates.
+      - name: Audit ${{ matrix.manifest }}
+        working-directory: ${{ matrix.manifest }}
+        run: |
+          ignore=()
+          if [ "${{ matrix.manifest }}" = "desktop/src-tauri" ]; then
+            ignore+=(--ignore RUSTSEC-2024-0370 --ignore RUSTSEC-2024-0429)
+          fi
+          cargo audit --deny warnings "${ignore[@]}"

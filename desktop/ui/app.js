@@ -7,6 +7,12 @@ const MAX_LOCAL_GRID_STREAMS = 9;
 const MAX_REMOTE_START_CONCURRENCY = 3;
 const REMOTE_FIRST_FRAME_TIMEOUT = 15000;
 const CAMERA_STALL_INTERVALS = 3;
+// 本地通道重建只有有限次机会：摄像头不在同一网段时，每一轮都要起 go2rtc 和
+// ffmpeg、等满超时、再全部拆掉，无限重试会把主线程拖死。三个常量分别对应
+// 单次重建的退避基数、退避上限和连续失败多少次后停止自动重试。
+const LOCAL_RESTART_BACKOFF_MS = 5000;
+const LOCAL_RESTART_MAX_BACKOFF_MS = 60000;
+const LOCAL_RESTART_MAX_ATTEMPTS = 4;
 const DEVICE_PRESENCE_REFRESH_MS = 15000;
 const log = window.MiLog || Object.freeze({
   debug() {}, info() {}, warn() {}, error() {},
@@ -76,7 +82,11 @@ function toast(message, error = false) {
 
 const state = {
   homes: [], devices: [], scenes: [], automations: [], homeId: null, selected: null,
-  page: 'overview', theme: localStorage.getItem('mihome-theme') || 'light',
+  page: 'overview',
+  // auto 表示跟随系统；这里存的是设置值，不是渲染后的明暗。
+  theme: ['light', 'dark'].includes(localStorage.getItem('mihome-theme'))
+    ? localStorage.getItem('mihome-theme')
+    : 'auto',
   density: localStorage.getItem('mihome-density') || 'comfortable',
   style: localStorage.getItem('mihome-style') === 'classic' ? 'classic' : 'modern',
   overviewSensorLoading: new Set(), overviewSensorHydrated: new Set(),
@@ -87,9 +97,11 @@ const state = {
   deviceFilter: 'all', deviceQuery: '', cameraQuery: '', cameraSessionStartedAt: null, cameraPaused: false,
   remoteWatch: null, remoteWatches: [], cameraWatches: new Map(),
   cameraGeneration: 0, cameraControlsRequest: 0,
-  cameraStopSequence: 0,
+  cameraStopSequence: 0, cameraStopping: null,
   cameraQueue: Promise.resolve(),
   restartingCameras: new Set(), restartTimers: new Map(), restartAttempts: new Map(), cardProps: new Map(),
+  // 本地通道的连续失败次数和它对应的 5→10→20→40 秒退避计时器。
+  localRestartAttempts: 0, localRestartTimer: null,
   environmentValues: new Map(), environmentRequest: 0, environmentRevision: 0,
   environmentRefreshing: false, environmentSyncAt: 0,
   remoteAudio: new Map(),
@@ -103,6 +115,9 @@ const state = {
   access: {
     platform: 'feishu', snapshot: null, pairing: null,
     pairTimer: null, token: '', loading: false, draftMode: null, pollTimer: null,
+  },
+  quickPick: {
+    kind: 'devices', selected: [], listing: [], saving: false, query: '',
   },
 };
 
@@ -528,6 +543,7 @@ async function loadHomes() {
     if (generation !== state.accountGeneration) return;
     state.homes = homes;
     state.homeId = homes[0]?.id || null;
+    if (state.homeId) localStorage.setItem('mihome-home-id', state.homeId);
     renderHomeTabs();
     log.info('Home', `已加载家庭 ${homes.length} 个`);
     hideLogin();
@@ -587,6 +603,7 @@ function renderHomeTabs() {
   }
   box.onchange = async () => {
     state.homeId = box.value;
+    localStorage.setItem('mihome-home-id', state.homeId);
     state.roomFilter = 'all';
     state.deviceFilter = 'all';
     state.deviceQuery = '';
@@ -854,6 +871,23 @@ async function loadDevices() {
   }
 }
 
+// Focus and visibility both fire for a single window return, so they land
+// within a few milliseconds of each other. Debounce just long enough to
+// collapse that pair into one sync; a user who returns twice in quick
+// succession still gets a fresh read each time.
+const PRESENCE_RETURN_DEBOUNCE_MS = 120;
+
+let presenceReturnTimer = null;
+
+function requestPresenceRefresh() {
+  if (!state.loggedIn) return;
+  if (presenceReturnTimer) return;
+  presenceReturnTimer = setTimeout(() => {
+    presenceReturnTimer = null;
+    refreshDevicePresence();
+  }, PRESENCE_RETURN_DEBOUNCE_MS);
+}
+
 // list_cameras is only read when the camera page opens; carry the online flag
 // from the periodic device sync so camera buttons and counts stay current.
 function syncCameraPresence(devices) {
@@ -905,10 +939,15 @@ async function refreshDevicePresence() {
     state.devices = devices;
     state.lastPresenceSyncAt = Date.now();
     state.presenceSyncFailed = false;
-    // Re-render even when the camera page is hidden: its next background
-    // reload compares against this already-synced list and would otherwise
-    // keep showing the old online state.
-    if (syncCameraPresence(onlineChanged)) renderCameras();
+    // Re-sync even when the camera page is hidden: its next background reload
+    // compares against this already-synced list and would otherwise keep
+    // showing the old online state. Only the online flag can change here, so
+    // patch the affected cards instead of rebuilding every one of them. When
+    // the list was never rendered there is nothing to patch; the next visit
+    // rebuilds from this already-synced state.
+    if (syncCameraPresence(onlineChanged)) {
+      applyCameraPresence(new Set(onlineChanged.map((device) => device.did)));
+    }
     if (!changed.length && devices.length === previous.size) {
       updateChrome();
       return true;
@@ -925,7 +964,11 @@ async function refreshDevicePresence() {
     else if ($('#inspector').classList.contains('open')) closeInspector();
     updateChrome();
     if ($('#menubarPop').classList.contains('open')) renderQuickPanel();
-    refreshEnvironmentStatus();
+    // The environment capsule lives in the chrome, so it keeps its cadence on
+    // any page; the sweep itself is throttled because it issues one request per
+    // online device, which is what makes a window return stutter on a large
+    // account. A device that just changed state is read immediately.
+    refreshEnvironmentStatus({ immediate: onlineChanged.length > 0 });
     for (const device of onlineChanged) {
       if (device.online) queueCardHydration(device);
     }
@@ -1068,7 +1111,10 @@ async function loadDeviceSpecs(devices) {
       const selected = state.devices.find((device) => device.did === state.selected.did);
       if (selected) selectDevice(selected);
     }
-    refreshEnvironmentStatus();
+    // The specs just arrived, so power and consumable metrics became readable
+    // for the first time. This sweep carries new information, so it must not be
+    // folded into the one that ran before the specs existed.
+    refreshEnvironmentStatus({ immediate: true });
   }
 }
 
@@ -1747,9 +1793,7 @@ function renderDevices() {
   const target = state.devices.filter((device) => {
     if (state.deviceFilter !== 'all' && deviceFilterState(device) !== state.deviceFilter) return false;
     if (!query) return true;
-    return `${device.name} ${device.model || ''} ${roomName(device)}`
-      .toLowerCase()
-      .includes(query);
+    return deviceSearchText(device).includes(query);
   });
   $('#devicesEyebrow').textContent = uiText('设备 {0} · 本地摄像头 {1}', [
     state.devices.length,
@@ -1931,8 +1975,15 @@ function updateEnvironmentCapsule() {
     : uiText('家庭环境');
 }
 
-async function refreshEnvironmentStatus() {
+// The sweep costs one cloud request per online device, so a coarse floor keeps
+// a burst of presence syncs from repeating it. State changes and the periodic
+// cadence still refresh as before; only back-to-back calls are folded.
+const ENVIRONMENT_SWEEP_MIN_GAP_MS = 5000;
+
+async function refreshEnvironmentStatus(options = {}) {
   if (!invoke || !state.loggedIn || !state.homeId || state.environmentRefreshing) return false;
+  if (!options.immediate
+    && Date.now() - state.environmentSyncAt < ENVIRONMENT_SWEEP_MIN_GAP_MS) return false;
   const sensor = overviewSensorDevice();
   const requests = [];
   const seen = new Set();
@@ -3064,6 +3115,176 @@ async function showSettings() {
   await stopCamera();
   showView('settings');
   updateSettingsSelection();
+  refreshQuickPrefsLabels();
+}
+
+// ---------- 菜单栏面板的常用设备与场景 ----------
+
+const QUICK_DEVICE_LIMIT = 12;
+const QUICK_SCENE_LIMIT = 3;
+
+function quickPickLayer() {
+  return $('#quickPickLayer');
+}
+
+// 设备与场景都从后端现取：设置页可能先于「设备」页打开，缓存的列表可能是别的
+// 家庭或还没读过。
+async function quickPickListing(kind) {
+  if (!state.homeId) return [];
+  const searchable = window.MiPinyin?.searchable;
+  if (kind === 'scenes') {
+    const scenes = await invoke('list_scenes', { homeId: state.homeId });
+    return (Array.isArray(scenes) ? scenes : []).map((scene) => ({
+      id: scene.id,
+      name: scene.name,
+      meta: '手动场景',
+      search: searchable ? searchable([scene.name]) : String(scene.name).toLowerCase(),
+    }));
+  }
+  const devices = await invoke('list_devices', { homeId: state.homeId });
+  return (Array.isArray(devices) ? devices : []).map((device) => ({
+    id: device.did,
+    name: device.name,
+    meta: device.online ? '在线' : '离线',
+    search: searchable
+      ? searchable([device.name, device.model || '', roomName(device)])
+      : `${device.name} ${device.model || ''} ${roomName(device)}`.toLowerCase(),
+  }));
+}
+
+function quickPickLimit(kind) {
+  return kind === 'scenes' ? QUICK_SCENE_LIMIT : QUICK_DEVICE_LIMIT;
+}
+
+function renderQuickPickList() {
+  const list = $('#quickPickList');
+  const { kind, listing, selected } = state.quickPick;
+  const limit = quickPickLimit(kind);
+  list.replaceChildren();
+  if (!listing.length) {
+    list.append(el('div', 'quick-pick-empty', kind === 'scenes' ? '当前家庭还没有手动场景' : '还没有读取到设备'));
+    $('#quickPickCount').textContent = '';
+    return;
+  }
+  const query = state.quickPick.query.trim().toLowerCase();
+  const visible = query
+    ? listing.filter((item) => (item.search || item.name.toLowerCase()).includes(query))
+    : listing;
+  if (!visible.length) {
+    list.append(el('div', 'quick-pick-empty', '没有匹配的设备或操作'));
+  }
+  const chosen = new Set(selected);
+  for (const item of visible) {
+    const checked = chosen.has(item.id);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'quick-pick-item';
+    button.setAttribute('role', 'checkbox');
+    button.setAttribute('aria-checked', String(checked));
+    // 选满后其余项不可再选，避免点了没反应。
+    button.setAttribute('aria-disabled', String(!checked && selected.length >= limit));
+    button.innerHTML = `<span class="pick-mark">✓</span>
+      <span class="pick-name">${esc(item.name)}</span>
+      <span class="pick-meta">${esc(item.meta || '')}</span>`;
+    button.onclick = () => {
+      const index = state.quickPick.selected.indexOf(item.id);
+      if (index >= 0) state.quickPick.selected.splice(index, 1);
+      else if (state.quickPick.selected.length < limit) state.quickPick.selected.push(item.id);
+      else return;
+      renderQuickPickList();
+    };
+    list.append(button);
+  }
+  const full = selected.length >= limit;
+  $('#quickPickCount').textContent = full
+    ? `已选 ${selected.length}/${limit}，最多 ${limit} 个`
+    : `已选 ${selected.length}/${limit}`;
+}
+
+async function openQuickPick(kind) {
+  if (!state.loggedIn) {
+    toast('先登录米家账号再挑选');
+    return;
+  }
+  const layer = quickPickLayer();
+  const title = $('#quickPickTitle');
+  title.textContent = kind === 'scenes' ? '选择常用场景' : '选择常用设备';
+  $('#quickPickList').innerHTML = '<div class="quick-pick-empty">正在读取…</div>';
+  layer.hidden = false;
+  state.quickPick.kind = kind;
+  state.quickPick.saving = false;
+  state.quickPick.query = '';
+  $('#quickPickSearch').value = '';
+  try {
+    const [prefs, listing] = await Promise.all([
+      invoke('quick_prefs'),
+      quickPickListing(kind),
+    ]);
+    if (layer.hidden) return;
+    const saved = kind === 'scenes' ? prefs?.scenes : prefs?.devices;
+    // 只保留仍在当前家庭里的条目，免得已删除的设备占着格子。
+    const known = new Set(listing.map((item) => item.id));
+    state.quickPick.listing = listing;
+    state.quickPick.selected = (Array.isArray(saved) ? saved : []).filter((id) => known.has(id));
+    renderQuickPickList();
+  } catch (error) {
+    if (layer.hidden) return;
+    $('#quickPickList').innerHTML = `<div class="quick-pick-empty">读取失败：${esc(String(error))}</div>`;
+  }
+}
+
+function closeQuickPick() {
+  quickPickLayer().hidden = true;
+  state.quickPick.saving = false;
+  state.quickPick.query = '';
+}
+
+async function saveQuickPick() {
+  if (state.quickPick.saving) return;
+  const button = $('#quickPickSave');
+  state.quickPick.saving = true;
+  button.disabled = true;
+  button.textContent = '保存中…';
+  try {
+    const next = await invoke('quick_prefs');
+    const payload = {
+      devices: Array.isArray(next?.devices) ? next.devices : [],
+      scenes: Array.isArray(next?.scenes) ? next.scenes : [],
+    };
+    payload[state.quickPick.kind] = state.quickPick.selected;
+    await invoke('save_quick_prefs', payload);
+    closeQuickPick();
+    toast('菜单栏面板已更新');
+    refreshQuickPrefsLabels();
+  } catch (error) {
+    toast(String(error), true);
+  } finally {
+    state.quickPick.saving = false;
+    button.disabled = false;
+    button.textContent = '保存';
+  }
+}
+
+// 设置页上的按钮直接显示已选数量，不用点进去才知道有没有配过。
+async function refreshQuickPrefsLabels() {
+  const devices = $('#settingsQuickDevices');
+  const scenes = $('#settingsQuickScenes');
+  if (!devices || !scenes) return;
+  if (!state.loggedIn) {
+    devices.textContent = '选择';
+    scenes.textContent = '选择';
+    return;
+  }
+  try {
+    const prefs = await invoke('quick_prefs');
+    const deviceCount = Array.isArray(prefs?.devices) ? prefs.devices.length : 0;
+    const sceneCount = Array.isArray(prefs?.scenes) ? prefs.scenes.length : 0;
+    devices.textContent = deviceCount ? `已选 ${deviceCount} 个` : '选择';
+    scenes.textContent = sceneCount ? `已选 ${sceneCount} 个` : '选择';
+  } catch (_) {
+    devices.textContent = '选择';
+    scenes.textContent = '选择';
+  }
 }
 
 function accessPlatformConfig(snapshot = state.access.snapshot) {
@@ -3846,10 +4067,15 @@ async function loadCameras(options = {}) {
 
 const CAMERA_COMPACT_THRESHOLD = 12;
 
+function deviceSearchText(device) {
+  const parts = [device.name, device.model || '', roomName(device)];
+  return window.MiPinyin?.searchable(parts) ?? parts.join(' ').toLowerCase();
+}
+
 function cameraSearchText(camera, devices) {
   const device = devices.get(camera.did);
-  return `${camera.name} ${camera.model || ''} ${camera.ip || ''} ${device ? roomName(device) : ''}`
-    .toLowerCase();
+  const parts = [camera.name, camera.model || '', camera.ip || '', device ? roomName(device) : ''];
+  return window.MiPinyin?.searchable(parts) ?? parts.join(' ').toLowerCase();
 }
 
 function cameraQuery() {
@@ -3989,6 +4215,29 @@ function markSelectedCamera() {
   for (const card of $('#camList').querySelectorAll('.cam-card')) {
     card.classList.toggle('active', card.dataset.did === state.selectedCameraDid);
   }
+}
+
+// The 15 s presence sync only flips the online flag. Rebuilding the whole list
+// for that costs a full card rebuild per camera; with hundreds of cameras it
+// makes every window focus stutter. Update the affected cards in place instead.
+function applyCameraPresence(changedDids) {
+  if (!changedDids?.size) return false;
+  const byDid = new Map(state.cameras.map((camera) => [camera.did, camera]));
+  let touched = 0;
+  for (const card of $('#camList').querySelectorAll('.cam-card')) {
+    const camera = byDid.get(card.dataset.did);
+    if (!camera || !changedDids.has(camera.did)) continue;
+    touched += 1;
+    card.classList.toggle('offline', !camera.online);
+    const dot = card.querySelector('.live-dot');
+    if (dot) dot.classList.toggle('muted', !camera.online);
+    const badge = card.querySelector('.cam-thumb-badge');
+    if (badge) badge.textContent = camera.online ? (camera.ip ? '本地可达' : '仅远程') : '离线';
+    const [local, remote] = card.querySelectorAll('.cam-actions .pill');
+    if (local) local.disabled = !camera.online || !camera.ip;
+    if (remote) remote.disabled = !camera.online;
+  }
+  return touched > 0;
 }
 
 function updateCameraStage(camera, stream, remote) {
@@ -4483,8 +4732,18 @@ function bindGridTile(tile, camera, remote) {
   };
 }
 
+// 用户主动打开本地画面（选摄像头、切宫格、进页面）时清掉上一次的连续失败
+// 计数，重新给满 LOCAL_RESTART_MAX_ATTEMPTS 次机会。自动重连走的是
+// startCameraSetNow，不会重置，否则熔断永远攒不起来。
 function startCameraSet(cameras, grid) {
-  return queueCameraOperation(() => startCameraSetNow(cameras, grid));
+  return queueCameraOperation(() => {
+    state.localRestartAttempts = 0;
+    if (state.localRestartTimer) {
+      clearTimeout(state.localRestartTimer);
+      state.localRestartTimer = null;
+    }
+    return startCameraSetNow(cameras, grid);
+  });
 }
 
 async function startCameraSetNow(cameras, grid) {
@@ -4533,7 +4792,7 @@ async function startCameraSetNow(cameras, grid) {
         if (!status) {
           status = el('button', 'cam-tile-status', '没有画面，点击重试');
           status.type = 'button';
-          status.onclick = () => restartLocalCamera(camera, generation);
+          status.onclick = () => retryLocalCameraNow(camera, generation);
           tile.append(status);
         }
         status.hidden = false;
@@ -4543,6 +4802,8 @@ async function startCameraSetNow(cameras, grid) {
           if (generation !== state.cameraGeneration) return;
           stalled.delete(camera.did);
           status.hidden = true;
+          // 真出画了才算这一轮重建成功，退避计数回到起点。
+          state.localRestartAttempts = 0;
           watchRemote(video, camera, () => onTileStall(camera, tile, video), generation);
         }, { once: true });
         if (stalled.size >= streams.length) restartLocalCamera(camera, generation);
@@ -4578,6 +4839,8 @@ async function startCameraSetNow(cameras, grid) {
       video.onloadeddata = () => {
         if (generation === state.cameraGeneration && !state.remoteActive) {
           log.info('Camera', `本地首帧已加载：${usable[0].name}`);
+          // 出首帧才算重建成功，退避计数回到起点。
+          state.localRestartAttempts = 0;
           $('#camHint').textContent = `${usable[0].name} · ${usable[0].ip} · 本地实时画面`;
           $('#camTransport').textContent = '本地首帧已加载';
           $('#camLatency').textContent = '本地';
@@ -4621,8 +4884,24 @@ async function startCameraSetNow(cameras, grid) {
     log.error('Camera', `本地画面启动失败：${error}`);
     if (generation !== undefined && generation !== state.cameraGeneration) return;
     await stopCameraNow('本地启动失败');
+    // 本地通道建不起来时不能把画面停在空白宫格。远程走中继、不受网段限制，
+    // 直接换成远程画面，和单画面「15 秒无首帧自动切远程」保持一致。
+    if (localErrorNeedsRemote(error)) {
+      log.warn('Camera', `本地通道不可用，改用远程画面：grid=${grid}`);
+      $('#camHint').textContent = '本地画面未出画，已自动切换远程';
+      toast('本地画面未出画，已自动切换远程');
+      // 当前还在 cameraQueue 里，直接调会把队列串成死锁，放到下一轮任务再切。
+      setTimeout(() => { startRemoteCameraSet(usable, grid); }, 0);
+      return;
+    }
     $('#camHint').textContent = `启动摄像头失败：${error}`;
   }
+}
+
+// 后端把「不在同一网段」和「没有局域网地址」都报成启动错误，这两种情况下
+// 本地通道都不会出画，只有远程能救回来。
+function localErrorNeedsRemote(error) {
+  return /同一局域网|局域网地址|没有 localip/.test(String(error));
 }
 
 function watchRemote(video, camera, onStall, generation) {
@@ -4635,8 +4914,12 @@ function watchRemote(video, camera, onStall, generation) {
   let lastFrames = -1;
   let stalled = 0;
   let hadFrames = false;
-  const startedAt = Date.now();
+  let hiddenAt = 0;
   const firstFrameTimeout = state.remoteActive ? REMOTE_FIRST_FRAME_TIMEOUT : 30000;
+  // Only time spent in the foreground counts towards the first-frame budget.
+  // A window in the background stops decoding, and charging that interval to
+  // the stream would rebuild a perfectly healthy channel on every return.
+  let visibleSince = Date.now();
   const removeWatch = () => {
     clearInterval(timer);
     state.remoteWatches = state.remoteWatches.filter((item) => item !== timer);
@@ -4662,8 +4945,24 @@ function watchRemote(video, camera, onStall, generation) {
       removeWatch();
       return;
     }
+    // A hidden page stops decoding in WKWebView. Neither a missing first frame
+    // nor a frozen counter says anything about stream health while hidden, so
+    // pause the watchdog and restart its budget when the page returns.
+    if (document.hidden) {
+      if (!hiddenAt) hiddenAt = Date.now();
+      return;
+    }
+    if (hiddenAt) {
+      // Do not bill the background interval to the stream, and drop the stale
+      // progress samples so the first visible tick compares fresh values.
+      visibleSince += Date.now() - hiddenAt;
+      hiddenAt = 0;
+      stalled = 0;
+      lastFrames = -1;
+      lastTime = -1;
+    }
     if (video.videoWidth) hadFrames = true;
-    if (!hadFrames && Date.now() - startedAt >= firstFrameTimeout) {
+    if (!hadFrames && Date.now() - visibleSince >= firstFrameTimeout) {
       triggerRestart('画面长时间没有首帧');
       return;
     }
@@ -4744,16 +5043,66 @@ async function restartRemoteCamera(camera, video, generation) {
   }
 }
 
+// 用户点「重试」是明确要求再试一次，清零计数并取消待发的退避，立即重建。
+function retryLocalCameraNow(camera, generation) {
+  if (generation !== state.cameraGeneration) return;
+  state.localRestartAttempts = 0;
+  if (state.localRestartTimer) {
+    clearTimeout(state.localRestartTimer);
+    state.localRestartTimer = null;
+  }
+  restartLocalCamera(camera, generation);
+}
+
+// 宫格里所有分屏共用同一个 go2rtc，重建一次就是整片重来；单画面也一样要
+// 重起一次 go2rtc 加 ffmpeg。摄像头不在同一网段时这一步注定失败，所以这里
+// 必须退避并设上限，否则前端会在「重建 → 超时 → 重建」里空转。
 async function restartLocalCamera(camera, generation) {
   const key = `local:${camera.did}`;
   if (generation !== state.cameraGeneration || state.restartingCameras.has(key)) return;
+  if (state.localRestartTimer) return;
+  if (state.localRestartAttempts >= LOCAL_RESTART_MAX_ATTEMPTS) {
+    log.warn('Camera', uiText('本地画面自动重连已停止：连续失败 {0} 次：{1}', [state.localRestartAttempts, camera.name]));
+    $('#camHint').textContent = uiText(
+      '{0} 本地画面未能建立，请确认电脑和摄像头在同一局域网，或改用远程画面',
+      [camera.name],
+    );
+    return;
+  }
   state.restartingCameras.add(key);
+  // 失败一次就把计数加一，只有重建真正出画后 startCameraSetNow 才会清零。
+  // 这样计数反映的是连续失败次数，退避间隔随之拉长。
+  state.localRestartAttempts += 1;
+  const attempt = state.localRestartAttempts;
+  if (attempt > 1) {
+    const delay = Math.min(
+      LOCAL_RESTART_MAX_BACKOFF_MS,
+      LOCAL_RESTART_BACKOFF_MS * 2 ** (attempt - 2),
+    );
+    log.warn('Camera', uiText('本地画面第 {0} 次重连，等待 {1} 秒：{2}', [attempt, Math.round(delay / 1000), camera.name]));
+    $('#camHint').textContent = uiText('{0} 画面未恢复，{1} 秒后重试（第 {2}/{3} 次）', [
+      camera.name,
+      Math.round(delay / 1000),
+      attempt,
+      LOCAL_RESTART_MAX_ATTEMPTS,
+    ]);
+    state.restartingCameras.delete(key);
+    state.localRestartTimer = setTimeout(() => {
+      state.localRestartTimer = null;
+      if (generation !== state.cameraGeneration) return;
+      restartLocalCamera(camera, generation);
+    }, delay);
+    return;
+  }
   log.warn('Camera', `本地画面重连：${camera.name}`);
   $('#camHint').textContent = `${camera.name} 画面停住，正在重建本地通道…`;
   try {
     const activeDids = new Set(state.cameraStreams.map((stream) => stream.id));
     const cameras = state.cameras.filter((item) => activeDids.has(item.did));
-    await startCameraSet(cameras.length ? cameras : [camera], state.cameraGrid);
+    // 直接走 Now 版本：startCameraSet 会把失败计数清零，自动重连不能清零，
+    // 否则每次尝试都从头计数，熔断永远触发不了。
+    await queueCameraOperation(() =>
+      startCameraSetNow(cameras.length ? cameras : [camera], state.cameraGrid));
   } finally {
     state.restartingCameras.delete(key);
   }
@@ -4763,7 +5112,20 @@ function stopCamera() {
   return queueCameraOperation(() => stopCameraNow('页面或账号切换'));
 }
 
-async function stopCameraNow(reason = '未知') {
+// 正在进行的停止动作。重启风暴里 stopCameraNow 会被连着调很多次，把并发的
+// 那几次并到同一个 promise 上，后端只收到一次 camera_stop，DOM 也只拆一遍。
+function stopCameraNow(reason = '未知') {
+  if (state.cameraStopping) {
+    log.debug('Camera', uiText('已有停止请求在执行，合并：{0}', [reason]));
+    return state.cameraStopping;
+  }
+  state.cameraStopping = runStopCamera(reason).finally(() => {
+    state.cameraStopping = null;
+  });
+  return state.cameraStopping;
+}
+
+async function runStopCamera(reason) {
   const requestId = ++state.cameraStopSequence;
   log.debug('Camera', `停止摄像头页面：${reason} request=${requestId}`);
   state.cameraGeneration += 1;
@@ -4785,6 +5147,10 @@ async function stopCameraNow(reason = '未知') {
   state.restartTimers.clear();
   state.restartAttempts.clear();
   state.restartingCameras.clear();
+  if (state.localRestartTimer) {
+    clearTimeout(state.localRestartTimer);
+    state.localRestartTimer = null;
+  }
   $('#camControls').hidden = true;
   const video = $('#camVideo');
   video.pause();
@@ -4825,6 +5191,21 @@ $('#settingsAccounts').onclick = (event) => {
   openAccountPop();
 };
 $('#settingsAccess').onclick = showAccess;
+$('#settingsQuickDevices').onclick = () => openQuickPick('devices');
+$('#settingsQuickScenes').onclick = () => openQuickPick('scenes');
+$('#quickPickClose').onclick = closeQuickPick;
+$('#quickPickSave').onclick = saveQuickPick;
+$('#quickPickClear').onclick = () => {
+  state.quickPick.selected = [];
+  renderQuickPickList();
+};
+$('#quickPickSearch').addEventListener('input', (event) => {
+  state.quickPick.query = event.target.value;
+  renderQuickPickList();
+});
+quickPickLayer().addEventListener('click', (event) => {
+  if (event.target === quickPickLayer()) closeQuickPick();
+});
 $('#accessRefresh').onclick = () => loadAccess(true);
 $('#accessReconnect').onclick = async () => {
   const button = $('#accessReconnect');
@@ -5251,18 +5632,39 @@ async function logoutAccount() {
   setShellEnabled(state.loggedIn);
 }
 
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+// 设置值是 light / dark / auto 三态，渲染出来只有明和暗两种。auto 时取系统偏好。
+function resolvedTheme(theme) {
+  if (theme === 'light' || theme === 'dark') return theme;
+  return darkQuery.matches ? 'dark' : 'light';
+}
+
 function applyTheme(theme) {
-  state.theme = theme;
-  document.body.dataset.theme = theme;
-  localStorage.setItem('mihome-theme', theme);
+  state.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
+  const scheme = resolvedTheme(state.theme);
+  // data-theme 落在 <html> 上：body 上的话根滚动条和原生控件不跟着换色。
+  document.documentElement.dataset.theme = scheme;
+  document.body.dataset.theme = scheme;
+  // 让 color-scheme 跟着 <meta> 走；auto 时写回 light dark，交还给系统。
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (meta) meta.content = state.theme === 'auto' ? 'light dark' : state.theme;
+  if (state.theme === 'auto') localStorage.removeItem('mihome-theme');
+  else localStorage.setItem('mihome-theme', state.theme);
   const button = $('#btnTheme');
   if (button) {
-    button.innerHTML = uiIcon(theme === 'light' ? 'moon' : 'sun');
-    button.setAttribute('aria-label', theme === 'light' ? '切换到深色外观' : '切换到浅色外观');
-    button.title = theme === 'light' ? '切换到深色外观' : '切换到浅色外观';
+    button.innerHTML = uiIcon(scheme === 'light' ? 'moon' : 'sun');
+    const label = scheme === 'light' ? '切换到深色外观' : '切换到浅色外观';
+    button.setAttribute('aria-label', label);
+    button.title = label;
   }
   updateSettingsSelection();
 }
+
+// 只有跟随系统时才需要听系统变化；钉死明暗时这个监听什么也不做。
+darkQuery.addEventListener('change', () => {
+  if (state.theme === 'auto') applyTheme('auto');
+});
 
 function applyStyle(style) {
   state.style = style === 'classic' ? 'classic' : 'modern';
@@ -5571,7 +5973,9 @@ $('#btnMenuBar2').onclick = (event) => {
   event.stopPropagation();
   toggleQuickPanel();
 };
-$('#btnTheme').onclick = () => applyTheme(state.theme === 'light' ? 'dark' : 'light');
+// 标题栏按钮按当前渲染出来的明暗切换，所以每次点都会真的换色；
+// 至于回到「跟随系统」，放在设置里的三态选项里。
+$('#btnTheme').onclick = () => applyTheme(resolvedTheme(state.theme) === 'dark' ? 'light' : 'dark');
 $('#btnAddRoom').onclick = () => toast('房间由米家 App 管理；当前接口不支持在本机创建房间', true);
 $('#btnHud').onclick = () => toggleHud();
 $('#hudClose').onclick = () => toggleHud(false);
@@ -5613,6 +6017,10 @@ document.addEventListener('keydown', (event) => {
   if (modifier && event.key.toLowerCase() === 'k') {
     event.preventDefault();
     openPalette();
+    return;
+  }
+  if (event.key === 'Escape' && !quickPickLayer().hidden) {
+    closeQuickPick();
     return;
   }
   if ($('#palette').classList.contains('open')) {
@@ -5691,11 +6099,12 @@ async function boot() {
   setInterval(() => {
     if (state.loggedIn && !document.hidden) refreshDevicePresence();
   }, DEVICE_PRESENCE_REFRESH_MS);
-  window.addEventListener('focus', () => {
-    if (state.loggedIn) refreshDevicePresence();
-  });
+  // Coming back to the window fires both events, and each one would run the
+  // full device sync. Collapse them into the same throttled entry so one focus
+  // change costs one sync.
+  window.addEventListener('focus', requestPresenceRefresh);
   document.addEventListener('visibilitychange', () => {
-    if (state.loggedIn && !document.hidden) refreshDevicePresence();
+    if (!document.hidden) requestPresenceRefresh();
   });
   renderSidebarRooms();
   if (!invoke) {

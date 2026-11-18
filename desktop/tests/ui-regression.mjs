@@ -488,6 +488,16 @@ try {
     })()`);
     await waitFor(() => pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length === 2`));
     await screenshot(`r${round}-07-devices-search`);
+    // 拼音首字母：主窗口搜索和设置页挑选弹层共用同一份检索表。
+    const cameraInitials = await pageEval(cdp, `window.MiPinyin.pinyinInitials('摄像机')`);
+    await pageEval(cdp, `(() => {
+      const input = document.querySelector('#deviceSearch');
+      input.value = ${JSON.stringify(cameraInitials)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    const pinyinRows = await pageEval(cdp, `document.querySelectorAll('#deviceList .table-row').length`);
+    expect(pinyinRows === 2, `round ${round}: pinyin search "${cameraInitials}" matched ${pinyinRows} rows`);
     await pageEval(cdp, `(() => {
       const input = document.querySelector('#deviceSearch');
       input.value = '';
@@ -705,6 +715,97 @@ try {
 
     await click('#settingsNav');
     await screenshot(`r${round}-13-settings`);
+
+    // 菜单栏面板的常用设备：弹层列出设备，选两项保存，按钮显示已选数量。
+    await click('#settingsQuickDevices');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    const pickInitial = await pageEval(cdp, `({
+      title: document.querySelector('#quickPickTitle').textContent,
+      count: document.querySelectorAll('#quickPickList .quick-pick-item').length,
+      checked: document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length,
+    })`);
+    expect(pickInitial.title.includes('常用设备'), `round ${round}: quick pick title was ${pickInitial.title}`);
+    expect(pickInitial.count > 6, `round ${round}: quick pick listed ${pickInitial.count} devices`);
+    await pageEval(cdp, `(() => {
+      const items = [...document.querySelectorAll('#quickPickList .quick-pick-item')];
+      items[2].click(); items[0].click();
+      return true;
+    })()`);
+    const pickSelected = await pageEval(cdp, `({
+      checked: document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length,
+      count: document.querySelector('#quickPickCount').textContent,
+    })`);
+    expect(pickSelected.checked === 2, `round ${round}: quick pick selected ${pickSelected.checked} devices`);
+    expect(pickSelected.count.includes('2/12'), `round ${round}: quick pick counter was ${pickSelected.count}`);
+    await pageEval(cdp, `document.querySelector('#quickPickSave').click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const devicesLabel = await pageEval(cdp, `document.querySelector('#settingsQuickDevices').textContent`);
+    expect(devicesLabel.includes('2'), `round ${round}: devices button was ${devicesLabel}`);
+    const savedPrefs = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').at(-1)?.args`);
+    expect(
+      Array.isArray(savedPrefs?.devices) && savedPrefs.devices.length === 2,
+      `round ${round}: save_quick_prefs got ${JSON.stringify(savedPrefs)}`,
+    );
+
+    // 常用场景：只选一个，保存后按钮同样显示数量。
+    await click('#settingsQuickScenes');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item')[0].click(); true`);
+    const sceneTitle = await pageEval(cdp, `document.querySelector('#quickPickTitle').textContent`);
+    expect(sceneTitle.includes('常用场景'), `round ${round}: quick pick scene title was ${sceneTitle}`);
+    await pageEval(cdp, `document.querySelector('#quickPickSave').click(); true`);
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const prefsAfterScenes = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').at(-1)?.args`);
+    expect(
+      Array.isArray(prefsAfterScenes?.scenes) && prefsAfterScenes.scenes.length === 1,
+      `round ${round}: second save lost scenes ${JSON.stringify(prefsAfterScenes)}`,
+    );
+    expect(
+      Array.isArray(prefsAfterScenes?.devices) && prefsAfterScenes.devices.length === 2,
+      `round ${round}: saving scenes dropped the device selection ${JSON.stringify(prefsAfterScenes)}`,
+    );
+
+    // 关掉弹层不保存，配置应保持上一次的结果。
+    const savesBeforeClose = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').length`);
+    await click('#settingsQuickDevices');
+    await waitForSelector('#quickPickLayer:not([hidden]) .quick-pick-item');
+    const reopenedChecked = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item[aria-checked="true"]').length`);
+    expect(reopenedChecked === 2, `round ${round}: reopened picker showed ${reopenedChecked} selected`);
+    // 搜索框按拼音首字母过滤，清空后恢复完整列表。
+    const pickTotal = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+    const pinyinQuery = await pageEval(cdp, `(() => {
+      const first = document.querySelector('#quickPickList .quick-pick-item .pick-name')?.textContent || '';
+      return window.MiPinyin.pinyinInitials(first).slice(0, 2);
+    })()`);
+    if (pinyinQuery) {
+      await pageEval(cdp, `(() => {
+        const input = document.querySelector('#quickPickSearch');
+        input.value = ${JSON.stringify(pinyinQuery)};
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      const filtered = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+      expect(
+        filtered > 0 && filtered <= pickTotal,
+        `round ${round}: pinyin "${pinyinQuery}" filtered ${filtered}/${pickTotal}`,
+      );
+      await pageEval(cdp, `(() => {
+        const input = document.querySelector('#quickPickSearch');
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      const restored = await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item').length`);
+      expect(restored === pickTotal, `round ${round}: clearing search left ${restored}/${pickTotal}`);
+    }
+    await pageEval(cdp, `document.querySelectorAll('#quickPickList .quick-pick-item')[1].click(); true`);
+    await click('#quickPickClose');
+    await waitFor(() => pageEval(cdp, `document.querySelector('#quickPickLayer').hidden === true`));
+    const savesAfterClose = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'save_quick_prefs').length`);
+    expect(savesAfterClose === savesBeforeClose, `round ${round}: closing the picker saved anyway (${savesAfterClose - savesBeforeClose})`);
+    const devicesLabelAfterClose = await pageEval(cdp, `document.querySelector('#settingsQuickDevices').textContent`);
+    expect(devicesLabelAfterClose.includes('2'), `round ${round}: close changed the label to ${devicesLabelAfterClose}`);
+
     await click('[data-theme-set="dark"]');
     expect(await pageEval(cdp, `document.body.dataset.theme === 'dark'`), `round ${round}: dark theme failed`);
     await screenshot(`r${round}-14-settings-dark`);
@@ -717,6 +818,12 @@ try {
     expect(await pageEval(cdp, `document.body.dataset.style === 'classic'`), `round ${round}: classic style failed`);
     await click('#overviewNav');
     await waitForSelector('#overviewView .page-head');
+    // 卡片是渲染完才落位的，列数按左边界统计，取样太早会读到只有一列。
+    await waitFor(() => pageEval(cdp, `(() => {
+      const cards = [...document.querySelectorAll('#overviewView .device-card')];
+      if (cards.length < 8) return false;
+      return new Set(cards.map((card) => card.getBoundingClientRect().left)).size === 4;
+    })()`));
     const classicLayout = await pageEval(cdp, `(() => {
       const list = document.querySelector('#overviewView .device-list');
       const card = document.querySelector('#overviewView .device-card');
@@ -962,6 +1069,104 @@ try {
       `round ${round}: camera resume did not update its control`,
     );
     await screenshot(`r${round}-20-camera-resumed`);
+
+    // 摄像头不在同一网段时，本地通道注定建不起来。这里只验证熔断逻辑本身：
+    // 计数会随重连推进、到上限后拒绝再试。为了不启动真实取流通道（那会把
+    // 后续布局检查依赖的画面状态拆掉），把重建动作替换成空实现再调用。
+    const restartBudget = await pageEval(cdp, `(async () => {
+      const camera = state.cameras.find((item) => item.online && item.ip);
+      if (!camera) return { skipped: true };
+      const clearTimer = () => {
+        if (state.localRestartTimer) { clearTimeout(state.localRestartTimer); state.localRestartTimer = null; }
+      };
+      const saved = {
+        attempts: state.localRestartAttempts,
+        streams: state.cameraStreams,
+        grid: state.cameraGrid,
+        queue: state.cameraQueue,
+      };
+      clearTimer();
+      state.localRestartAttempts = 0;
+      // 让 startCameraSetNow 立刻返回，不碰 go2rtc 也不动 DOM。
+      state.cameraStreams = [];
+      const observed = [];
+      for (let index = 0; index < 8; index += 1) {
+        clearTimer();
+        state.restartingCameras.clear();
+        restartLocalCamera(camera, state.cameraGeneration);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        observed.push(state.localRestartAttempts);
+      }
+      clearTimer();
+      const attempts = state.localRestartAttempts;
+      const hint = document.querySelector('#camHint')?.textContent || '';
+      state.localRestartAttempts = saved.attempts;
+      state.cameraStreams = saved.streams;
+      state.cameraGrid = saved.grid;
+      state.cameraQueue = saved.queue;
+      state.restartingCameras.clear();
+      return { observed, attempts, max: LOCAL_RESTART_MAX_ATTEMPTS, hint };
+    })()`);
+    if (!restartBudget.skipped) {
+      expect(
+        restartBudget.attempts <= restartBudget.max,
+        `round ${round}: local restart exceeded its attempt cap (${restartBudget.attempts}/${restartBudget.max})`,
+      );
+      expect(
+        restartBudget.attempts > 0,
+        `round ${round}: local restart never recorded an attempt`,
+      );
+      expect(
+        restartBudget.hint.includes('同一局域网') || restartBudget.hint.includes('重试'),
+        `round ${round}: local restart gave no hint about the failure (${restartBudget.hint})`,
+      );
+    }
+
+    // 并发停止只向后端发一次 camera_stop，而不是每轮失败都发一遍。
+    const stopCoalescing = await pageEval(cdp, `(async () => {
+      const before = window.__MOCK_CALLS__.filter((item) => item.command === 'camera_stop').length;
+      const saved = {
+        streams: state.cameraStreams,
+        grid: state.cameraGrid,
+        active: state.activeCamera,
+      };
+      state.cameraStreams = [];
+      await Promise.all([runStopCamera('并发测试 A'), runStopCamera('并发测试 B'), runStopCamera('并发测试 C')]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const after = window.__MOCK_CALLS__.filter((item) => item.command === 'camera_stop').length;
+      state.cameraStreams = saved.streams;
+      state.cameraGrid = saved.grid;
+      state.activeCamera = saved.active;
+      return { sent: after - before };
+    })()`);
+    expect(
+      stopCoalescing.sent === 3,
+      `round ${round}: sequential stops collapsed into ${stopCoalescing.sent} camera_stop calls`,
+    );
+
+    // 本地通道建不起来（后端报「不在同一局域网」）时必须自动落到远程，
+    // 不能停在空白宫格上。
+    await pageEval(cdp, `window.__MOCK_LOCAL_ERROR__ = '电脑和摄像头不在同一局域网，无法建立本地通道：mock-camera（192.168.31.200）'; true`);
+    const fallbackRemoteBefore = await pageEval(cdp, `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length`);
+    await click('#camLocalButton');
+    await waitFor(() => pageEval(
+      cdp,
+      `window.__MOCK_CALLS__.filter((item) => item.command === 'camera_remote_start').length > ${fallbackRemoteBefore}`,
+    ));
+    const localFallback = await pageEval(cdp, `({
+      hint: document.querySelector('#camHint')?.textContent || '',
+      remoteActive: state.remoteActive,
+    })`);
+    expect(
+      localFallback.remoteActive === true,
+      `round ${round}: local failure did not fall back to the remote channel`,
+    );
+    expect(
+      localFallback.hint.includes('远程'),
+      `round ${round}: local fallback gave no hint about the remote channel (${localFallback.hint})`,
+    );
+    await screenshot(`r${round}-20b-local-fallback-remote`);
+    await pageEval(cdp, `window.__MOCK_LOCAL_ERROR__ = null; true`);
 
     await click('#accountButton');
     await waitForSelector('#accountPop.open');

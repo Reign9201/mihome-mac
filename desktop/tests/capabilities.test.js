@@ -726,6 +726,83 @@ test('remote reconnect preserves audio and first-frame stalls trigger recovery',
   assert.match(app, /CAMERA_STALL_INTERVALS = 3/);
 });
 
+test('camera watchdog stands down while the page is hidden', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const watch = app.slice(
+    app.indexOf('function watchRemote('),
+    app.indexOf('async function restartRemoteCamera('),
+  );
+  assert.ok(watch.length, 'watchRemote must exist');
+  // A hidden page stops decoding in WKWebView. Counting that as a stall tears
+  // down a healthy stream every time the window goes to the background.
+  assert.match(watch, /if \(document\.hidden\) \{/);
+  assert.match(watch, /if \(!hiddenAt\) hiddenAt = Date\.now\(\);/);
+  // The background interval must not be billed to the first-frame budget.
+  assert.match(watch, /visibleSince \+= Date\.now\(\) - hiddenAt;/);
+  assert.match(watch, /Date\.now\(\) - visibleSince >= firstFrameTimeout/);
+  // Progress samples taken before the absence are stale after it.
+  assert.match(watch, /lastFrames = -1;/);
+  assert.match(watch, /lastTime = -1;/);
+  assert.doesNotMatch(watch, /Date\.now\(\) - startedAt >= firstFrameTimeout/);
+});
+
+test('a single window return runs one device sync, not one per event', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  // focus and visibilitychange both fire for one return; without a shared
+  // debounced entry the device list is read twice back to back.
+  assert.match(app, /window\.addEventListener\('focus', requestPresenceRefresh\)/);
+  assert.match(app, /if \(!document\.hidden\) requestPresenceRefresh\(\);/);
+  assert.match(app, /const PRESENCE_RETURN_DEBOUNCE_MS = 120;/);
+  // The presence sync must patch camera cards instead of rebuilding the list.
+  assert.match(app, /applyCameraPresence\(new Set\(onlineChanged\.map/);
+  assert.doesNotMatch(
+    app,
+    /if \(syncCameraPresence\(onlineChanged\)\) renderCameras\(\);/,
+  );
+});
+
+test('the environment sweep is throttled but still runs on its own cadence', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const presence = app.slice(
+    app.indexOf('async function refreshDevicePresence('),
+    app.indexOf('const DEVICE_ICONS'),
+  );
+  assert.ok(presence.length, 'refreshDevicePresence must exist');
+  // A per-device property sweep on every presence sync is what makes a window
+  // return stall with a large account, so the sweep takes a throttle flag. A
+  // device that just changed state must not wait for the floor.
+  assert.match(
+    presence,
+    /refreshEnvironmentStatus\(\{ immediate: onlineChanged\.length > 0 \}\);/,
+  );
+  assert.match(app, /const ENVIRONMENT_SWEEP_MIN_GAP_MS = 5000;/);
+  assert.match(app, /async function refreshEnvironmentStatus\(options = \{\}\)/);
+  assert.match(app, /if \(!options\.immediate/);
+  // The sweep also runs when device specs finish loading, because power and
+  // consumable metrics only become readable once the spec profiles exist. That
+  // sweep carries new information, so it must bypass the floor; otherwise the
+  // environment capsule stays stuck on the pre-spec numbers for up to 5 s.
+  assert.match(
+    app,
+    /state\.specLoading = false;[\s\S]*?refreshEnvironmentStatus\(\{ immediate: true \}\);\s*\}\s*\}/,
+  );
+  // The capsule is chrome: its periodic refresh must survive the throttle.
+  assert.match(app, /state\.environmentSyncAt = Date\.now\(\);/);
+});
+
+test('camera presence patches cards in place instead of rebuilding the list', () => {
+  const app = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+  const patch = app.slice(
+    app.indexOf('function applyCameraPresence('),
+    app.indexOf('function updateCameraStage('),
+  );
+  assert.ok(patch.length, 'applyCameraPresence must exist');
+  for (const part of ['offline', 'live-dot', 'cam-thumb-badge', 'cam-actions']) {
+    assert.match(patch, new RegExp(part.replace(/[.-]/g, '\\$&')));
+  }
+  assert.doesNotMatch(patch, /replaceChildren|innerHTML/);
+});
+
 test('WebRTC diagnostics expose negotiated audio codec and playback state', () => {
   const player = fs.readFileSync(path.resolve(__dirname, '../ui/camera-player.js'), 'utf8');
   assert.match(player, /remoteAudioCodecs/);
@@ -962,7 +1039,16 @@ test('WebRTC resumes healthy playback without rebuilding and restarts only when 
   assert.equal(hidden.peersAfterProbe, 1);
   assert.equal(hidden.reasons.includes('resume-stalled'), false);
 
-  const rebuilt = await runCase({ advances: true, backgroundMs: 1500 });
+  // A short absence now goes through the resume probe instead of rebuilding:
+  // switching to another window for a couple of seconds must not reconnect.
+  const brief = await runCase({ advances: true, backgroundMs: 1500 });
+  assert.equal(brief.peersAfterResume, 1);
+  assert.equal(brief.peersAfterProbe, 1);
+  assert.equal(brief.reasons.includes('restart'), false, JSON.stringify(brief));
+  assert.ok(brief.reasons.includes('resume-live'), JSON.stringify(brief));
+
+  // Only an absence long enough to accumulate playback delay rebuilds.
+  const rebuilt = await runCase({ advances: true, backgroundMs: 10000 });
   assert.equal(rebuilt.peersAfterResume, 2);
   assert.ok(rebuilt.reasons.includes('restart'), JSON.stringify(rebuilt));
 
@@ -1535,7 +1621,7 @@ test('release bundle strips symbols without requiring cargo-binutils', () => {
     path.join(root, 'src-tauri/tauri.conf.json'),
     'utf8',
   ));
-  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry", "tray-icon"\] \}/);
+  assert.match(cargo, /tauri = \{ version = "2", default-features = false, features = \["wry", "tray-icon", "image-png"\] \}/);
   assert.match(cargo, /^lto = true$/m);
   assert.match(cargo, /^codegen-units = 1$/m);
   assert.match(cargo, /^strip = false$/m);

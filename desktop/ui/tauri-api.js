@@ -122,6 +122,6 @@
 
   // ui/tauri-bridge.mjs
   if (!window.__MIHOME_TAURI__) {
-    window.__MIHOME_TAURI__ = Object.freeze({ invoke, Channel });
+    window.__MIHOME_TAURI__ = Object.freeze({ invoke });
   }
 })();

@@ -29,6 +29,33 @@ const MAX_LIVE_MEDIA_AGE: Duration = Duration::from_millis(300);
 const OPUS_PAYLOAD_TYPE: u8 = 96;
 const OPUS_TIMESTAMP_STEP: u32 = 48_000 * 40 / 1000;
 
+/// 画面冻结的判定阈值。ffmpeg 进程还活着但不再出帧时，进程退出检测看不到它；
+/// 这里按最后一帧的时间判断，超过这个时长没有新帧就当这条流已经失效。
+pub const FRAME_IDLE_LIMIT: Duration = Duration::from_secs(30);
+
+/// 全进程共用的单调时钟。帧时间戳存成相对它的毫秒数，媒体线程里只做一次原子写。
+fn frames_clock() -> Instant {
+    static CLOCK: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *CLOCK.get_or_init(Instant::now)
+}
+
+fn frames_now_ms() -> u64 {
+    frames_clock().elapsed().as_millis() as u64
+}
+
+/// 最后一帧距今多久算冻结。流已经停了（`running == false`）就不再判定，
+/// 否则正常停止的流也会被当成故障。
+fn frame_idle_reason(now_ms: u64, last_frame_ms: u64, running: bool) -> Option<String> {
+    if !running {
+        return None;
+    }
+    let idle_ms = now_ms.saturating_sub(last_frame_ms);
+    if idle_ms < FRAME_IDLE_LIMIT.as_millis() as u64 {
+        return None;
+    }
+    Some(format!("画面已有 {} 秒没有新帧", idle_ms / 1000))
+}
+
 #[derive(Clone, Copy)]
 enum AudioEncoder {
     Opus,
@@ -51,6 +78,8 @@ pub struct RemoteStream {
     reader: Option<JoinHandle<()>>,
     running: Arc<AtomicBool>,
     frames: Arc<std::sync::atomic::AtomicUsize>,
+    /// 最后一帧出现的时刻，相对 `frames_clock()` 的毫秒数。媒体线程每写一帧更新一次。
+    last_frame_ms: Arc<AtomicU64>,
     health: Arc<StreamHealth>,
 }
 
@@ -376,6 +405,9 @@ impl RemoteStream {
 
         let frames = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let thread_frames = Arc::clone(&frames);
+        // 首帧在开流时已经收到，起点按现在算，不然看门狗会立刻判定冻结。
+        let last_frame_ms = Arc::new(AtomicU64::new(frames_now_ms()));
+        let thread_last_frame_ms = Arc::clone(&last_frame_ms);
         let thread_camera = Arc::clone(&camera);
         let thread_running = Arc::clone(&running);
         let thread_health = Arc::clone(&health);
@@ -455,6 +487,7 @@ impl RemoteStream {
                                 );
                             }
                             thread_frames.fetch_add(1, Ordering::Relaxed);
+                            thread_last_frame_ms.store(frames_now_ms(), Ordering::Relaxed);
                             video_packets += 1;
                         }
                         Ok(Some(packet)) if packet.codec_id == CODEC_OPUS => {
@@ -605,6 +638,7 @@ impl RemoteStream {
             reader,
             running,
             frames,
+            last_frame_ms,
             health,
         })
     }
@@ -640,8 +674,21 @@ impl RemoteStream {
         self.frames.load(Ordering::Relaxed)
     }
 
+    /// 最后一帧距今多久。给看门狗和诊断用。
+    pub fn idle(&self) -> Duration {
+        let last = self.last_frame_ms.load(Ordering::Relaxed);
+        Duration::from_millis(frames_now_ms().saturating_sub(last))
+    }
+
     pub fn health_reason(&self) -> Option<String> {
         if let Some(reason) = self.health.reason() {
+            return Some(reason);
+        }
+        if let Some(reason) = frame_idle_reason(
+            frames_now_ms(),
+            self.last_frame_ms.load(Ordering::Relaxed),
+            self.running.load(Ordering::Acquire),
+        ) {
             return Some(reason);
         }
         if let Some(reason) = child_exit_reason(&self.ffmpeg, "视频 ffmpeg") {
@@ -1152,6 +1199,31 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn frame_idle_reason_ignores_short_gaps() {
+        // 正常出帧时最后一帧的时间一直在更新，不会触发。
+        let now = 1_000_000;
+        assert!(frame_idle_reason(now, now, true).is_none());
+        assert!(frame_idle_reason(now, now - 1_000, true).is_none());
+        let limit = FRAME_IDLE_LIMIT.as_millis() as u64;
+        assert!(frame_idle_reason(now, now - limit + 1, true).is_none());
+    }
+
+    #[test]
+    fn frame_idle_reason_flags_a_frozen_stream() {
+        let now = 5_000_000;
+        let stale = now - FRAME_IDLE_LIMIT.as_millis() as u64;
+        let reason = frame_idle_reason(now, stale, true).expect("冻结的流应当判定为失效");
+        assert!(reason.contains("没有新帧"), "实际原因：{reason}");
+    }
+
+    #[test]
+    fn frame_idle_reason_skips_stopped_streams() {
+        let now = 5_000_000;
+        let stale = now - FRAME_IDLE_LIMIT.as_millis() as u64 - 60_000;
+        assert!(frame_idle_reason(now, stale, false).is_none());
+    }
 
     #[test]
     fn remote_temp_directory_is_private() {

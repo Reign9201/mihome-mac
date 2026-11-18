@@ -3,18 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>MiHome Mac</title>
   <link rel="icon" href="data:,">
+  <script src="boot-theme.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="icons.js"></script>
   <script src="ui-icons.js"></script>
   <script src="capabilities.js"></script>
+  <script src="pinyin.js"></script>
   <script src="tauri-api.js"></script>
   <script src="diagnostics.js"></script>
   <script src="camera-player.js"></script>
   <script src="i18n.js"></script>
 </head>
-<body data-theme="light" data-density="comfortable" data-style="modern">
+<body data-density="comfortable" data-style="modern">
   <div class="app-window native" id="appWindow">
     <header class="titlebar native-titlebar" id="titlebar" data-tauri-drag-region>
       <span class="titlebar-spacer" aria-hidden="true"></span>
@@ -590,8 +593,9 @@
             <div class="settings-card">
               <h3>外观</h3>
               <div class="setting-row">
-                <div class="setting-label"><strong>主题</strong><small>跟随当前应用设置</small></div>
+                <div class="setting-label"><strong>主题</strong></div>
                 <div class="segmented" id="themeSetting">
+                  <button data-theme-set="auto">自动</button>
                   <button data-theme-set="light">浅色</button>
                   <button data-theme-set="dark">深色</button>
                 </div>
@@ -657,6 +661,17 @@
                 <button class="ghost-btn" id="settingsAccess">打开</button>
               </div>
             </div>
+            <div class="settings-card quick-prefs-card">
+              <h3>菜单栏面板</h3>
+              <div class="setting-row">
+                <div class="setting-label"><strong>常用设备</strong><small>未挑选时按在线和可开关自动排</small></div>
+                <button class="ghost-btn" id="settingsQuickDevices">选择</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label"><strong>常用场景</strong><small>未挑选时显示前几个场景</small></div>
+                <button class="ghost-btn" id="settingsQuickScenes">选择</button>
+              </div>
+            </div>
             <div class="settings-card">
               <h3>语言与地区</h3>
               <div class="setting-row">
@@ -698,6 +713,22 @@
     <div class="account-pop-actions">
       <button class="primary-btn wide" id="addAccountButton">添加米家账号</button>
       <button class="text-btn danger-text" id="removeAccountButton">退出当前账号</button>
+    </div>
+  </div>
+
+  <div class="quick-pick-layer" id="quickPickLayer" hidden>
+    <div class="quick-pick" role="dialog" aria-modal="true" aria-labelledby="quickPickTitle">
+      <div class="quick-pick-head">
+        <strong id="quickPickTitle">选择常用设备</strong>
+        <button class="icon-btn" id="quickPickClose" aria-label="关闭">×</button>
+      </div>
+      <input class="quick-pick-search" id="quickPickSearch" placeholder="搜索设备或场景" autocomplete="off" spellcheck="false" aria-label="搜索设备或场景">
+      <div class="quick-pick-list" id="quickPickList"></div>
+      <div class="quick-pick-foot">
+        <span class="quick-pick-count" id="quickPickCount"></span>
+        <button class="text-btn" id="quickPickClear">清空</button>
+        <button class="primary-btn" id="quickPickSave">保存</button>
+      </div>
     </div>
   </div>
 

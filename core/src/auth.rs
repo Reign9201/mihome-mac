@@ -453,6 +453,117 @@ fn accounts_path() -> std::path::PathBuf {
         .join("Library/Application Support/MiHome/accounts.json")
 }
 
+/// 账号库在 macOS 上存在系统钥匙串里，不再落明文文件。只有默认路径使用钥匙串；
+/// 测试和自定义路径仍然写文件，互不干扰。
+const KEYCHAIN_SERVICE: &str = "com.reign9201.mihomemac";
+const KEYCHAIN_ACCOUNT: &str = "mijia-accounts";
+
+fn uses_keychain(path: &std::path::Path) -> bool {
+    path == accounts_path()
+}
+
+/// 钥匙串不可用时（比如没有稳定签名身份的构建被系统拒绝）退回私有文件，
+/// 保证登录状态不会因为存储方式变化而丢失。老版本只写过文件，第一次读到
+/// 就顺势迁进钥匙串，与 README 里"迁移成功后删除旧文件"的说法保持一致。
+fn read_account_bytes(path: &std::path::Path) -> Result<Option<Vec<u8>>> {
+    let use_keychain = uses_keychain(path);
+    if use_keychain {
+        match keychain_read() {
+            Ok(Some(bytes)) => return Ok(Some(bytes)),
+            Ok(None) => {}
+            Err(error) => {
+                crate::logging::warn("Auth", format!("读取钥匙串失败，改读私有文件：{error:#}"))
+            }
+        }
+    }
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("读取账号列表失败：{}", path.display()))
+        }
+    };
+    if use_keychain {
+        write_account_bytes(path, &bytes)?;
+    }
+    Ok(Some(bytes))
+}
+
+fn write_account_bytes(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    if uses_keychain(path) {
+        match keychain_write(bytes) {
+            Ok(()) => {
+                // 迁移完成后清掉明文副本；删除失败不影响本次写入。
+                let _ = fs::remove_file(path);
+                return Ok(());
+            }
+            Err(error) => {
+                crate::logging::warn("Auth", format!("写入钥匙串失败，退回私有文件：{error:#}"));
+                // 旧条目留着会让下次读取拿到过期凭据，失败后一并清掉。
+                keychain_delete();
+            }
+        }
+    }
+    write_private_file(path, bytes).with_context(|| format!("保存账号列表失败：{}", path.display()))
+}
+
+fn delete_account_bytes(path: &std::path::Path) {
+    if uses_keychain(path) {
+        keychain_delete();
+    }
+    let _ = fs::remove_file(path);
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_write(bytes: &[u8]) -> Result<()> {
+    keychain_write_entry(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, bytes)
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_read() -> Result<Option<Vec<u8>>> {
+    keychain_read_entry(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_delete() {
+    let _ = keychain_delete_entry(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_delete_entry(service: &str, account: &str) -> Result<()> {
+    security_framework::passwords::delete_generic_password(service, account)
+        .map_err(|error| anyhow!("删除钥匙串条目失败：{error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_write_entry(service: &str, account: &str, bytes: &[u8]) -> Result<()> {
+    security_framework::passwords::set_generic_password(service, account, bytes)
+        .map_err(|error| anyhow!("写入钥匙串失败：{error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn keychain_read_entry(service: &str, account: &str) -> Result<Option<Vec<u8>>> {
+    match security_framework::passwords::get_generic_password(service, account) {
+        Ok(bytes) => Ok(Some(bytes)),
+        // errSecItemNotFound：还没保存过账号。
+        Err(error) if error.code() == -25300 => Ok(None),
+        Err(error) => Err(anyhow!("读取钥匙串失败：{error}")),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_write(_bytes: &[u8]) -> Result<()> {
+    Err(anyhow!("当前平台没有可用的安全凭据存储"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_read() -> Result<Option<Vec<u8>>> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_delete() {}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredAccount {
     session: StoredSession,
@@ -522,9 +633,7 @@ impl AccountBook {
     }
 
     fn load_from(path: std::path::PathBuf, legacy_path: std::path::PathBuf) -> Result<Self> {
-        if path.exists() {
-            let bytes =
-                fs::read(&path).with_context(|| format!("读取账号列表失败：{}", path.display()))?;
+        if let Some(bytes) = read_account_bytes(&path)? {
             let stored: StoredAccounts =
                 serde_json::from_slice(&bytes).context("账号列表格式错误")?;
             if stored.version != stored_accounts_version() {
@@ -703,6 +812,14 @@ impl AccountBook {
     }
 
     fn save(&self) -> Result<()> {
+        // 退出登录时不留空条目，读完就是"没有账号"。
+        if self.accounts.is_empty() {
+            delete_account_bytes(&self.path);
+            if self.legacy_path.exists() {
+                let _ = fs::remove_file(&self.legacy_path);
+            }
+            return Ok(());
+        }
         let stored = StoredAccounts {
             version: stored_accounts_version(),
             active_user_id: self.active_user_id.clone(),
@@ -716,8 +833,7 @@ impl AccountBook {
                 .collect(),
         };
         let bytes = serde_json::to_vec_pretty(&stored).context("序列化账号列表失败")?;
-        write_private_file(&self.path, &bytes)
-            .with_context(|| format!("保存账号列表失败：{}", self.path.display()))?;
+        write_account_bytes(&self.path, &bytes)?;
         if self.legacy_path.exists() {
             let _ = fs::remove_file(&self.legacy_path);
         }
@@ -1084,5 +1200,47 @@ mod tests {
         assert!(!legacy.exists());
 
         fs::remove_dir_all(dir).expect("cleanup migration test");
+    }
+
+    /// 钥匙串往返。用独立的 service 名，不碰真实账号条目。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_round_trips_a_secret() {
+        let service = format!(
+            "com.reign9201.mihomemac.test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        );
+        let account = "round-trip";
+        // 没写过时应当返回 None，而不是报错。
+        assert!(super::keychain_read_entry(&service, account)
+            .unwrap()
+            .is_none());
+
+        super::keychain_write_entry(&service, account, br#"{"version":1}"#)
+            .expect("write keychain entry");
+        assert_eq!(
+            super::keychain_read_entry(&service, account)
+                .expect("read keychain entry")
+                .expect("entry exists"),
+            br#"{"version":1}"#
+        );
+
+        // 覆盖写读回新值。
+        super::keychain_write_entry(&service, account, b"second").expect("overwrite");
+        assert_eq!(
+            super::keychain_read_entry(&service, account)
+                .expect("read after overwrite")
+                .expect("entry exists"),
+            b"second"
+        );
+
+        super::keychain_delete_entry(&service, account).expect("delete keychain entry");
+        assert!(super::keychain_read_entry(&service, account)
+            .unwrap()
+            .is_none());
     }
 }
