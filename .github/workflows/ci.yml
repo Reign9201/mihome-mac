@@ -73,6 +73,9 @@ jobs:
           # assertions strict and leave timing budgets to local runs.
           PERF_CPU_THROTTLE: 1
           PERF_IDLE_MS: 5000
+          # 页面切换包含布局和合成，github.com 的 runner 偶发 250ms+；
+          # 本地仍使用脚本默认的 200ms 预算。
+          PERF_BUDGET_PAGE_MS: 400
       - name: Upload UI regression screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
