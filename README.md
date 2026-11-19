@@ -3,7 +3,7 @@
 一个面向 macOS 的开源、非官方米家桌面客户端。项目使用 Rust 构建本地核心，以 Tauri 2 提供桌面窗口，支持扫码登录、家庭与设备管理、设备控制、场景执行、定时自动化以及摄像头查看。
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.3.0-black)
+![Version](https://img.shields.io/badge/version-1.4.0-black)
 ![Platform](https://img.shields.io/badge/platform-macOS-black)
 ![Rust](https://img.shields.io/badge/Rust-1.90%2B-orange)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
@@ -18,13 +18,23 @@
 
 ## 下载
 
-macOS 1.3.0 提供两个独立安装包：
+macOS 1.4.0 提供两个独立安装包：
 
-- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.3.0/MiHome-Mac-1.3.0-arm64.dmg)
-- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.3.0/MiHome-Mac-1.3.0-x64.dmg)
-- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.3.0)
+- [Apple Silicon（arm64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.4.0/MiHome-Mac-1.4.0-arm64.dmg)
+- [Intel（x64）DMG](https://github.com/Reign9201/mihome-mac/releases/download/v1.4.0/MiHome-Mac-1.4.0-x64.dmg)
+- [SHA256 校验值](https://github.com/Reign9201/mihome-mac/releases/tag/v1.4.0)
 
-两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.3.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.3.0)。
+两个安装包都内置对应架构的 go2rtc 和按摄像头链路裁剪的最小静态 FFmpeg，摄像头取流与转码不要求用户安装 Homebrew 或其他额外依赖。当前发布包使用 ad-hoc 签名，没有 Developer ID 证书和 Apple 公证；首次打开如被 Gatekeeper 拦截，需要在访达中右键应用并选择“打开”。完整发布说明和校验值见 [v1.4.0 Release](https://github.com/Reign9201/mihome-mac/releases/tag/v1.4.0)。
+
+### 1.4.0 更新
+
+- 新增菜单栏速控面板：左键点菜单栏图标查看室温湿度和常用设备/场景，按 `⌥M` 随时呼出；显示内容可在设置页按米家账号挑选，其他应用全屏时也能弹出。
+- 设置页新增应用内升级：检查 GitHub Releases，按架构下载 DMG，显示进度并校验 SHA256，安装后自动重启；启动时每 24 小时静默检查一次。
+- 米家账号凭据迁移到 macOS 钥匙串，老用户首次启动自动迁移并删除明文副本。
+- 支持双摄摄像头：一台设备展开为移动画面和固定画面两路，本地与远程都可取流；固定镜头不显示云台和声音入口。
+- 摄像头链路更稳：本地取流前先判断同网段，重连带退避和熔断，超过 30 秒无新帧判定失效，本地通道失败时自动改用远程画面。
+- 主题支持自动/浅色/深色三态，新增拼音首字母搜索；修正 macOS 滚动条和“减弱动效”设置。
+- 变更明细见 [CHANGELOG](CHANGELOG.md)，安装包校验值和测试范围见 [1.4.0 发布记录](docs/16-release-1.4.0.md)。
 
 ### 1.3.0 更新
 
@@ -61,7 +71,11 @@ macOS 1.3.0 提供两个独立安装包：
 - 设备卡片提供常用指标、开关和快捷控制，摄像头设置按型号中文化
 - 插座等计量设备可查看 7 天、30 天、12 个月的用电统计
 - 小爱音箱支持文字指令、文字播报和播放控制
-- 菜单栏速控面板：左键点菜单栏图标弹出室温湿度和常用设备的开关，点面板外任意位置收起；面板里显示哪些设备和场景在设置里挑，按米家账号分别保存
+- 菜单栏速控面板：左键点菜单栏图标弹出室温湿度和常用设备/场景，`⌥M` 可在任意应用呼出；面板内容按米家账号在设置页挑选
+- 设置页支持应用内升级：检查 GitHub Releases、显示下载进度、校验 SHA256 并自动重启
+- 米家账号凭据保存在 macOS 钥匙串，老用户自动迁移并删除明文副本
+- 双摄摄像头支持移动画面与固定画面两路取流，固定镜头自动隐藏云台和声音入口
+- 主题支持自动/浅色/深色三态；设备列表与挑选弹层支持拼音首字母搜索
 - 设备在线状态自动同步，窗口重新聚焦或从后台恢复时立即刷新；路由器不会把指示灯状态误当成整机电源
 - 内置独立诊断日志，可导出脱敏汇总并定位取流失败
 - 支持 AI 意图解析、飞书/企业微信/钉钉长连接、语音转写、一次性配对绑定和本地受控执行
@@ -201,7 +215,7 @@ npm --prefix desktop run dev
 universal 会同时包含两套主程序和两套 helper，体积约为单架构包的两倍。产物会复制到 `dist/macos/` 并生成 SHA256 文件。构建完成后可检查 DMG 结构、架构、内置 FFmpeg 版本和编码器：
 
 ```bash
-./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.3.0-universal.dmg universal
+./scripts/verify-macos-bundle.sh dist/macos/MiHome-Mac-1.4.0-universal.dmg universal
 ```
 
 FFmpeg 不是完整发行版：构建时使用 `--disable-everything`，只保留摄像头链路实际使用的 H.264/HEVC/Opus 解码、x264/VideoToolbox/Opus/PCM A-law 编码、RTSP/SDP 以及 scale/fps/aresample/format。实测未压缩体积为 Intel `9,492,896` 字节（约 `9.1 MiB`）、Apple Silicon `7,378,392` 字节（约 `7.0 MiB`）、universal `16,897,496` 字节（约 `16.1 MiB`）。单架构 go2rtc 未压缩约 `19.3–20.6 MiB`。DMG 压缩后的实际体积以构建产物为准。
