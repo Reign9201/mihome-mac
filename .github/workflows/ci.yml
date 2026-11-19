@@ -123,7 +123,9 @@ jobs:
       - name: Audit ${{ matrix.manifest }}
         working-directory: ${{ matrix.manifest }}
         run: |
-          ignore=()
+          # chrono 0.4 在 2026-09 被标记为无人维护；上游没有提供可升级版本，
+          # 暂时忽略这条 warning，等 chrono 恢复维护或项目迁移到替代库。
+          ignore=(--ignore RUSTSEC-2026-0543)
           if [ "${{ matrix.manifest }}" = "desktop/src-tauri" ]; then
             ignore+=(--ignore RUSTSEC-2024-0370 --ignore RUSTSEC-2024-0429)
           fi

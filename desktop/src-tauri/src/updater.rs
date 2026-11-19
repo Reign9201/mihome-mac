@@ -38,7 +38,11 @@ pub struct DownloadProgress {
 }
 
 fn asset_arch() -> &'static str {
-    if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" }
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    }
 }
 
 /// 直连 GitHub 失败时（典型的大陆网络），读取 macOS 系统代理再试一次。
@@ -52,10 +56,20 @@ fn system_https_proxy() -> Option<String> {
     if !enabled {
         return None;
     }
-    let host = text.lines().find(|l| l.contains("HTTPSProxy"))?
-        .split(':').nth(1)?.trim().to_string();
-    let port = text.lines().find(|l| l.contains("HTTPSPort"))?
-        .split(':').nth(1)?.trim().to_string();
+    let host = text
+        .lines()
+        .find(|l| l.contains("HTTPSProxy"))?
+        .split(':')
+        .nth(1)?
+        .trim()
+        .to_string();
+    let port = text
+        .lines()
+        .find(|l| l.contains("HTTPSPort"))?
+        .split(':')
+        .nth(1)?
+        .trim()
+        .to_string();
     if host.is_empty() || port.is_empty() {
         return None;
     }
@@ -107,7 +121,8 @@ fn pick_dmg_asset(assets: &[Value]) -> Option<(String, u64, String)> {
     let size = dmg["size"].as_u64().unwrap_or(0);
     // sha256 以同名 `.sha256` 资产里的文本为准
     let sha_name = format!("{name}.sha256");
-    let sha_url = assets.iter()
+    let sha_url = assets
+        .iter()
         .find(|a| a["name"].as_str() == Some(sha_name.as_str()))
         .and_then(|a| a["browser_download_url"].as_str())
         .map(str::to_string);
@@ -148,9 +163,10 @@ pub async fn updater_check() -> Result<UpdateInfo, String> {
     let notes = release["body"].as_str().unwrap_or_default().to_string();
     let latest_version = tag.trim_start_matches('v').to_string();
     let update_available = version_newer(&latest_version, &current);
-    app_log::info("Updater", format!(
-        "版本检查：当前 {current}，最新 {latest_version}，可升级 {update_available}"
-    ));
+    app_log::info(
+        "Updater",
+        format!("版本检查：当前 {current}，最新 {latest_version}，可升级 {update_available}"),
+    );
     Ok(UpdateInfo {
         current_version: current,
         update_available,
@@ -168,7 +184,9 @@ pub async fn updater_download(
     expected_sha256: Option<String>,
     on_progress: Channel<DownloadProgress>,
 ) -> Result<String, String> {
-    let expected = expected_sha256.map(|s| s.to_lowercase()).filter(|s| !s.is_empty());
+    let expected = expected_sha256
+        .map(|s| s.to_lowercase())
+        .filter(|s| !s.is_empty());
     let client = http_client().await;
     let response = client
         .get(&download_url)
@@ -191,7 +209,8 @@ pub async fn updater_download(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载中断：{e}"))?;
         hasher.update(&chunk);
-        file.write_all(&chunk).map_err(|e| format!("写入文件失败：{e}"))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("写入文件失败：{e}"))?;
         downloaded += chunk.len() as u64;
         // 每 2MB 或完成时上报一次进度
         if downloaded - last_reported >= 2 * 1024 * 1024 || (total > 0 && downloaded >= total) {
@@ -204,12 +223,13 @@ pub async fn updater_download(
     if let Some(expected) = expected {
         if digest != expected {
             let _ = fs::remove_file(&path);
-            return Err(format!(
-                "安装包校验失败：期望 {expected}，实际 {digest}"
-            ));
+            return Err(format!("安装包校验失败：期望 {expected}，实际 {digest}"));
         }
     }
-    app_log::info("Updater", format!("已下载 {downloaded} 字节，sha256 校验通过"));
+    app_log::info(
+        "Updater",
+        format!("已下载 {downloaded} 字节，sha256 校验通过"),
+    );
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -219,7 +239,9 @@ fn current_app_bundle() -> Option<PathBuf> {
     exe.ancestors()
         .find(|p| {
             p.extension().map(|e| e == "app").unwrap_or(false)
-                && p.file_name().map(|n| n.to_string_lossy().contains("MiHome")).unwrap_or(false)
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().contains("MiHome"))
+                    .unwrap_or(false)
         })
         .map(Path::to_path_buf)
 }
@@ -247,21 +269,26 @@ pub async fn updater_install(app: tauri::AppHandle, dmg_path: String) -> Result<
 }
 
 fn install_blocking(app: tauri::AppHandle, dmg: &Path) -> Result<(), String> {
-    let bundle = current_app_bundle()
-        .ok_or("未找到当前应用包，开发模式请在发布安装后使用应用内升级")?;
+    let bundle =
+        current_app_bundle().ok_or("未找到当前应用包，开发模式请在发布安装后使用应用内升级")?;
     app_log::info("Updater", format!("开始替换应用包 {}", bundle.display()));
 
     // 挂载 DMG 并定位 .app
-    let plist = run("hdiutil", &[
-        "attach", "-nobrowse", "-readonly", "-plist",
-        &dmg.to_string_lossy(),
-    ])?;
-    let parsed: Value = serde_json::from_str(&plist).map_err(|e| format!("解析挂载结果失败：{e}"))?;
+    let plist = run(
+        "hdiutil",
+        &[
+            "attach",
+            "-nobrowse",
+            "-readonly",
+            "-plist",
+            &dmg.to_string_lossy(),
+        ],
+    )?;
+    let parsed: Value =
+        serde_json::from_str(&plist).map_err(|e| format!("解析挂载结果失败：{e}"))?;
     let mount_point = parsed["system-entities"]
         .as_array()
-        .and_then(|entities| {
-            entities.iter().find(|e| e["mount-point"].is_string())
-        })
+        .and_then(|entities| entities.iter().find(|e| e["mount-point"].is_string()))
         .and_then(|e| e["mount-point"].as_str())
         .ok_or("DMG 挂载失败：找不到挂载点")?
         .to_string();
@@ -277,20 +304,23 @@ fn install_blocking(app: tauri::AppHandle, dmg: &Path) -> Result<(), String> {
     let backup = bundle.with_extension("app_old");
     let _ = fs::remove_dir_all(&backup);
     fs::rename(&bundle, &backup).map_err(|e| format!("移开旧应用包失败：{e}"))?;
-    if let Err(error) = run("ditto", &[&new_app.to_string_lossy(), &bundle.to_string_lossy()]) {
+    if let Err(error) = run(
+        "ditto",
+        &[&new_app.to_string_lossy(), &bundle.to_string_lossy()],
+    ) {
         let _ = fs::rename(&backup, &bundle);
         return Err(format!("复制新应用包失败：{error}"));
     }
     let _ = fs::remove_dir_all(&backup);
-    let _ = run("xattr", &["-dr", "com.apple.quarantine", &bundle.to_string_lossy()]);
+    let _ = run(
+        "xattr",
+        &["-dr", "com.apple.quarantine", &bundle.to_string_lossy()],
+    );
     let _ = run("hdiutil", &["detach", &mount_point, "-quiet"]);
 
     app_log::info("Updater", "应用包已替换，准备重启");
     // 先拉起新版本，再退出当前进程；RunEvent::ExitRequested 会走正常清理流程
-    let _ = Command::new("open")
-        .arg("-n")
-        .arg(&bundle)
-        .spawn();
+    let _ = Command::new("open").arg("-n").arg(&bundle).spawn();
     app.exit(0);
     Ok(())
 }
