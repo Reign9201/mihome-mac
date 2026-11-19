@@ -44,10 +44,16 @@ test:perf (PERF_STALL=1)     152 台摄像头 / 279 台设备，通过
 
 | 产物 | 大小（bytes） | SHA256 |
 |---|---:|---|
-| `MiHome-Mac-1.4.0-arm64.dmg` | 待补 | 待补 |
-| `MiHome-Mac-1.4.0-x64.dmg` | 待补 | 待补 |
+| `MiHome-Mac-1.4.0-arm64.dmg` | 12,571,807 | `8423a3bea6e0d17fb08ec60f65c275bb6f3d6a63af0d573e75cc480c2682816c` |
+| `MiHome-Mac-1.4.0-x64.dmg` | 15,027,285 | `5dfe48f265674184bce010041040823b240f4747f896e2cfc0f8d04c12e9ac74` |
 
 每个 DMG 同时提供对应 `.sha256` 文件。
+
+tag 触发的 arm64/x64 远端构建与包体验证均通过：
+[`44492233126`](https://github.com/Reign9201/mihome-mac/actions/runs/44492233126)。
+tag 和 main 的 CI 均通过：
+[`44492233062`](https://github.com/Reign9201/mihome-mac/actions/runs/44492233062)、
+[`44492221687`](https://github.com/Reign9201/mihome-mac/actions/runs/44492221687)。
 
 ## 已知边界
 
